@@ -1,6 +1,6 @@
 # Makefile for automated Rust project creation with Claude Code
 
-.PHONY: all setup generate build test clean install help
+.PHONY: all setup build test clean install help
 
 # Project variables
 PROJECT_NAME := task-manager
@@ -35,7 +35,7 @@ FIXUP_TEST =
 FIXUP_SIM =
 
 # Default target
-all: generate build test
+all: build test
 
 # Display help
 help:

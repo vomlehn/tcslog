@@ -1,0 +1,11 @@
+[package]
+name = "tcslog"
+version = "0.1.0"
+edition = "2021"
+description = "Telemetry logging library with fixed-length logs, timestamps, and indexed searching"
+license = "MIT"
+
+[dependencies]
+
+[dev-dependencies]
+tempfile = "3"

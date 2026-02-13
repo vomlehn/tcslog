@@ -1,11 +1,16 @@
-[package]
-name = "tcslog"
+[workspace]
+resolver = "2"
+
+members = [
+    "tcslog", "tcslogtest",
+]
+
+[workspace.package]
 version = "0.1.0"
 edition = "2021"
-description = "Telemetry logging library with fixed-length logs, timestamps, and indexed searching"
+authors = ["TCSpecial Team"]
 license = "MIT"
 
-[dependencies]
-
-[dev-dependencies]
-tempfile = "3"
+[workspace.dependencies]
+libc = "0.2"
+thiserror = "1.0"

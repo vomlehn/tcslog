@@ -41,6 +41,7 @@ pub const VERSION: &[u8; 8] = b"00.01.00";
 pub type Timestamp = u64;
 
 /// Represents a TcsLog instance for reading or writing telemetry records.
+#[derive(Debug)]
 pub struct TcsLog {
     /// The file handle.
     file: File,
@@ -61,6 +62,77 @@ pub struct TcsLog {
 }
 
 impl TcsLog {
+    /// Creates a new TcsLog with a specified maximum file size.
+    pub fn new(prefix: &str, max_size: u64) -> Result<TcsLog, TcsLogError> {
+        // Validate prefix
+        if prefix.is_empty() || prefix.len() > MAX_PREFIX_LEN {
+            return Err(TcsLogError::InvalidPrefix(format!(
+                "Prefix must be 1-{} characters",
+                MAX_PREFIX_LEN
+            )));
+        }
+
+        if prefix.contains('/') || prefix.contains('\\') || prefix.contains('\0') {
+            return Err(TcsLogError::InvalidPrefix(
+                "Prefix contains invalid characters".to_string(),
+            ));
+        }
+
+        // Generate timestamp and file name
+        let timestamp = TcsLog::current_timestamp();
+        let file_name = TcsLog::generate_file_name(prefix, timestamp);
+
+        // Compute offsets
+        let (index_offset, data_offset, _index_blocks) = TcsLog::compute_offsets(max_size);
+
+        // Create header
+        let header = Header::new(timestamp, &file_name, index_offset, data_offset);
+
+        // Create the file
+        let path = PathBuf::from(&file_name);
+
+        let mut retries = 0;
+        let mut file = loop {
+            match OpenOptions::new()
+                .read(true)
+                .write(true)
+                .create_new(true)
+                .open(&path)
+            {
+                Ok(f) => break f,
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && retries < 10 => {
+                    // Wait 100 microseconds and try again with new timestamp
+                    std::thread::sleep(std::time::Duration::from_micros(100));
+                    retries += 1;
+                    continue;
+                }
+                Err(e) => return Err(TcsLogError::Io(e)),
+            }
+        };
+
+        // Write header
+        file.write_all(&header.to_bytes())?;
+
+        // Initialize index block(s) with zeros (already zeroed by OS for sparse files)
+    //    let index_size = data_offset - index_offset;
+        file.seek(SeekFrom::Start(data_offset - 1))?;
+        file.write_all(&[0])?;
+
+        // Seek to beginning of data section
+        file.seek(SeekFrom::Start(data_offset))?;
+
+        Ok(TcsLog {
+            file,
+            path,
+            header,
+            max_size,
+            write_position: data_offset,
+            read_position: data_offset,
+            prefix: prefix.to_string(),
+            writing: true,
+        })
+    }
+
     /// Returns the current timestamp in nanoseconds since UNIX epoch.
     fn current_timestamp() -> Timestamp {
         SystemTime::now()
@@ -115,162 +187,82 @@ impl TcsLog {
 
         (index_offset, data_offset, structure.total_blocks)
     }
-}
 
-/// Creates a new TcsLog, using the given prefix.
-///
-/// If successful, returns a TcsLog. Otherwise, returns Err(TcsLogError).
-pub fn tcslog_create(prefix: &str) -> Result<TcsLog, TcsLogError> {
-    tcslog_create_with_size(prefix, DEFAULT_FILE_SIZE)
-}
+    /// Opens an existing TcsLog so that the telemetry records it contains may be read.
+    ///
+    /// If successful, returns a TcsLog. Otherwise, returns Err(TcsLogError).
+    pub fn tcslog_open(prefix: &str, timestamp: Timestamp) -> Result<TcsLog, TcsLogError> {
+        let file_name = TcsLog::generate_file_name(prefix, timestamp);
+        let path = PathBuf::from(&file_name);
 
-/// Creates a new TcsLog with a specified maximum file size.
-pub fn tcslog_create_with_size(prefix: &str, max_size: u64) -> Result<TcsLog, TcsLogError> {
-    // Validate prefix
-    if prefix.is_empty() || prefix.len() > MAX_PREFIX_LEN {
-        return Err(TcsLogError::InvalidPrefix(format!(
-            "Prefix must be 1-{} characters",
-            MAX_PREFIX_LEN
-        )));
-    }
-
-    if prefix.contains('/') || prefix.contains('\\') || prefix.contains('\0') {
-        return Err(TcsLogError::InvalidPrefix(
-            "Prefix contains invalid characters".to_string(),
-        ));
-    }
-
-    // Generate timestamp and file name
-    let timestamp = TcsLog::current_timestamp();
-    let file_name = TcsLog::generate_file_name(prefix, timestamp);
-
-    // Compute offsets
-    let (index_offset, data_offset, _index_blocks) = TcsLog::compute_offsets(max_size);
-
-    // Create header
-    let header = Header::new(timestamp, &file_name, index_offset, data_offset);
-
-    // Create the file
-    let path = PathBuf::from(&file_name);
-
-    let mut retries = 0;
-    let mut file = loop {
-        match OpenOptions::new()
-            .read(true)
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
-            Ok(f) => break f,
-            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && retries < 10 => {
-                // Wait 100 microseconds and try again with new timestamp
-                std::thread::sleep(std::time::Duration::from_micros(100));
-                retries += 1;
-                continue;
-            }
-            Err(e) => return Err(TcsLogError::Io(e)),
+        if !path.exists() {
+            return Err(TcsLogError::NotFound);
         }
-    };
 
-    // Write header
-    file.write_all(&header.to_bytes())?;
+        let mut file = OpenOptions::new().read(true).open(&path)?;
 
-    // Initialize index block(s) with zeros (already zeroed by OS for sparse files)
-    let index_size = data_offset - index_offset;
-    file.seek(SeekFrom::Start(data_offset - 1))?;
-    file.write_all(&[0])?;
+        // Read and parse header
+        let mut header_bytes = [0u8; HEADER_SIZE];
+        file.read_exact(&mut header_bytes)?;
+        let header = Header::from_bytes(&header_bytes)?;
 
-    // Seek to beginning of data section
-    file.seek(SeekFrom::Start(data_offset))?;
+        let max_size = DEFAULT_FILE_SIZE; // Could also store in header
 
-    Ok(TcsLog {
-        file,
-        path,
-        header,
-        max_size,
-        write_position: data_offset,
-        read_position: data_offset,
-        prefix: prefix.to_string(),
-        writing: true,
-    })
-}
-
-/// Opens an existing TcsLog so that the telemetry records it contains may be read.
-///
-/// If successful, returns a TcsLog. Otherwise, returns Err(TcsLogError).
-pub fn tcslog_open(prefix: &str, timestamp: Timestamp) -> Result<TcsLog, TcsLogError> {
-    let file_name = TcsLog::generate_file_name(prefix, timestamp);
-    let path = PathBuf::from(&file_name);
-
-    if !path.exists() {
-        return Err(TcsLogError::NotFound);
+        Ok(TcsLog {
+            file,
+            path,
+            header: header.clone(),
+            max_size,
+            write_position: 0,
+            read_position: header.data_offset,
+            prefix: prefix.to_string(),
+            writing: false,
+        })
     }
 
-    let mut file = OpenOptions::new().read(true).open(&path)?;
+    /// Opens an existing TcsLog by path.
+    pub fn tcslog_open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog, TcsLogError> {
+        let path = path.as_ref();
+        if !path.exists() {
+            return Err(TcsLogError::NotFound);
+        }
 
-    // Read and parse header
-    let mut header_bytes = [0u8; HEADER_SIZE];
-    file.read_exact(&mut header_bytes)?;
-    let header = Header::from_bytes(&header_bytes)?;
+        let mut file = OpenOptions::new().read(true).open(path)?;
 
-    let max_size = DEFAULT_FILE_SIZE; // Could also store in header
+        // Read and parse header
+        let mut header_bytes = [0u8; HEADER_SIZE];
+        file.read_exact(&mut header_bytes)?;
+        let header = Header::from_bytes(&header_bytes)?;
 
-    Ok(TcsLog {
-        file,
-        path,
-        header,
-        max_size,
-        write_position: 0,
-        read_position: header.data_offset,
-        prefix: prefix.to_string(),
-        writing: false,
-    })
-}
+        let max_size = DEFAULT_FILE_SIZE;
 
-/// Opens an existing TcsLog by path.
-pub fn tcslog_open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog, TcsLogError> {
-    let path = path.as_ref();
-    if !path.exists() {
-        return Err(TcsLogError::NotFound);
+        // Extract prefix from file name
+        let file_name = header.file_name_str();
+        let prefix = file_name
+            .split('-')
+            .next()
+            .unwrap_or("")
+            .to_string();
+
+        Ok(TcsLog {
+            file,
+            path: path.to_path_buf(),
+            header: header.clone(),
+            max_size,
+            write_position: 0,
+            read_position: header.data_offset,
+            prefix,
+            writing: false,
+        })
     }
 
-    let mut file = OpenOptions::new().read(true).open(path)?;
-
-    // Read and parse header
-    let mut header_bytes = [0u8; HEADER_SIZE];
-    file.read_exact(&mut header_bytes)?;
-    let header = Header::from_bytes(&header_bytes)?;
-
-    let max_size = DEFAULT_FILE_SIZE;
-
-    // Extract prefix from file name
-    let file_name = header.file_name_str();
-    let prefix = file_name
-        .split('-')
-        .next()
-        .unwrap_or("")
-        .to_string();
-
-    Ok(TcsLog {
-        file,
-        path: path.to_path_buf(),
-        header,
-        max_size,
-        write_position: 0,
-        read_position: header.data_offset,
-        prefix,
-        writing: false,
-    })
-}
-
-impl TcsLog {
     /// Writes the telemetry data to the TcsLog.
     ///
     /// If there is not enough room in the current log file, another will be created.
     /// It is an error to write more data than will fit in a newly created log file.
     ///
     /// Returns () if the data was written, otherwise Err(TcsLogError).
-    pub fn tcslog_write(&mut self, data: &[u8]) -> Result<(), TcsLogError> {
+    pub fn write(&mut self, data: &[u8]) -> Result<(), TcsLogError> {
         if !self.writing {
             return Err(TcsLogError::InvalidFormat(
                 "Log not opened for writing".to_string(),
@@ -290,11 +282,13 @@ impl TcsLog {
         // Calculate space needed in current block
         let current_block_offset = (self.write_position - self.header.data_offset) % BLOCK_SIZE as u64;
 
+/*
         let space_in_block = if current_block_offset == 0 {
             BLOCK_SIZE - data::BLOCK_HEADER_SIZE
         } else {
             BLOCK_SIZE - current_block_offset as usize
         };
+*/
 
         // Write block header if at start of new block
         if current_block_offset == 0 {
@@ -309,9 +303,9 @@ impl TcsLog {
 
         if total_needed as u64 > remaining_in_file {
             // Create a new log file
-            let new_log = tcslog_create_with_size(&self.prefix, self.max_size)?;
+            let new_log = Self::new(&self.prefix, self.max_size)?;
             *self = new_log;
-            return self.tcslog_write(data);
+            return self.write(data);
         }
 
         // Write record length
@@ -343,7 +337,7 @@ impl TcsLog {
     /// Reads the next telemetry record from the TcsLog.
     ///
     /// Returns the number of bytes placed in data on success, Err(TcsLogError) otherwise.
-    pub fn tcslog_read(&mut self, timestamp: &mut Timestamp, data: &mut [u8]) -> Result<usize, TcsLogError> {
+    pub fn read(&mut self, timestamp: &mut Timestamp, data: &mut [u8]) -> Result<usize, TcsLogError> {
         if self.writing {
             return Err(TcsLogError::InvalidFormat(
                 "Log not opened for reading".to_string(),
@@ -394,7 +388,7 @@ impl TcsLog {
     /// containing a header with that timestamp or greater.
     ///
     /// If no error occurred, returns the offset. Otherwise, returns Err(TcsLogError).
-    pub fn tcslog_timestamp_offset(&mut self, timestamp: Timestamp) -> Result<u64, TcsLogError> {
+    pub fn timestamp_offset(&mut self, timestamp: Timestamp) -> Result<u64, TcsLogError> {
         // Read index block
         let mut index_bytes = [0u8; BLOCK_SIZE];
         self.file.seek(SeekFrom::Start(self.header.index_offset))?;
@@ -465,7 +459,7 @@ mod tests {
 
     #[test]
     fn test_invalid_prefix() {
-        let result = tcslog_create("");
+        let result = TcsLog::new("", DEFAULT_FILE_SIZE);
         assert!(matches!(result, Err(TcsLogError::InvalidPrefix(_))));
 
         let result = tcslog_create("a/b");
