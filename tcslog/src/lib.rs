@@ -21,6 +21,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::mem::size_of;
 
 /// Block size in bytes (4KB).
 pub const BLOCK_SIZE: usize = 4096;
@@ -38,7 +39,7 @@ pub const FILE_TYPE: &[u8; 8] = b"tcslog  ";
 pub const VERSION: &[u8; 8] = b"00.01.00";
 
 /// Timestamp type (nanoseconds since UNIX epoch).
-pub type Timestamp = u64;
+pub type Timestamp = u128;
 
 /// Represents a TcsLog instance for reading or writing telemetry records.
 #[derive(Debug)]
@@ -137,7 +138,7 @@ impl TcsLog {
     fn current_timestamp() -> Timestamp {
         SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as u64)
+            .map(|d| d.as_nanos() as Timestamp)
             .unwrap_or(0)
     }
 
@@ -159,8 +160,8 @@ impl TcsLog {
     fn parse_timestamp_from_name(name: &str, prefix: &str) -> Option<Timestamp> {
         let suffix = name.strip_prefix(prefix)?.strip_prefix('-')?;
         let hex: String = suffix.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-        if hex.len() == 16 {
-            u64::from_str_radix(&hex, 16).ok()
+        if hex.len() == size_of::<Timestamp>() {
+            Timestamp::from_str_radix(&hex, size_of::<Timestamp>().try_into().unwrap()).ok()
         } else {
             None
         }
@@ -366,10 +367,11 @@ impl TcsLog {
         self.read_position += 8;
 
         // Read timestamp
-        let mut ts_bytes = [0u8; 8];
+        let mut ts_bytes = [0u8; size_of::<Timestamp>()];
         self.file.read_exact(&mut ts_bytes)?;
-        *timestamp = u64::from_le_bytes(ts_bytes);
-        self.read_position += 8;
+        *timestamp = Timestamp::from_le_bytes(ts_bytes);
+        let read_offset: u64 = size_of::<Timestamp>().try_into().unwrap();
+        self.read_position += read_offset;
 
         // Read data
         if len > data.len() {

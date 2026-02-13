@@ -1,7 +1,7 @@
 //! Index structure and operations for log files.
 
 use crate::error::TcsLogError;
-use crate::BLOCK_SIZE;
+use crate::{BLOCK_SIZE, Timestamp};
 use std::mem::size_of;
 
 /// Size of an index entry (offset + timestamp).
@@ -20,12 +20,12 @@ pub struct IndexEntry {
     /// FILE_NULL if this entry does not reference any block.
     pub offset: u64,
     /// Timestamp in nanoseconds since UNIX epoch.
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
 }
 
 impl IndexEntry {
     /// Creates a new index entry.
-    pub fn new(offset: u64, timestamp: u64) -> Self {
+    pub fn new(offset: u64, timestamp: Timestamp) -> Self {
         IndexEntry { offset, timestamp }
     }
 
@@ -53,7 +53,7 @@ impl IndexEntry {
     /// Deserializes an entry from bytes.
     pub fn from_bytes(bytes: &[u8; INDEX_ENTRY_SIZE]) -> Self {
         let offset = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
-        let timestamp = u64::from_le_bytes(bytes[8..16].try_into().unwrap());
+        let timestamp = Timestamp::from_le_bytes(bytes[8..16].try_into().unwrap());
         IndexEntry { offset, timestamp }
     }
 }
@@ -103,7 +103,7 @@ impl IndexBlock {
 
     /// Finds the entry with the largest timestamp less than or equal to the given timestamp.
     /// Returns the index of the entry, or None if no such entry exists.
-    pub fn find_le(&self, timestamp: u64) -> Option<usize> {
+    pub fn find_le(&self, timestamp: Timestamp) -> Option<usize> {
         let mut result = None;
         for (i, entry) in self.entries.iter().enumerate() {
             if entry.is_null() {

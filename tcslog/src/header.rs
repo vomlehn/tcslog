@@ -1,7 +1,7 @@
 //! Log file header block handling.
 
 use crate::error::TcsLogError;
-use crate::{BLOCK_SIZE, FILE_TYPE, VERSION};
+use crate::{BLOCK_SIZE, FILE_TYPE, VERSION, Timestamp};
 
 /// Size of the file type field in bytes.
 pub const FILE_TYPE_SIZE: usize = 8;
@@ -10,7 +10,7 @@ pub const FILE_TYPE_SIZE: usize = 8;
 pub const VERSION_SIZE: usize = 8;
 
 /// Size of the timestamp field in bytes.
-pub const TIMESTAMP_SIZE: usize = 8;
+pub const TIMESTAMP_SIZE: usize = size_of::<Timestamp>();
 
 /// Maximum length of the file name (excluding NUL terminator).
 pub const FILE_NAME_MAX_LEN: usize = 52;
@@ -35,7 +35,7 @@ pub struct Header {
     /// Version string (e.g., "00.01.00").
     pub version: [u8; VERSION_SIZE],
     /// Timestamp in nanoseconds since UNIX epoch.
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
     /// File name (up to 52 characters plus NUL).
     pub file_name: [u8; FILE_NAME_SIZE],
     /// Offset to the beginning of the index section.
@@ -46,7 +46,7 @@ pub struct Header {
 
 impl Header {
     /// Creates a new header with the given parameters.
-    pub fn new(timestamp: u64, file_name: &str, index_offset: u64, data_offset: u64) -> Self {
+    pub fn new(timestamp: Timestamp, file_name: &str, index_offset: u64, data_offset: u64) -> Self {
         let mut name_bytes = [0u8; FILE_NAME_SIZE];
         let name_len = file_name.len().min(FILE_NAME_MAX_LEN);
         name_bytes[..name_len].copy_from_slice(&file_name.as_bytes()[..name_len]);
@@ -113,7 +113,7 @@ impl Header {
         offset += VERSION_SIZE;
 
         // Timestamp
-        let timestamp = u64::from_le_bytes(
+        let timestamp = Timestamp::from_le_bytes(
             buffer[offset..offset + TIMESTAMP_SIZE]
                 .try_into()
                 .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
