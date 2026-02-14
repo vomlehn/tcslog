@@ -43,7 +43,9 @@ pub type Timestamp = u128;
 
 /// Represents a TcsLog instance for reading or writing telemetry records.
 #[derive(Debug)]
-pub struct TcsLog {
+pub struct TcsLog<'a> {
+    /// Directory name
+    dir_name: &'a str,
     /// The file handle.
     file: File,
     /// The file path.
@@ -62,9 +64,9 @@ pub struct TcsLog {
     writing: bool,
 }
 
-impl TcsLog {
+impl<'a> TcsLog<'a> {
     /// Creates a new TcsLog with a specified maximum file size.
-    pub fn new(prefix: &str, max_size: u64) -> Result<TcsLog, TcsLogError> {
+    pub fn new(dir_name: &'a str, prefix: &str, max_size: u64) -> Result<TcsLog<'a>, TcsLogError> {
         // Validate prefix
         if prefix.is_empty() || prefix.len() > MAX_PREFIX_LEN {
             return Err(TcsLogError::InvalidPrefix(format!(
@@ -90,7 +92,7 @@ impl TcsLog {
         let header = Header::new(timestamp, &file_name, index_offset, data_offset);
 
         // Create the file
-        let path = PathBuf::from(&file_name);
+        let path = PathBuf::from(dir_name).join(&file_name);
 
         let mut retries = 0;
         let mut file = loop {
@@ -123,6 +125,7 @@ impl TcsLog {
         file.seek(SeekFrom::Start(data_offset))?;
 
         Ok(TcsLog {
+            dir_name,
             file,
             path,
             header,
@@ -144,15 +147,19 @@ impl TcsLog {
 
     /// Generates a file name from prefix and timestamp.
     fn generate_file_name(prefix: &str, timestamp: Timestamp) -> String {
-        // Format: prefix-XXXX_XXXX_XXXX_XXXX (where X is hex digit)
-        let hex = format!("{:016x}", timestamp);
+        // Format: prefix-XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX (where X is hex digit)
+        let hex = format!("{:032x}", timestamp);
         format!(
-            "{}-{}_{}_{}_{}",
+            "{}-{}_{}_{}_{}_{}_{}_{}_{}",
             prefix,
             &hex[0..4],
             &hex[4..8],
             &hex[8..12],
-            &hex[12..16]
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..24],
+            &hex[24..28],
+            &hex[28..32]
         )
     }
 
@@ -192,7 +199,7 @@ impl TcsLog {
     /// Opens an existing TcsLog so that the telemetry records it contains may be read.
     ///
     /// If successful, returns a TcsLog. Otherwise, returns Err(TcsLogError).
-    pub fn tcslog_open(prefix: &str, timestamp: Timestamp) -> Result<TcsLog, TcsLogError> {
+    pub fn tcslog_open(dir_name: &'a str, prefix: &str, timestamp: Timestamp) -> Result<TcsLog<'a>, TcsLogError> {
         let file_name = TcsLog::generate_file_name(prefix, timestamp);
         let path = PathBuf::from(&file_name);
 
@@ -210,6 +217,7 @@ impl TcsLog {
         let max_size = DEFAULT_FILE_SIZE; // Could also store in header
 
         Ok(TcsLog {
+            dir_name,
             file,
             path,
             header: header.clone(),
@@ -222,7 +230,7 @@ impl TcsLog {
     }
 
     /// Opens an existing TcsLog by path.
-    pub fn tcslog_open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog, TcsLogError> {
+    pub fn tcslog_open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog<'a>, TcsLogError> {
         let path = path.as_ref();
         if !path.exists() {
             return Err(TcsLogError::NotFound);
@@ -246,6 +254,7 @@ impl TcsLog {
             .to_string();
 
         Ok(TcsLog {
+            dir_name: "",              // FIXME: not needed
             file,
             path: path.to_path_buf(),
             header: header.clone(),
@@ -304,7 +313,7 @@ impl TcsLog {
 
         if total_needed as u64 > remaining_in_file {
             // Create a new log file
-            let new_log = Self::new(&self.prefix, self.max_size)?;
+            let new_log = Self::new(&self.dir_name, &self.prefix, self.max_size)?;
             *self = new_log;
             return self.write(data);
         }
@@ -461,7 +470,7 @@ mod tests {
 
     #[test]
     fn test_invalid_prefix() {
-        let result = TcsLog::new("", DEFAULT_FILE_SIZE);
+        let result = TcsLog::new("", "", DEFAULT_FILE_SIZE);
         assert!(matches!(result, Err(TcsLogError::InvalidPrefix(_))));
 
         let result = tcslog_create("a/b");
