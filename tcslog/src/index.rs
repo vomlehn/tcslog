@@ -125,6 +125,7 @@ impl IndexBlock {
 }
 
 /// Computes the minimum number of index blocks needed for the given number of data blocks.
+#[allow(unused)]
 pub fn compute_index_blocks(data_blocks: usize) -> usize {
     if data_blocks == 0 {
         return 1;

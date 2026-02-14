@@ -2,6 +2,7 @@
 
 use crate::error::TcsLogError;
 use crate::BLOCK_SIZE;
+use crate::Timestamp;
 
 /// Block header indicating null pointer (does not reference a file).
 pub const TCSLOG_NULL: u64 = 0x0000_0000_0000_0000;
@@ -16,7 +17,7 @@ pub const BLOCK_HEADER_SIZE: usize = 8;
 pub const RECORD_LENGTH_SIZE: usize = 8;
 
 /// Size of timestamp field in bytes.
-pub const RECORD_TIMESTAMP_SIZE: usize = 8;
+pub const RECORD_TIMESTAMP_SIZE: usize = size_of::<Timestamp>();
 
 /// Size of record metadata (length + timestamp).
 pub const RECORD_METADATA_SIZE: usize = RECORD_LENGTH_SIZE + RECORD_TIMESTAMP_SIZE;
@@ -123,6 +124,7 @@ impl DataRecord {
 }
 
 /// Manages writing data records to blocks.
+#[allow(unused)]
 pub struct DataBlockWriter {
     /// Current block buffer.
     buffer: [u8; BLOCK_SIZE],
@@ -140,6 +142,7 @@ impl Default for DataBlockWriter {
 
 impl DataBlockWriter {
     /// Creates a new data block writer.
+    #[allow(unused)]
     pub fn new() -> Self {
         let mut buffer = [0u8; BLOCK_SIZE];
         // Initialize with TCSLOG_REC header
@@ -153,21 +156,25 @@ impl DataBlockWriter {
     }
 
     /// Returns the remaining space in the current block.
+    #[allow(unused)]
     pub fn remaining(&self) -> usize {
         BLOCK_SIZE - self.position
     }
 
     /// Returns true if the block is empty (only has header).
+    #[allow(unused)]
     pub fn is_empty(&self) -> bool {
         self.position == BLOCK_HEADER_SIZE
     }
 
     /// Returns the current buffer.
+    #[allow(unused)]
     pub fn buffer(&self) -> &[u8; BLOCK_SIZE] {
         &self.buffer
     }
 
     /// Resets the writer for a new block.
+    #[allow(unused)]
     pub fn reset(&mut self) {
         self.buffer = [0u8; BLOCK_SIZE];
         self.buffer[0..8].copy_from_slice(&TCSLOG_REC.to_le_bytes());
@@ -176,6 +183,7 @@ impl DataBlockWriter {
     }
 
     /// Writes data to the block, returning how many bytes were written.
+    #[allow(unused)]
     pub fn write(&mut self, data: &[u8]) -> usize {
         let to_write = data.len().min(self.remaining());
         self.buffer[self.position..self.position + to_write].copy_from_slice(&data[..to_write]);
@@ -184,6 +192,7 @@ impl DataBlockWriter {
     }
 
     /// Sets the continuation offset for when a record spans blocks.
+    #[allow(unused)]
     pub fn set_continuation(&mut self, offset_in_block: usize) {
         let header_value = (offset_in_block as u64) & !0xFF;
         self.buffer[0..8].copy_from_slice(&header_value.to_le_bytes());
@@ -200,6 +209,7 @@ pub struct DataBlockReader {
 
 impl DataBlockReader {
     /// Creates a new data block reader from a buffer.
+    #[allow(unused)]
     pub fn new(buffer: [u8; BLOCK_SIZE]) -> Self {
         DataBlockReader {
             buffer,
@@ -208,17 +218,20 @@ impl DataBlockReader {
     }
 
     /// Returns the block header.
+    #[allow(unused)]
     pub fn header(&self) -> Result<BlockHeader, TcsLogError> {
         let value = u64::from_le_bytes(self.buffer[0..8].try_into().unwrap());
         BlockHeader::from_u64(value)
     }
 
     /// Returns the remaining bytes in the block.
+    #[allow(unused)]
     pub fn remaining(&self) -> usize {
         BLOCK_SIZE - self.position
     }
 
     /// Reads bytes from the block.
+    #[allow(unused)]
     pub fn read(&mut self, count: usize) -> &[u8] {
         let to_read = count.min(self.remaining());
         let start = self.position;
@@ -227,6 +240,7 @@ impl DataBlockReader {
     }
 
     /// Sets the read position.
+    #[allow(unused)]
     pub fn set_position(&mut self, position: usize) {
         self.position = position.min(BLOCK_SIZE);
     }

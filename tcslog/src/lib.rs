@@ -164,6 +164,7 @@ impl<'a> TcsLog<'a> {
     }
 
     /// Parses a timestamp from a file name.
+    #[allow(unused)]
     fn parse_timestamp_from_name(name: &str, prefix: &str) -> Option<Timestamp> {
         let suffix = name.strip_prefix(prefix)?.strip_prefix('-')?;
         let hex: String = suffix.chars().filter(|c| c.is_ascii_hexdigit()).collect();
