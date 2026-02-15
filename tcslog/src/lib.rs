@@ -154,7 +154,8 @@ impl<'a> TcsLog<'a> {
             let path = PathBuf::from(dir_name).join(&file_name);
 
             match OpenOptions::new()
-                .read(true)
+// FIXME: remove this
+//                .read(true)
                 .write(true)
                 .create_new(true)
                 .open(&path)
@@ -195,7 +196,7 @@ impl<'a> TcsLog<'a> {
     }
 
     /// Generates a file name from prefix and timestamp.
-    fn generate_file_name(prefix: &str, timestamp: Timestamp) -> String {
+    pub fn generate_file_name(prefix: &str, timestamp: Timestamp) -> String {
         // Format: prefix-XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX (where X is hex digit)
         let hex = format!("{:032x}", timestamp);
         format!(

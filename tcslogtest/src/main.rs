@@ -1,4 +1,7 @@
-use tcslog::{BLOCK_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable};
+use std::path::PathBuf;
+use std::fs::OpenOptions;
+
+use tcslog::{BLOCK_SIZE, Header, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable};
 
 /*
  * Define a type that returns the timestamp. In this implementation,
@@ -39,7 +42,35 @@ fn testit<'a>() {
 
 fn test_minimal<'a>() -> Result<TcsLog<'a>, TcsLogError> {
     let over_four = MAX_RECORD_SIZE / 4;
-    write_recs(over_four, 1)
+    let tcs_log = write_recs(over_four, 1);
+
+    let mut teststamper = Teststamper::new();
+    let timestamp = teststamper.timestamp();
+
+    let prefix = "testlog";
+    let file_name = TcsLog::generate_file_name(prefix, timestamp);
+println!("file_name {}", file_name);
+
+    // Create header
+    let index_offset = BLOCK_SIZE.try_into().unwrap();
+    let data_offset = (2 * BLOCK_SIZE).try_into().unwrap();
+    let header = Header::new(timestamp, &file_name, index_offset, data_offset);
+
+    // Create the file
+    
+    let dir_name = "/tmp";
+    let path = PathBuf::from(dir_name).join(&file_name);
+println!("path {:?}", path);
+
+
+    match OpenOptions::new()
+        .read(true)
+        .open(&path)
+        {
+        Err(e) => panic!("open {:?} failed: {:?}", path, e),
+        Ok(f) => {},
+    }
+    tcs_log
 }
 
 fn test_fill_minimal<'a>() -> Result<TcsLog<'a>, TcsLogError> {
