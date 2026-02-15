@@ -26,18 +26,15 @@ impl Timestampable for Teststamper {
 }
 
 fn main() {
-    println!("MAX_RECORD_SIZE {}", MAX_RECORD_SIZE);
     testit()
 }
 
 fn testit<'a>() {
     let result = test_minimal();
-    println!("result: {:?}", result);
+    println!("Test {}", if result.is_ok() { "successful" } else { "FAILED" });
 
-/*
     let result = test_fill_minimal();
-    println!("result: {:?}", result);
-*/
+    println!("Test {}", if result.is_ok() { "successful" } else { "FAILED" });
 }
 
 fn test_minimal<'a>() -> Result<TcsLog<'a>, TcsLogError> {
@@ -61,7 +58,6 @@ fn write_recs<'a>(rec_size: usize, n_recs: usize) -> Result<TcsLog<'a>, TcsLogEr
     let mut tcs_log = TcsLog::new_with_timestamp("/tmp", "testlog", &mut timestamper, (3 * BLOCK_SIZE).try_into().unwrap())?;
 
     for i in 0..n_recs {
-        println!("write record {}", i);
         let rec = create_record(rec_size, i);
         tcs_log.write(&mut timestamper, &rec)?;
     }

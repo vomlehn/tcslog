@@ -17,7 +17,6 @@ pub use error::TcsLogError;
 pub use header::{Header, HEADER_SIZE};
 pub use index::{IndexBlock, IndexEntry, IndexStructure, ENTRIES_PER_BLOCK, FILE_NULL};
 
-use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -78,22 +77,15 @@ impl Timestampable for Timestamper {
             .map(|d| d.as_nanos() as Timestamp)
             .unwrap_or(0)
     }
-
-/*
-    fn current_timestamp() -> Timestamp {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as Timestamp)
-            .unwrap_or(0)
-    }
-*/
 }
 
+/*
 impl fmt::Debug for dyn Timestampable {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+    fn _fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         Ok(())
     }
 }
+*/
 
 /// Represents a TcsLog instance for reading or writing telemetry records.
 #[derive(Debug)]
@@ -104,8 +96,6 @@ pub struct TcsLog<'a> {
     file: File,
     /// The file path.
     path: PathBuf,
-    /// The Timestampable-implementing type
-    timestamp: Timestamp,
     /// The file header.
     header: Header,
     /// Maximum file size.
@@ -146,8 +136,6 @@ impl<'a> TcsLog<'a> {
             ));
         }
 
-        let timestamp = timestamper.timestamp();
-
         // Compute offsets
         let (index_offset, data_offset, _index_blocks) = TcsLog::compute_offsets(max_size);
 
@@ -155,6 +143,7 @@ impl<'a> TcsLog<'a> {
         let mut retries = 0;
 
         let (path, mut file, header) = loop {
+            let timestamp = timestamper.timestamp();
             let file_name = TcsLog::generate_file_name(prefix, timestamp);
 
             // Create header
@@ -196,7 +185,6 @@ impl<'a> TcsLog<'a> {
             dir_name,
             file,
             path,
-            timestamp,
             header,
             max_size,
             write_position: data_offset,
@@ -282,7 +270,6 @@ impl<'a> TcsLog<'a> {
             dir_name,
             file,
             path,
-            timestamp,
             header: header.clone(),
             max_size,
             write_position: 0,
@@ -293,7 +280,7 @@ impl<'a> TcsLog<'a> {
     }
 
     /// Opens an existing TcsLog by path.
-    pub fn tcslog_open_path<P: AsRef<Path>>(path: P, timestamp: Timestamp) -> Result<TcsLog<'a>, TcsLogError> {
+    pub fn tcslog_open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog<'a>, TcsLogError> {
         let path = path.as_ref();
         if !path.exists() {
             return Err(TcsLogError::NotFound);
@@ -320,7 +307,6 @@ impl<'a> TcsLog<'a> {
             dir_name: "",              // FIXME: not needed
             file,
             path: path.to_path_buf(),
-            timestamp,
             header: header.clone(),
             max_size,
             write_position: 0,
@@ -377,7 +363,7 @@ impl<'a> TcsLog<'a> {
 
         if total_needed as u64 > remaining_in_file {
             // Create a new log file
-            let new_log = Self::new(&self.dir_name, &self.prefix, self.max_size)?;
+            let new_log = Self::new_with_timestamp(&self.dir_name, &self.prefix, timestamper, self.max_size)?;
             *self = new_log;
             return self.write(timestamper, data);
         }
