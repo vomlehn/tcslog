@@ -17,6 +17,7 @@ pub use error::TcsLogError;
 pub use header::{Header, HEADER_SIZE};
 pub use index::{IndexBlock, IndexEntry, IndexStructure, ENTRIES_PER_BLOCK, FILE_NULL};
 
+use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -38,8 +39,61 @@ pub const FILE_TYPE: &[u8; 8] = b"tcslog  ";
 /// Version string (major.minor.patch).
 pub const VERSION: &[u8; 8] = b"00.01.00";
 
+// Microseconds to wait for time to advance enough
+// that the log file name we generate is unique.
+// This should be at least as larget as the minimum
+// resolution of the system timer
+pub const WAIT_FOR_NEW_NAME: u64 = 100;
+
+// Maximum number of retries for a new name
+pub const MAX_RETRIES: u32 = 10;
+
 /// Timestamp type (nanoseconds since UNIX epoch).
 pub type Timestamp = u128;
+
+pub trait Timestampable {
+    fn timestamp(&mut self) -> Timestamp;
+}
+
+/*
+ * Define a type that returns the timestamp. In this implementation,
+ * we return the time since the UNIX epoch.
+ */
+#[derive(Debug)]
+pub struct Timestamper {
+}
+
+impl Timestamper {
+    fn new() -> Timestamper {
+        Timestamper {
+        }
+    }
+}
+
+impl Timestampable for Timestamper {
+    /// Returns the current timestamp in nanoseconds since UNIX epoch.
+    fn timestamp(&mut self) -> Timestamp {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as Timestamp)
+            .unwrap_or(0)
+    }
+
+/*
+    fn current_timestamp() -> Timestamp {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_nanos() as Timestamp)
+            .unwrap_or(0)
+    }
+*/
+}
+
+impl fmt::Debug for dyn Timestampable {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        Ok(())
+    }
+}
 
 /// Represents a TcsLog instance for reading or writing telemetry records.
 #[derive(Debug)]
@@ -50,6 +104,8 @@ pub struct TcsLog<'a> {
     file: File,
     /// The file path.
     path: PathBuf,
+    /// The Timestampable-implementing type
+    timestamp: Timestamp,
     /// The file header.
     header: Header,
     /// Maximum file size.
@@ -67,6 +123,15 @@ pub struct TcsLog<'a> {
 impl<'a> TcsLog<'a> {
     /// Creates a new TcsLog with a specified maximum file size.
     pub fn new(dir_name: &'a str, prefix: &str, max_size: u64) -> Result<TcsLog<'a>, TcsLogError> {
+        // Generate timestamp and file name
+        let mut timestamper = Timestamper::new();
+        Self::new_with_timestamp(dir_name, prefix, &mut timestamper, max_size)
+    }
+
+    /// Creates a new TcsLog with a specified maximum file size while
+    /// specifying the timestamp. This is useful for testing when you
+    /// want to know the name of the file.
+    pub fn new_with_timestamp(dir_name: &'a str, prefix: &str, timestamper: &mut dyn Timestampable, max_size: u64) -> Result<TcsLog<'a>, TcsLogError> {
         // Validate prefix
         if prefix.is_empty() || prefix.len() > MAX_PREFIX_LEN {
             return Err(TcsLogError::InvalidPrefix(format!(
@@ -81,31 +146,34 @@ impl<'a> TcsLog<'a> {
             ));
         }
 
-        // Generate timestamp and file name
-        let timestamp = TcsLog::current_timestamp();
-        let file_name = TcsLog::generate_file_name(prefix, timestamp);
+        let timestamp = timestamper.timestamp();
 
         // Compute offsets
         let (index_offset, data_offset, _index_blocks) = TcsLog::compute_offsets(max_size);
 
-        // Create header
-        let header = Header::new(timestamp, &file_name, index_offset, data_offset);
-
-        // Create the file
-        let path = PathBuf::from(dir_name).join(&file_name);
 
         let mut retries = 0;
-        let mut file = loop {
+
+        let (path, mut file, header) = loop {
+            let file_name = TcsLog::generate_file_name(prefix, timestamp);
+
+            // Create header
+            let header = Header::new(timestamp, &file_name, index_offset, data_offset);
+
+            // Create the file
+            
+            let path = PathBuf::from(dir_name).join(&file_name);
+
             match OpenOptions::new()
                 .read(true)
                 .write(true)
                 .create_new(true)
                 .open(&path)
             {
-                Ok(f) => break f,
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && retries < 10 => {
-                    // Wait 100 microseconds and try again with new timestamp
-                    std::thread::sleep(std::time::Duration::from_micros(100));
+                Ok(f) => break (path, f, header),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && retries < MAX_RETRIES => {
+                    // Wait and try again with new timestamp
+                    std::thread::sleep(std::time::Duration::from_micros(WAIT_FOR_NEW_NAME));
                     retries += 1;
                     continue;
                 }
@@ -128,6 +196,7 @@ impl<'a> TcsLog<'a> {
             dir_name,
             file,
             path,
+            timestamp,
             header,
             max_size,
             write_position: data_offset,
@@ -135,14 +204,6 @@ impl<'a> TcsLog<'a> {
             prefix: prefix.to_string(),
             writing: true,
         })
-    }
-
-    /// Returns the current timestamp in nanoseconds since UNIX epoch.
-    fn current_timestamp() -> Timestamp {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as Timestamp)
-            .unwrap_or(0)
     }
 
     /// Generates a file name from prefix and timestamp.
@@ -221,6 +282,7 @@ impl<'a> TcsLog<'a> {
             dir_name,
             file,
             path,
+            timestamp,
             header: header.clone(),
             max_size,
             write_position: 0,
@@ -231,7 +293,7 @@ impl<'a> TcsLog<'a> {
     }
 
     /// Opens an existing TcsLog by path.
-    pub fn tcslog_open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog<'a>, TcsLogError> {
+    pub fn tcslog_open_path<P: AsRef<Path>>(path: P, timestamp: Timestamp) -> Result<TcsLog<'a>, TcsLogError> {
         let path = path.as_ref();
         if !path.exists() {
             return Err(TcsLogError::NotFound);
@@ -258,6 +320,7 @@ impl<'a> TcsLog<'a> {
             dir_name: "",              // FIXME: not needed
             file,
             path: path.to_path_buf(),
+            timestamp,
             header: header.clone(),
             max_size,
             write_position: 0,
@@ -273,7 +336,7 @@ impl<'a> TcsLog<'a> {
     /// It is an error to write more data than will fit in a newly created log file.
     ///
     /// Returns () if the data was written, otherwise Err(TcsLogError).
-    pub fn write(&mut self, data: &[u8]) -> Result<(), TcsLogError> {
+    pub fn write(&mut self, timestamper: &mut dyn Timestampable, data: &[u8]) -> Result<(), TcsLogError> {
         if !self.writing {
             return Err(TcsLogError::InvalidFormat(
                 "Log not opened for writing".to_string(),
@@ -288,7 +351,7 @@ impl<'a> TcsLog<'a> {
             return Err(TcsLogError::RecordTooLarge);
         }
 
-        let timestamp = Self::current_timestamp();
+        let timestamp = timestamper.timestamp();
 
         // Calculate space needed in current block
         let current_block_offset = (self.write_position - self.header.data_offset) % BLOCK_SIZE as u64;
@@ -316,7 +379,7 @@ impl<'a> TcsLog<'a> {
             // Create a new log file
             let new_log = Self::new(&self.dir_name, &self.prefix, self.max_size)?;
             *self = new_log;
-            return self.write(data);
+            return self.write(timestamper, data);
         }
 
         // Write record length
@@ -450,15 +513,15 @@ mod tests {
 
     #[test]
     fn test_generate_file_name() {
-        let ts: Timestamp = 0x0001_2345_6789_ABCD;
+        let ts: Timestamp = 0x0001_2345_6789_ABCD_EF01_2345_6789_ABCD;
         let name = TcsLog::generate_file_name("test", ts);
-        assert_eq!(name, "test-0001_2345_6789_abcd");
+        assert_eq!(name, "test-0001_2345_6789_abcd_ef01_2345_6789_abcd");
     }
 
     #[test]
     fn test_parse_timestamp_from_name() {
-        let ts = TcsLog::parse_timestamp_from_name("test-0001_2345_6789_abcd", "test");
-        assert_eq!(ts, Some(0x0001_2345_6789_ABCD));
+        let ts = TcsLog::parse_timestamp_from_name("test-0001_2345_6789_abcd_ef01_2345_6789_abcd", "test");
+        assert_eq!(ts, Some(0x0001_2345_6789_ABCD_EF01_2345_6789_ABCD));
     }
 
     #[test]
