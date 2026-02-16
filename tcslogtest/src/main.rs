@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 use std::fs::OpenOptions;
+use std::io::Read;
 
-use tcslog::{BLOCK_SIZE, Header, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable};
+use tcslog::{BLOCK_SIZE, FILE_TYPE, Header, HEADER_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable, VERSION};
 
 /*
  * Define a type that returns the timestamp. In this implementation,
@@ -52,24 +53,38 @@ fn test_minimal<'a>() -> Result<TcsLog<'a>, TcsLogError> {
 println!("file_name {}", file_name);
 
     // Create header
-    let index_offset = BLOCK_SIZE.try_into().unwrap();
-    let data_offset = (2 * BLOCK_SIZE).try_into().unwrap();
-    let header = Header::new(timestamp, &file_name, index_offset, data_offset);
+    let index_offset: u64 = BLOCK_SIZE.try_into().unwrap();
+    let data_offset: u64 = (2 * BLOCK_SIZE).try_into().unwrap();
+//    let header = Header::new(timestamp, &file_name, index_offset, data_offset);
 
-    // Create the file
+    // Open the file
     
     let dir_name = "/tmp";
     let path = PathBuf::from(dir_name).join(&file_name);
 println!("path {:?}", path);
 
-
-    match OpenOptions::new()
+    let mut f = match OpenOptions::new()
         .read(true)
         .open(&path)
         {
         Err(e) => panic!("open {:?} failed: {:?}", path, e),
-        Ok(f) => {},
-    }
+        Ok(f) => f,
+    };
+
+    // Read the header
+    let mut header_bytes = [0u8; HEADER_SIZE];
+    f.read_exact(&mut header_bytes)?;
+
+    // Check fields
+    let mut offset = 0;
+    assert_eq!(&header_bytes[offset..offset + FILE_TYPE.len()], FILE_TYPE);
+    offset += FILE_TYPE.len();
+println!("File type okay");
+
+    assert_eq!(&header_bytes[offset..offset + VERSION.len()], VERSION);
+    offset += VERSION.len();
+println!("Version okay");
+
     tcs_log
 }
 
