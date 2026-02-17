@@ -202,6 +202,27 @@ Index offset
 data offset
     A little-endian u64 offset of the beginning of the data section.
 
+End of File Markers
+-------------------
+End of File (EOF) markers are used in the data section to indicate
+that the end of log records has been reached and to specify the
+name of the next log file. If no EOF marker appears in a file,
+that file is the end of the stream of log records.
+
+The EOF marker consists of a u128 field with all bits set and the
+NUL-terminated name of the next log file.
+
+Room for at least one one-byte record must be available in a log file
+When a log
+file is created, there must be enough available space in the data
+section for a minimum record and an end of file marker.
+
+Each time a log record is to be written, a check is made to see whether there
+is enough space for that records and an end of file marker. If not,
+a new log file is created and the name of that file written to the old
+log file. It is an error if the new log file does not have enough room
+to write the log record and an end of file marker.
+
 Application Programming Interface (API)
 =======================================
 There are several functions that allow use of the logging facility.
