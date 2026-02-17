@@ -10,14 +10,27 @@ use tcslog::{BLOCK_SIZE, FILE_TYPE, Header, HEADER_SIZE, MAX_RECORD_SIZE, TcsLog
  */
 #[derive(Debug)]
 pub struct Teststamper {
-    time:   u128
+    time:       Timestamp,
+    first_time: Option<Timestamp>
 }
 
 impl Teststamper {
     fn new() -> Teststamper {
         Teststamper {
-            time: 0
+            time:       0,
+            first_time: None,
         }
+    }
+
+    fn new_init(first: Timestamp) -> Teststamper {
+        Teststamper {
+            time:       first,
+            first_time: Some(first),
+        }
+    }
+
+    fn first(&self) -> Timestamp {
+        self.first_time.unwrap()
     }
 }
 
@@ -25,6 +38,9 @@ impl Timestampable for Teststamper {
     /// Returns the current timestamp in nanoseconds since UNIX epoch.
     fn timestamp(&mut self) -> Timestamp {
         self.time += 1;
+        if self.first_time.is_none() {
+            self.first_time = Some(self.time);
+        }
         self.time
     }
 }
@@ -33,17 +49,30 @@ fn main() {
     testit()
 }
 
+
 fn testit<'a>() {
-    let result = test_minimal();
-    println!("Test {}", if result.is_ok() { "successful" } else { "FAILED" });
+    let over_four = MAX_RECORD_SIZE / 4;
+    let result = test_write_minimal(over_four);
+    match &result {
+        Err(e) => println!("test_write_minimal: FAILED: {:?}", result),
+        Ok(timestamp) => {
+            let result = test_read_minimal(*timestamp, over_four);
+            match &result {
+                Err(e) => println!("test_write_minimal: FAILED: {:?}", result),
+                Ok(()) => println!("test_read_minimal: success"),
+            }
+        }
+    }
 
     let result = test_fill_minimal();
     println!("Test {}", if result.is_ok() { "successful" } else { "FAILED" });
 }
 
-fn test_minimal<'a>() -> Result<TcsLog<'a>, TcsLogError> {
-    let over_four = MAX_RECORD_SIZE / 4;
-    let tcs_log = write_recs(over_four, 1);
+fn test_write_minimal(over_four: usize) -> Result<Timestamp, TcsLogError> {
+
+    let mut teststamper = Teststamper::new();
+    let mut tcs_log = TcsLog::new_with_timestamp("/tmp", "testlog", &mut teststamper, (3 * BLOCK_SIZE).try_into().unwrap())?;
+    write_recs(&mut tcs_log, &mut teststamper, over_four, 1)?;
 
     let mut teststamper = Teststamper::new();
     let timestamp = teststamper.timestamp();
@@ -85,12 +114,27 @@ println!("File type okay");
     offset += VERSION.len();
 println!("Version okay");
 
-    tcs_log
+    Ok(teststamper.timestamp())
 }
 
-fn test_fill_minimal<'a>() -> Result<TcsLog<'a>, TcsLogError> {
+fn test_fill_minimal<'a>() -> Result<Timestamp, TcsLogError> {
     let over_four = MAX_RECORD_SIZE / 4;
-    write_recs(over_four + 4, 5)
+    let mut teststamper = Teststamper::new();
+
+    let mut tcs_log = TcsLog::new_with_timestamp("/tmp", "testlog", &mut teststamper, (3 * BLOCK_SIZE).try_into().unwrap())?;
+    write_recs(&mut tcs_log, &mut teststamper, over_four + 4, 5)
+}
+
+fn test_read_minimal(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLogError> {
+    let mut testtamper = Teststamper::new_init(timestamp);
+    let timestamp = testtamper.timestamp();
+    let mut tcs_log = TcsLog::open("/tmp", "testlog", timestamp)?;
+
+    let mut vec: Vec<u8> = Vec::with_capacity(over_four);
+    let mut buf = &vec;
+
+
+    Ok(())
 }
 
 /**
@@ -98,17 +142,14 @@ fn test_fill_minimal<'a>() -> Result<TcsLog<'a>, TcsLogError> {
  * rec_size:    Number of bytes
  * n_recs:      Number of records to write
  */
-fn write_recs<'a>(rec_size: usize, n_recs: usize) -> Result<TcsLog<'a>, TcsLogError> {
-
-    let mut timestamper = Teststamper::new();
-    let mut tcs_log = TcsLog::new_with_timestamp("/tmp", "testlog", &mut timestamper, (3 * BLOCK_SIZE).try_into().unwrap())?;
+fn write_recs<'a>(tcs_log: &mut TcsLog, teststamper: &mut Teststamper, rec_size: usize, n_recs: usize) -> Result<Timestamp, TcsLogError> {
 
     for i in 0..n_recs {
         let rec = create_record(rec_size, i);
-        tcs_log.write(&mut timestamper, &rec)?;
+        tcs_log.write(teststamper, &rec)?;
     }
 
-    Ok(tcs_log)
+    Ok(teststamper.timestamp())
 }
 
 fn create_record(rec_size: usize, i: usize) -> Vec<u8> {
