@@ -154,7 +154,7 @@ impl<'a> TcsLog<'a> {
             let path = PathBuf::from(dir_name).join(&file_name);
 
             match OpenOptions::new()
-// FIXME: remove this
+// FIXME: remove this?
 //                .read(true)
                 .write(true)
                 .create_new(true)
@@ -250,7 +250,7 @@ impl<'a> TcsLog<'a> {
     /// Opens an existing TcsLog so that the telemetry records it contains may be read.
     ///
     /// If successful, returns a TcsLog. Otherwise, returns Err(TcsLogError).
-    pub fn tcslog_open(dir_name: &'a str, prefix: &str, timestamp: Timestamp) -> Result<TcsLog<'a>, TcsLogError> {
+    pub fn open(dir_name: &'a str, prefix: &str, timestamp: Timestamp) -> Result<TcsLog<'a>, TcsLogError> {
         let file_name = TcsLog::generate_file_name(prefix, timestamp);
         let path = PathBuf::from(&file_name);
 
@@ -281,7 +281,7 @@ impl<'a> TcsLog<'a> {
     }
 
     /// Opens an existing TcsLog by path.
-    pub fn tcslog_open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog<'a>, TcsLogError> {
+    pub fn open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog<'a>, TcsLogError> {
         let path = path.as_ref();
         if !path.exists() {
             return Err(TcsLogError::NotFound);
