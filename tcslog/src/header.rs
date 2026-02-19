@@ -1,7 +1,7 @@
 //! Log file header block handling.
 
 use crate::error::TcsLogError;
-use crate::{BLOCK_SIZE, FILE_TYPE, VERSION, Timestamp};
+use crate::{BLOCK_SIZE, FILE_TIMESTAMP_LEN, FILE_TYPE, MAX_PREFIX_LEN, VERSION, Timestamp};
 
 /// Size of the file type field in bytes.
 pub const FILE_TYPE_SIZE: usize = 8;
@@ -10,10 +10,10 @@ pub const FILE_TYPE_SIZE: usize = 8;
 pub const VERSION_SIZE: usize = 8;
 
 /// Size of the timestamp field in bytes.
-pub const TIMESTAMP_SIZE: usize = size_of::<Timestamp>();
+pub const TIMESTAMP_SIZE: usize = Timestamp::len();
 
 /// Maximum length of the file name (excluding NUL terminator).
-pub const FILE_NAME_MAX_LEN: usize = 52;
+pub const FILE_NAME_MAX_LEN: usize = MAX_PREFIX_LEN + FILE_TIMESTAMP_LEN;
 
 /// Size of the file name field including NUL terminator.
 pub const FILE_NAME_SIZE: usize = FILE_NAME_MAX_LEN + 1;

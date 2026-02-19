@@ -32,6 +32,9 @@ pub const DEFAULT_FILE_SIZE: u64 = 64 * 1024 * 1024;
 /// Maximum prefix length for file names.
 pub const MAX_PREFIX_LEN: usize = 32;
 
+/// Size of everything after the prefix
+pub const FILE_TIMESTAMP_LEN: usize = 1 + 5 * 1 + 6 * 4;
+
 /// File type identifier.
 pub const FILE_TYPE: &[u8; 8] = b"tcslog  ";
 
@@ -214,6 +217,8 @@ impl<'a> TcsLog<'a> {
     }
 
     /// Parses a timestamp from a file name.
+    /// FIXME: this doesn't verify the file name fits the expected template.
+    /// It should check against a regex.
     #[allow(unused)]
     fn parse_timestamp_from_name(name: &str, prefix: &str) -> Option<Timestamp> {
         let suffix = name.strip_prefix(prefix)?.strip_prefix('-')?;
