@@ -5,10 +5,10 @@ use crate::BLOCK_SIZE;
 use crate::Timestamp;
 
 /// Block header indicating null pointer (does not reference a file).
-pub const TCSLOG_NULL: u64 = 0x0000_0000_0000_0000;
+pub const TCSLOG_NULL: u64 = 0x0000_0000_0000_0001;
 
 /// Block header indicating next record starts at end of header.
-pub const TCSLOG_REC: u64 = 0x0000_0000_0000_0001;
+pub const TCSLOG_REC: u64 = 0x0000_0000_0000_0002;
 
 /// Size of block header in bytes.
 pub const BLOCK_HEADER_SIZE: usize = 8;

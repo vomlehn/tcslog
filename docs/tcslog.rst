@@ -76,17 +76,19 @@ Adding Headers to Data File Blocks
 ----------------------------------
 
 This simple log file is enhanced by adding a header in each BLOCK_SIZE data
-file block. This header is a u64 in little-endian form, as follows:
+file block. This header is a little-endian u64 unsigned value as follows:
 
-**Block Header**
+**Header Values**
 
 +---------------------+--------+-------------------------------------+-------------+
 | Upper 56 bits       | Lower  | Description                         | Name        |
 |                     | 8 bits |                                     |             |
 +=====================+========+=====================================+=============+
-| 0x0000_0000_0000_00 | 0x00   | Pointer does not reference a file   | TCSLOG_NULL |
+| 0x0000_0000_0000_00 | 0x00   | Invalid value                       | TCSLOG_NULL |
 +---------------------+--------+-------------------------------------+-------------+
-| 0x0000_0000_0000_00 | 0x01   | Next record starts at end of header | TCSLOG_REC  |
+| 0x0000_0000_0000_00 | 0x01   | Pointer does not reference a file   | TCSLOG_NULL |
++---------------------+--------+-------------------------------------+-------------+
+| 0x0000_0000_0000_00 | 0x02   | Next record starts at end of header | TCSLOG_REC  |
 +---------------------+--------+-------------------------------------+-------------+
 | Non-zero            | 0x00   | Offset to end of current record     | n/a         |
 +---------------------+--------+-------------------------------------+-------------+
@@ -110,6 +112,23 @@ from the one supplied by the logging facility. In many cases, after locating
 a logging record with a given time, it may be necessary to back up some
 file blocks to find a device or software logging record with a corresponding
 timestap.
+
+Timestamps are a 96-bit little-endian unigned value as follows:
+
+**Timestamp Values**
+
++-------------------------------+--------+------------------------+------------+
+| Upper 88 bits                 | Lower  | Description            | Name       |
+|                               | 8 bits |                        |            |
++===============================+========+========================+============+
+| 0xffff_ffff_ffff_ffff_ffff_ff | 0x00   | Invalid value          |            |
++-------------------------------+--------+------------------------+------------+
+| 0xffff_ffff_ffff_ffff_ffff_ff | 0x01   | EOF marker             | TCSLOG_EOF |
++-------------------------------+--------+------------------------+------------+
+| 0xffff_ffff_ffff_ffff_ffff_ff | >0x01  | Invalid value          |            |
++-------------------------------+--------+------------------------+------------+
+| At least one bit set to zero  | Any    | Offset from UNIX epoch |            |
++-------------------------------+--------+------------------------+------------+
 
 Log File Indices
 ----------------

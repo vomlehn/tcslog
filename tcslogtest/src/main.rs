@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::fs::OpenOptions;
 use std::io::Read;
 
-use tcslog::{BLOCK_SIZE, FILE_TYPE, Header, HEADER_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable, VERSION};
+use tcslog::{BLOCK_SIZE, FILE_TYPE, HEADER_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable, TimestampableError, VERSION};
 
 /*
  * Define a type that returns the timestamp. In this implementation,
@@ -17,7 +17,7 @@ pub struct Teststamper {
 impl Teststamper {
     fn new() -> Teststamper {
         Teststamper {
-            time:       0,
+            time:       Timestamp::ZERO,
             first_time: None,
         }
     }
@@ -36,12 +36,14 @@ impl Teststamper {
 
 impl Timestampable for Teststamper {
     /// Returns the current timestamp in nanoseconds since UNIX epoch.
-    fn timestamp(&mut self) -> Timestamp {
-        self.time += 1;
+    fn timestamp(&mut self) -> Result<Timestamp, TimestampableError> {
+        let mut time_ns = self.time.as_nanos();
+        time_ns += 1;
+        self.time = Timestamp::from_nanos(time_ns);
         if self.first_time.is_none() {
             self.first_time = Some(self.time);
         }
-        self.time
+        Ok(self.time)
     }
 }
 
@@ -54,11 +56,11 @@ fn testit<'a>() {
     let over_four = MAX_RECORD_SIZE / 4;
     let result = test_write_minimal(over_four);
     match &result {
-        Err(e) => println!("test_write_minimal: FAILED: {:?}", result),
+        Err(e) => println!("test_write_minimal: FAILED: {:?}", e),
         Ok(timestamp) => {
             let result = test_read_minimal(*timestamp, over_four);
             match &result {
-                Err(e) => println!("test_write_minimal: FAILED: {:?}", result),
+                Err(e) => println!("test_write_minimal: FAILED: {:?}", e),
                 Ok(()) => println!("test_read_minimal: success"),
             }
         }
@@ -75,16 +77,21 @@ fn test_write_minimal(over_four: usize) -> Result<Timestamp, TcsLogError> {
     write_recs(&mut tcs_log, &mut teststamper, over_four, 1)?;
 
     let mut teststamper = Teststamper::new();
-    let timestamp = teststamper.timestamp();
+    let timestamp = match teststamper.timestamp() {
+        Err(e) => return Err(TcsLogError::TimestampableError(e)),
+        Ok(timestamp) => timestamp,
+    };
 
     let prefix = "testlog";
     let file_name = TcsLog::generate_file_name(prefix, timestamp);
 println!("file_name {}", file_name);
 
+/*
     // Create header
     let index_offset: u64 = BLOCK_SIZE.try_into().unwrap();
     let data_offset: u64 = (2 * BLOCK_SIZE).try_into().unwrap();
-//    let header = Header::new(timestamp, &file_name, index_offset, data_offset);
+    let header = Header::new(timestamp, &file_name, index_offset, data_offset);
+*/
 
     // Open the file
     
@@ -111,10 +118,13 @@ println!("path {:?}", path);
 println!("File type okay");
 
     assert_eq!(&header_bytes[offset..offset + VERSION.len()], VERSION);
-    offset += VERSION.len();
+//    offset += VERSION.len();
 println!("Version okay");
 
-    Ok(teststamper.timestamp())
+    match teststamper.timestamp() {
+        Err(e) => Err(TcsLogError::TimestampableError(e)),
+        Ok(timestamp) => Ok(timestamp),
+    }
 }
 
 fn test_fill_minimal<'a>() -> Result<Timestamp, TcsLogError> {
@@ -127,11 +137,11 @@ fn test_fill_minimal<'a>() -> Result<Timestamp, TcsLogError> {
 
 fn test_read_minimal(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLogError> {
     let mut testtamper = Teststamper::new_init(timestamp);
-    let timestamp = testtamper.timestamp();
-    let mut tcs_log = TcsLog::open("/tmp", "testlog", timestamp)?;
+    let timestamp = testtamper.timestamp()?;
+    let _tcs_log = TcsLog::open("/tmp", "testlog", timestamp)?;
 
-    let mut vec: Vec<u8> = Vec::with_capacity(over_four);
-    let mut buf = &vec;
+    let vec: Vec<u8> = Vec::with_capacity(over_four);
+    let _buf = &vec;
 
 
     Ok(())
@@ -149,7 +159,10 @@ fn write_recs<'a>(tcs_log: &mut TcsLog, teststamper: &mut Teststamper, rec_size:
         tcs_log.write(teststamper, &rec)?;
     }
 
-    Ok(teststamper.timestamp())
+    match teststamper.timestamp() {
+        Err(e) => Err(TcsLogError::TimestampableError(e)),
+        Ok(timestamp) => Ok(timestamp),
+    }
 }
 
 fn create_record(rec_size: usize, i: usize) -> Vec<u8> {

@@ -1,5 +1,3 @@
-//! TcsLog - Telemetry logging library with fixed-length logs.
-//!
 //! TcsLog provides:
 //! * Fixed length logs with automatic switching to new logs when old ones fill
 //! * Arbitrary record sizes
@@ -7,24 +5,26 @@
 //! * Indexed by automatically supplied timestamps with nanosecond resolution
 //! * Metadata all in little-endian form
 
+use std::fs::{File, OpenOptions};
+use std::io::{Read, Seek, SeekFrom, Write};
+use std::path::{Path, PathBuf};
+use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
+use std::mem::size_of;
+use thiserror::Error;
+
 mod data;
+mod config;
 mod error;
 mod header;
 mod index;
+mod timestamp;
 
+pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
 pub use data::{BlockHeader, DataRecord, BLOCK_HEADER_SIZE, MAX_RECORD_SIZE, TCSLOG_NULL, TCSLOG_REC};
 pub use error::TcsLogError;
 pub use header::{Header, HEADER_SIZE};
 pub use index::{IndexBlock, IndexEntry, IndexStructure, ENTRIES_PER_BLOCK, FILE_NULL};
-
-use std::fs::{File, OpenOptions};
-use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
-use std::mem::size_of;
-
-/// Block size in bytes (4KB).
-pub const BLOCK_SIZE: usize = 4096;
+pub use timestamp::Timestamp;
 
 /// Default file size (64MB).
 pub const DEFAULT_FILE_SIZE: u64 = 64 * 1024 * 1024;
@@ -38,20 +38,9 @@ pub const FILE_TYPE: &[u8; 8] = b"tcslog  ";
 /// Version string (major.minor.patch).
 pub const VERSION: &[u8; 8] = b"00.01.00";
 
-// Microseconds to wait for time to advance enough
-// that the log file name we generate is unique.
-// This should be at least as larget as the minimum
-// resolution of the system timer
-pub const WAIT_FOR_NEW_NAME: u64 = 100;
-
-// Maximum number of retries for a new name
-pub const MAX_RETRIES: u32 = 10;
-
-/// Timestamp type (nanoseconds since UNIX epoch).
-pub type Timestamp = u128;
-
+// Object that keeps track of the time for timestamps
 pub trait Timestampable {
-    fn timestamp(&mut self) -> Timestamp;
+    fn timestamp(&mut self) -> Result<Timestamp, TimestampableError>;
 }
 
 /*
@@ -70,22 +59,27 @@ impl Timestamper {
 }
 
 impl Timestampable for Timestamper {
-    /// Returns the current timestamp in nanoseconds since UNIX epoch.
-    fn timestamp(&mut self) -> Timestamp {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos() as Timestamp)
-            .unwrap_or(0)
+    /// Returns the current timestamp in nanoseconds since UNIX epoch. This
+    /// can fail if the system clock was changed. In this case, the only
+    /// way to ensure consistent timestamps in a chain of log files is to
+    /// restart the application. This is because timestamps are assumed to
+    /// be monotonically increasing
+    fn timestamp(&mut self) -> Result<Timestamp, TimestampableError> {
+        match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Err(e) => Err(TimestampableError::DurationSinceFailed(e)),
+            Ok(now) => {
+                let now_ns = now.as_nanos();
+                Ok(Timestamp::from_nanos(now_ns))
+            }
+        }
     }
 }
 
-/*
-impl fmt::Debug for dyn Timestampable {
-    fn _fmt(&self, formatter: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        Ok(())
-    }
+#[derive(Clone, Debug, Error)]
+pub enum TimestampableError {
+    #[error("DurationSince failed: {0} (did SystemClock go backwards?)")]
+    DurationSinceFailed(SystemTimeError),
 }
-*/
 
 /// Represents a TcsLog instance for reading or writing telemetry records.
 #[derive(Debug)]
@@ -143,7 +137,7 @@ impl<'a> TcsLog<'a> {
         let mut retries = 0;
 
         let (path, mut file, header) = loop {
-            let timestamp = timestamper.timestamp();
+            let timestamp = timestamper.timestamp().unwrap();
             let file_name = TcsLog::generate_file_name(prefix, timestamp);
 
             // Create header
@@ -171,6 +165,13 @@ impl<'a> TcsLog<'a> {
             }
         };
 
+        // Write the header
+        let header_bytes = header.to_bytes();
+
+        if header_bytes.len() > HEADER_SIZE {
+            return Err(TcsLogError::BlockSizeTooSmall);
+        }
+
         // Write header
         file.write_all(&header.to_bytes())?;
 
@@ -197,19 +198,18 @@ impl<'a> TcsLog<'a> {
 
     /// Generates a file name from prefix and timestamp.
     pub fn generate_file_name(prefix: &str, timestamp: Timestamp) -> String {
-        // Format: prefix-XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX (where X is hex digit)
-        let hex = format!("{:032x}", timestamp);
+        // Format: prefix-XXXX_XXXX_XXXX_XXXX_XXXX_XXXX (where X is hex digit)
+        let timestamp_u128 = timestamp.as_nanos();
+        let hex = format!("{:024}", timestamp_u128);
         format!(
-            "{}-{}_{}_{}_{}_{}_{}_{}_{}",
+            "{}-{}_{}_{}_{}_{}_{}",
             prefix,
             &hex[0..4],
             &hex[4..8],
             &hex[8..12],
             &hex[12..16],
             &hex[16..20],
-            &hex[20..24],
-            &hex[24..28],
-            &hex[28..32]
+            &hex[20..24]
         )
     }
 
@@ -338,7 +338,7 @@ impl<'a> TcsLog<'a> {
             return Err(TcsLogError::RecordTooLarge);
         }
 
-        let timestamp = timestamper.timestamp();
+        let timestamp = timestamper.timestamp()?;
 
         // Calculate space needed in current block
         let current_block_offset = (self.write_position - self.header.data_offset) % BLOCK_SIZE as u64;
@@ -374,8 +374,9 @@ impl<'a> TcsLog<'a> {
         self.write_position += 8;
 
         // Write timestamp
-        self.file.write_all(&timestamp.to_le_bytes())?;
-        self.write_position += 8;
+        let buf = timestamp.to_le_bytes();
+        self.file.write_all(&buf)?;
+        self.write_position += buf.len() as u64;
 
         // Write data
         self.file.write_all(data)?;

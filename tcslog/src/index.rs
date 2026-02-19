@@ -33,7 +33,7 @@ impl IndexEntry {
     pub fn null() -> Self {
         IndexEntry {
             offset: FILE_NULL,
-            timestamp: 0,
+            timestamp: Timestamp::ZERO,
         }
     }
 

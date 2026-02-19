@@ -1,58 +1,46 @@
 //! Error types for TcsLog operations.
 
-use std::fmt;
 use std::io;
+use thiserror::Error;
 
-/// Error type for TcsLog operations.
-#[derive(Debug)]
+use crate::TimestampableError;
+
+#[derive(Debug, Error)]
 pub enum TcsLogError {
-    /// I/O error occurred.
+	#[error("Header block too small")]
+    BlockSizeTooSmall,
+	#[error("I/O error: {0}")]
     Io(io::Error),
-    /// Invalid file format or corrupted data.
+	#[error("Invalid format: {0}")]
     InvalidFormat(String),
-    /// Record too large to fit in a log file.
+	#[error("Record too large to fit in log file")]
     RecordTooLarge,
-    /// No more records to read.
+	#[error("End of log reached")]
     EndOfLog,
-    /// File not found.
+	#[error("Log file not found")]
     NotFound,
-    /// Invalid timestamp.
+	#[error("Invalid timestamp")]
     InvalidTimestamp,
-    /// File already exists.
+	#[error("Log file already exists")]
     AlreadyExists,
-    /// Invalid prefix (too long or contains invalid characters).
+	#[error("Invalid prefix: {0}")]
     InvalidPrefix(String),
-    /// Index corruption detected.
+	#[error("Index corruption detected")]
     IndexCorrupted,
+	#[error("Value too large")]
+    ValueTooLarge,
+    #[error("Timestamp error: {0}")]
+    TimestampableError(TimestampableError),
 }
 
-impl fmt::Display for TcsLogError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            TcsLogError::Io(e) => write!(f, "I/O error: {}", e),
-            TcsLogError::InvalidFormat(msg) => write!(f, "Invalid format: {}", msg),
-            TcsLogError::RecordTooLarge => write!(f, "Record too large to fit in log file"),
-            TcsLogError::EndOfLog => write!(f, "End of log reached"),
-            TcsLogError::NotFound => write!(f, "Log file not found"),
-            TcsLogError::InvalidTimestamp => write!(f, "Invalid timestamp"),
-            TcsLogError::AlreadyExists => write!(f, "Log file already exists"),
-            TcsLogError::InvalidPrefix(msg) => write!(f, "Invalid prefix: {}", msg),
-            TcsLogError::IndexCorrupted => write!(f, "Index corruption detected"),
-        }
+impl From<std::io::Error> for TcsLogError {
+    fn from(value: std::io::Error) -> Self {
+        TcsLogError::Io(value)
     }
 }
 
-impl std::error::Error for TcsLogError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            TcsLogError::Io(e) => Some(e),
-            _ => None,
-        }
-    }
-}
-
-impl From<io::Error> for TcsLogError {
-    fn from(err: io::Error) -> Self {
-        TcsLogError::Io(err)
+impl From<TimestampableError> for TcsLogError {
+    fn from(value: TimestampableError) -> Self {
+        TcsLogError::TimestampableError(value)
     }
 }
