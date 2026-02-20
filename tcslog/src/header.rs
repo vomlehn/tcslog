@@ -46,7 +46,7 @@ pub struct Header {
 
 impl Header {
     /// Creates a new header with the given parameters.
-    pub fn new(timestamp: Timestamp, file_name: &str, index_offset: u64, data_offset: u64) -> Self {
+    pub fn new(timestamp: Timestamp, index_offset: u64, data_offset: u64, file_name: &str) -> Self {
         let mut name_bytes = [0u8; FILE_NAME_SIZE];
         let name_len = file_name.len().min(FILE_NAME_MAX_LEN);
         name_bytes[..name_len].copy_from_slice(&file_name.as_bytes()[..name_len]);
@@ -55,9 +55,9 @@ impl Header {
             file_type: *FILE_TYPE,
             version: *VERSION,
             timestamp,
-            file_name: name_bytes,
             index_offset,
             data_offset,
+            file_name: name_bytes,
         }
     }
 
@@ -78,10 +78,6 @@ impl Header {
         buffer[offset..offset + TIMESTAMP_SIZE].copy_from_slice(&self.timestamp.to_le_bytes());
         offset += TIMESTAMP_SIZE;
 
-        // File name
-        buffer[offset..offset + FILE_NAME_SIZE].copy_from_slice(&self.file_name);
-        offset += FILE_NAME_SIZE;
-
         // Index offset (little-endian)
         buffer[offset..offset + INDEX_OFFSET_SIZE]
             .copy_from_slice(&self.index_offset.to_le_bytes());
@@ -89,6 +85,11 @@ impl Header {
 
         // Data offset (little-endian)
         buffer[offset..offset + DATA_OFFSET_SIZE].copy_from_slice(&self.data_offset.to_le_bytes());
+        offset += DATA_OFFSET_SIZE;
+
+        // File name
+        buffer[offset..offset + FILE_NAME_SIZE].copy_from_slice(&self.file_name);
+//        offset += FILE_NAME_SIZE;
 
         buffer
     }
@@ -120,11 +121,6 @@ impl Header {
         );
         offset += TIMESTAMP_SIZE;
 
-        // File name
-        let mut file_name = [0u8; FILE_NAME_SIZE];
-        file_name.copy_from_slice(&buffer[offset..offset + FILE_NAME_SIZE]);
-        offset += FILE_NAME_SIZE;
-
         // Index offset
         let index_offset = u64::from_le_bytes(
             buffer[offset..offset + INDEX_OFFSET_SIZE]
@@ -139,14 +135,20 @@ impl Header {
                 .try_into()
                 .map_err(|_| TcsLogError::InvalidFormat("Invalid data offset".to_string()))?,
         );
+        offset += DATA_OFFSET_SIZE;
+
+        // File name
+        let mut file_name = [0u8; FILE_NAME_SIZE];
+        file_name.copy_from_slice(&buffer[offset..offset + FILE_NAME_SIZE]);
+//        offset += FILE_NAME_SIZE;
 
         Ok(Header {
             file_type,
             version,
             timestamp,
-            file_name,
             index_offset,
             data_offset,
+            file_name,
         })
     }
 

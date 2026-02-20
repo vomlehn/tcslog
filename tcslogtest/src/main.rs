@@ -32,6 +32,10 @@ impl Teststamper {
     fn first(&self) -> Timestamp {
         self.first_time.unwrap()
     }
+
+    fn snapshot(&self) -> Timestamp {
+        self.time
+    }
 }
 
 impl Timestampable for Teststamper {
@@ -41,6 +45,7 @@ impl Timestampable for Teststamper {
         time_ns += 1;
         self.time = Timestamp::from_nanos(time_ns);
         if self.first_time.is_none() {
+println!("Set first time to {:?}", self.time);
             self.first_time = Some(self.time);
         }
         Ok(self.time)
@@ -60,11 +65,12 @@ fn testit<'a>() {
         Ok(timestamp) => {
             let result = test_read_minimal(*timestamp, over_four);
             match &result {
-                Err(e) => println!("test_write_minimal: FAILED: {:?}", e),
+                Err(e) => println!("test_read_minimal: FAILED: {:?}", e),
                 Ok(()) => println!("test_read_minimal: success"),
             }
         }
     }
+println!("---");
 
     let result = test_fill_minimal();
     println!("Test {}", if result.is_ok() { "successful" } else { "FAILED" });
@@ -73,18 +79,17 @@ fn testit<'a>() {
 fn test_write_minimal(over_four: usize) -> Result<Timestamp, TcsLogError> {
 
     let mut teststamper = Teststamper::new();
+println!("Creating TcsLog");
     let mut tcs_log = TcsLog::new_with_timestamp("/tmp", "testlog", &mut teststamper, (3 * BLOCK_SIZE).try_into().unwrap())?;
+    let timestamp = teststamper.snapshot();
     write_recs(&mut tcs_log, &mut teststamper, over_four, 1)?;
+    Ok(timestamp)
+}
 
-    let mut teststamper = Teststamper::new();
-    let timestamp = match teststamper.timestamp() {
-        Err(e) => return Err(TcsLogError::TimestampableError(e)),
-        Ok(timestamp) => timestamp,
-    };
-
+fn test_read_minimal(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLogError> {
     let prefix = "testlog";
-    let file_name = TcsLog::generate_file_name(prefix, timestamp);
-println!("file_name {}", file_name);
+    let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
+println!("test_read_minimal: file_name {}", file_name);
 
 /*
     // Create header
@@ -97,8 +102,13 @@ println!("file_name {}", file_name);
     
     let dir_name = "/tmp";
     let path = PathBuf::from(dir_name).join(&file_name);
-println!("path {:?}", path);
+println!("test_read_minimal: path {:?}", path);
+    let mut tcs_log = TcsLog::open_path(path)?;
 
+    read_recs(&mut tcs_log, over_four, 1)?;
+
+    Ok(())
+/*
     let mut f = match OpenOptions::new()
         .read(true)
         .open(&path)
@@ -121,10 +131,15 @@ println!("File type okay");
 //    offset += VERSION.len();
 println!("Version okay");
 
-    match teststamper.timestamp() {
+let t = Ok(teststamper.first());
+    match teststamper.first() {
         Err(e) => Err(TcsLogError::TimestampableError(e)),
         Ok(timestamp) => Ok(timestamp),
     }
+;
+println!("test_write_minimal: returning {:?}", t);
+t
+*/
 }
 
 fn test_fill_minimal<'a>() -> Result<Timestamp, TcsLogError> {
@@ -135,9 +150,10 @@ fn test_fill_minimal<'a>() -> Result<Timestamp, TcsLogError> {
     write_recs(&mut tcs_log, &mut teststamper, over_four + 4, 5)
 }
 
+/*
 fn test_read_minimal(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLogError> {
     let mut testtamper = Teststamper::new_init(timestamp);
-    let timestamp = testtamper.timestamp()?;
+    let timestamp = testtamper.first();
     let _tcs_log = TcsLog::open("/tmp", "testlog", timestamp)?;
 
     let vec: Vec<u8> = Vec::with_capacity(over_four);
@@ -146,6 +162,7 @@ fn test_read_minimal(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLo
 
     Ok(())
 }
+*/
 
 /**
  * Create a log file and write records
@@ -171,4 +188,20 @@ fn create_record(rec_size: usize, i: usize) -> Vec<u8> {
     let fill = format!("{}", i);
     let middle = fill.repeat(rec_size - (start.len() + end.len()));
     (start + &middle + &end).into()
+}
+
+fn read_recs(tcs_log: &mut TcsLog, rec_size: usize, n_recs: usize) -> Result<(), TcsLogError> {
+    let mut timestamp = Timestamp::new(0, 0);
+    let mut vec = Vec::<u8>::with_capacity(rec_size);
+//    let mut buf = &vec;
+
+    for i in 0..n_recs {
+        let n = tcs_log.read(&mut timestamp, &mut vec);
+
+        if let Err(e) = n {
+            return Err(e);
+        }
+    }
+
+    Ok(())
 }

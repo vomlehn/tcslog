@@ -141,14 +141,17 @@ impl<'a> TcsLog<'a> {
 
         let (path, mut file, header) = loop {
             let timestamp = timestamper.timestamp().unwrap();
-            let file_name = TcsLog::generate_file_name(prefix, timestamp);
+println!("open_with_timestamp: timestamp: {:?}", timestamp);
+            let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
+println!("open_with_timestamp: file_name: {:?}", file_name);
 
             // Create header
-            let header = Header::new(timestamp, &file_name, index_offset, data_offset);
+            let header = Header::new(timestamp, index_offset, data_offset, &file_name);
 
             // Create the file
             
             let path = PathBuf::from(dir_name).join(&file_name);
+println!("open_with_timestamp: path: {:?}", path);
 
             match OpenOptions::new()
 // FIXME: remove this?
@@ -167,6 +170,7 @@ impl<'a> TcsLog<'a> {
                 Err(e) => return Err(TcsLogError::Io(e)),
             }
         };
+println!("open_with_timestamp: writing the header\n");
 
         // Write the header
         let header_bytes = header.to_bytes();
@@ -185,6 +189,7 @@ impl<'a> TcsLog<'a> {
 
         // Seek to beginning of data section
         file.seek(SeekFrom::Start(data_offset))?;
+println!("open_with_timestamp: returning");
 
         Ok(TcsLog {
             dir_name,
@@ -200,11 +205,13 @@ impl<'a> TcsLog<'a> {
     }
 
     /// Generates a file name from prefix and timestamp.
-    pub fn generate_file_name(prefix: &str, timestamp: Timestamp) -> String {
+    pub fn generate_file_name(prefix: &str, timestamp: Timestamp) -> Result<String, TcsLogError> {
+        Self::validate_prefix(prefix)?;
+
         // Format: prefix-XXXX_XXXX_XXXX_XXXX_XXXX_XXXX (where X is hex digit)
         let timestamp_u128 = timestamp.as_nanos();
         let hex = format!("{:024}", timestamp_u128);
-        format!(
+        Ok(format!(
             "{}-{}_{}_{}_{}_{}_{}",
             prefix,
             &hex[0..4],
@@ -213,7 +220,17 @@ impl<'a> TcsLog<'a> {
             &hex[12..16],
             &hex[16..20],
             &hex[20..24]
-        )
+        ))
+    }
+
+    // Determines whether the prefix is valid
+    // Returns Ok(()) if valid, Err(TcsLogError) if not
+    pub fn validate_prefix(prefix: &str) -> Result<(), TcsLogError> {
+        if prefix.len() == 0 || prefix.len() > MAX_PREFIX_LEN {
+            Err(TcsLogError::InvalidPrefixLen(prefix.len()))
+        } else {
+            Ok(())
+        }
     }
 
     /// Parses a timestamp from a file name.
@@ -256,8 +273,9 @@ impl<'a> TcsLog<'a> {
     ///
     /// If successful, returns a TcsLog. Otherwise, returns Err(TcsLogError).
     pub fn open(dir_name: &'a str, prefix: &str, timestamp: Timestamp) -> Result<TcsLog<'a>, TcsLogError> {
-        let file_name = TcsLog::generate_file_name(prefix, timestamp);
+        let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
         let path = PathBuf::from(&file_name);
+println!("TcsLog::open: path {:?}", path);
 
         if !path.exists() {
             return Err(TcsLogError::NotFound);
@@ -285,7 +303,9 @@ impl<'a> TcsLog<'a> {
         })
     }
 
-    /// Opens an existing TcsLog by path.
+    /// Opens an existing TcsLog by path. This specifically does not validate
+    /// the format of the path name so that, if used for recovery efforts,
+    /// there is more flexibility in its use.
     pub fn open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog<'a>, TcsLogError> {
         let path = path.as_ref();
         if !path.exists() {
@@ -403,7 +423,8 @@ impl<'a> TcsLog<'a> {
 
     /// Reads the next telemetry record from the TcsLog.
     ///
-    /// Returns the number of bytes placed in data on success, Err(TcsLogError) otherwise.
+    /// Returns the number of bytes placed in data on success,
+    /// Err(TcsLogError) otherwise.
     pub fn read(&mut self, timestamp: &mut Timestamp, data: &mut [u8]) -> Result<usize, TcsLogError> {
         if self.writing {
             return Err(TcsLogError::InvalidFormat(

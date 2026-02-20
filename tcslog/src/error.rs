@@ -31,6 +31,8 @@ pub enum TcsLogError {
     ValueTooLarge,
     #[error("Timestamp error: {0}")]
     TimestampableError(TimestampableError),
+    #[error("Invalid prefix in file path: {0}")]
+    InvalidPrefixLen(usize),
 }
 
 impl From<std::io::Error> for TcsLogError {
