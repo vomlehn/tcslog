@@ -16,7 +16,7 @@ pub enum TcsLogError {
 	#[error("Record too large to fit in log file")]
     RecordTooLarge,
 	#[error("End of log reached")]
-    EndOfLog,
+    EOF,
 	#[error("Log file not found")]
     NotFound,
 	#[error("Invalid timestamp")]
@@ -31,8 +31,8 @@ pub enum TcsLogError {
     ValueTooLarge,
     #[error("Timestamp error: {0}")]
     TimestampableError(TimestampableError),
-    #[error("Invalid prefix in file path: {0}")]
-    InvalidPrefixLen(usize),
+    #[error("Log does not have an EOF marker at the end")]
+    MissingEOF,
 }
 
 impl From<std::io::Error> for TcsLogError {

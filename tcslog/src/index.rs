@@ -204,7 +204,7 @@ mod tests {
 
     #[test]
     fn test_index_entry_roundtrip() {
-        let entry = IndexEntry::new(0x1234_5678_9ABC_DEF0, 0xFEDC_BA98_7654_3210);
+        let entry = IndexEntry::new(0x1234_5678_9ABC_DEF0, Timestamp::from_nanos(0xFEDC_BA98_7654_3210));
         let bytes = entry.to_bytes();
         let restored = IndexEntry::from_bytes(&bytes);
         assert_eq!(entry.offset, restored.offset);
@@ -214,8 +214,8 @@ mod tests {
     #[test]
     fn test_index_block_roundtrip() {
         let mut block = IndexBlock::new();
-        block.entries[0] = IndexEntry::new(4096, 1000);
-        block.entries[1] = IndexEntry::new(8192, 2000);
+        block.entries[0] = IndexEntry::new(4096, Timestamp::from_nanos(1000));
+        block.entries[1] = IndexEntry::new(8192, Timestamp::from_nanos(2000));
 
         let bytes = block.to_bytes();
         let restored = IndexBlock::from_bytes(&bytes);
@@ -229,15 +229,15 @@ mod tests {
     #[test]
     fn test_find_le() {
         let mut block = IndexBlock::new();
-        block.entries[0] = IndexEntry::new(4096, 1000);
-        block.entries[1] = IndexEntry::new(8192, 2000);
-        block.entries[2] = IndexEntry::new(12288, 3000);
+        block.entries[0] = IndexEntry::new(4096, Timestamp::from_nanos(1000));
+        block.entries[1] = IndexEntry::new(8192, Timestamp::from_nanos(2000));
+        block.entries[2] = IndexEntry::new(12288, Timestamp::from_nanos(3000));
 
-        assert_eq!(block.find_le(500), None);
-        assert_eq!(block.find_le(1000), Some(0));
-        assert_eq!(block.find_le(1500), Some(0));
-        assert_eq!(block.find_le(2000), Some(1));
-        assert_eq!(block.find_le(3500), Some(2));
+        assert_eq!(block.find_le(Timestamp::from_nanos(500)), None);
+        assert_eq!(block.find_le(Timestamp::from_nanos(1000)), Some(0));
+        assert_eq!(block.find_le(Timestamp::from_nanos(1500)), Some(0));
+        assert_eq!(block.find_le(Timestamp::from_nanos(2000)), Some(1));
+        assert_eq!(block.find_le(Timestamp::from_nanos(3500)), Some(2));
     }
 
     #[test]

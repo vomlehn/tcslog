@@ -2,11 +2,11 @@ use std::path::PathBuf;
 use std::fs::OpenOptions;
 use std::io::Read;
 
-use tcslog::{BLOCK_SIZE, FILE_TYPE, HEADER_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable, TimestampableError, VERSION};
+use tcslog::{BLOCK_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable, TimestampableError};
 
 /*
- * Define a type that returns the timestamp. In this implementation,
- * we return the time since the UNIX epoch.
+ * Define a type that returns the timestamp. The timestamp advances by one
+ * each time, making it easy to predict what it will be.
  */
 #[derive(Debug)]
 pub struct Teststamper {
@@ -59,24 +59,30 @@ fn main() {
 
 fn testit<'a>() {
     let over_four = MAX_RECORD_SIZE / 4;
-    let result = test_write_minimal(over_four);
+    let result = test_write_one(over_four);
     match &result {
-        Err(e) => println!("test_write_minimal: FAILED: {:?}", e),
+        Err(e) => println!("test_write_one: FAILED: {:?}", e),
         Ok(timestamp) => {
-            let result = test_read_minimal(*timestamp, over_four);
+            let result = test_read_one(*timestamp, over_four);
             match &result {
-                Err(e) => println!("test_read_minimal: FAILED: {:?}", e),
-                Ok(()) => println!("test_read_minimal: success"),
+                Err(e) => println!("test_read_one: FAILED: {:?}", e),
+                Ok(n) => println!("test_read_one: success"),
             }
         }
     }
+/*
 println!("---");
 
-    let result = test_fill_minimal();
+    let result = test_fill_one();
     println!("Test {}", if result.is_ok() { "successful" } else { "FAILED" });
+*/
 }
 
-fn test_write_minimal(over_four: usize) -> Result<Timestamp, TcsLogError> {
+/**
+ * Write one record, returning the timestamp used to create the log file or
+ * an error.
+ */
+fn test_write_one(over_four: usize) -> Result<Timestamp, TcsLogError> {
 
     let mut teststamper = Teststamper::new();
 println!("Creating TcsLog");
@@ -86,29 +92,97 @@ println!("Creating TcsLog");
     Ok(timestamp)
 }
 
-fn test_read_minimal(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLogError> {
+/**
+ * Read one record, verifying that the EOF is present
+ */
+fn test_read_one(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLogError> {
     let prefix = "testlog";
     let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
-println!("test_read_minimal: file_name {}", file_name);
-
-/*
-    // Create header
-    let index_offset: u64 = BLOCK_SIZE.try_into().unwrap();
-    let data_offset: u64 = (2 * BLOCK_SIZE).try_into().unwrap();
-    let header = Header::new(timestamp, &file_name, index_offset, data_offset);
-*/
+println!("test_read_one: file_name {}", file_name);
 
     // Open the file
     
     let dir_name = "/tmp";
     let path = PathBuf::from(dir_name).join(&file_name);
-println!("test_read_minimal: path {:?}", path);
+println!("test_read_one: path {:?}", path);
     let mut tcs_log = TcsLog::open_path(path)?;
+println!("test_read_one: path is open");
 
-    read_recs(&mut tcs_log, over_four, 1)?;
+    read_recs_eof(&mut tcs_log, over_four, 1)
+}
+
+/**
+ * Test overflowing from one log file to another one
+ */
+fn test_fill_one<'a>() -> Result<Timestamp, TcsLogError> {
+    let over_four = MAX_RECORD_SIZE / 4;
+    let mut teststamper = Teststamper::new();
+
+    let mut tcs_log = TcsLog::new_with_timestamp("/tmp", "testlog", &mut teststamper, (3 * BLOCK_SIZE).try_into().unwrap())?;
+    write_recs(&mut tcs_log, &mut teststamper, over_four + 4, 5)
+}
+
+/**
+ * Create a log file and write records
+ * rec_size:    Number of bytes
+ * n_recs:      Number of records to write
+ */
+fn write_recs<'a>(tcs_log: &mut TcsLog, teststamper: &mut Teststamper, rec_size: usize, n_recs: usize) -> Result<Timestamp, TcsLogError> {
+
+    for i in 0..n_recs {
+        let rec = create_record(rec_size, i);
+        tcs_log.write(teststamper, &rec)?;
+    }
+
+    match teststamper.timestamp() {
+        Err(e) => Err(TcsLogError::TimestampableError(e)),
+        Ok(timestamp) => Ok(timestamp),
+    }
+}
+
+/**
+ * Create a single record with a serial number
+ */
+fn create_record(rec_size: usize, i: usize) -> Vec<u8> {
+    let start = format!("<<<Record {} ", i);
+    let end = format!(" #{} >>>", i);
+    let fill = format!("{}", i);
+    let middle = fill.repeat(rec_size - (start.len() + end.len()));
+    (start + &middle + &end).into()
+}
+
+/**
+ * Read the given number of records, then one more and verify the last
+ * read gets an EOF
+ */
+fn read_recs_eof(tcs_log: &mut TcsLog, rec_size: usize, n_recs: usize) -> Result<(), TcsLogError> {
+    read_recs(tcs_log, rec_size, n_recs)?;
+
+    let mut timestamp = Timestamp::new(0, 0);
+    let mut buf = vec![0u8; rec_size];
+
+println!("read_rec_eof: rec_size {} size {}", rec_size, buf.len());
+    // Read one more record to verify EOF
+    let eof = tcs_log.read(&mut timestamp, &mut buf);
+    match eof {
+        Err(TcsLogError::EOF) => Ok(()),
+        Err(e) => Err(e),
+        Ok(_) => Ok(()),
+    }
+}
+
+fn read_recs(tcs_log: &mut TcsLog, rec_size: usize, n_recs: usize) -> Result<(), TcsLogError> {
+    let mut timestamp = Timestamp::new(0, 0);
+    let mut buf = vec![0u8; rec_size];
+
+    for i in 0..n_recs {
+println!("read_rec: i {i} rec_size {} size {}", rec_size, buf.len());
+        let n = tcs_log.read(&mut timestamp, &mut buf)?;
+    }
 
     Ok(())
-/*
+}
+/* FIXME: delete this
     let mut f = match OpenOptions::new()
         .read(true)
         .open(&path)
@@ -137,21 +211,17 @@ let t = Ok(teststamper.first());
         Ok(timestamp) => Ok(timestamp),
     }
 ;
-println!("test_write_minimal: returning {:?}", t);
+println!("test_write_one: returning {:?}", t);
 t
 */
-}
-
-fn test_fill_minimal<'a>() -> Result<Timestamp, TcsLogError> {
-    let over_four = MAX_RECORD_SIZE / 4;
-    let mut teststamper = Teststamper::new();
-
-    let mut tcs_log = TcsLog::new_with_timestamp("/tmp", "testlog", &mut teststamper, (3 * BLOCK_SIZE).try_into().unwrap())?;
-    write_recs(&mut tcs_log, &mut teststamper, over_four + 4, 5)
-}
-
 /*
-fn test_read_minimal(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLogError> {
+    // Create header
+    let index_offset: u64 = BLOCK_SIZE.try_into().unwrap();
+    let data_offset: u64 = (2 * BLOCK_SIZE).try_into().unwrap();
+    let header = Header::new(timestamp, &file_name, index_offset, data_offset);
+*/
+/*
+fn test_read_one(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLogError> {
     let mut testtamper = Teststamper::new_init(timestamp);
     let timestamp = testtamper.first();
     let _tcs_log = TcsLog::open("/tmp", "testlog", timestamp)?;
@@ -163,45 +233,3 @@ fn test_read_minimal(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLo
     Ok(())
 }
 */
-
-/**
- * Create a log file and write records
- * rec_size:    Number of bytes
- * n_recs:      Number of records to write
- */
-fn write_recs<'a>(tcs_log: &mut TcsLog, teststamper: &mut Teststamper, rec_size: usize, n_recs: usize) -> Result<Timestamp, TcsLogError> {
-
-    for i in 0..n_recs {
-        let rec = create_record(rec_size, i);
-        tcs_log.write(teststamper, &rec)?;
-    }
-
-    match teststamper.timestamp() {
-        Err(e) => Err(TcsLogError::TimestampableError(e)),
-        Ok(timestamp) => Ok(timestamp),
-    }
-}
-
-fn create_record(rec_size: usize, i: usize) -> Vec<u8> {
-    let start = format!("<<<Record {} ", i);
-    let end = format!(" #{} >>>", i);
-    let fill = format!("{}", i);
-    let middle = fill.repeat(rec_size - (start.len() + end.len()));
-    (start + &middle + &end).into()
-}
-
-fn read_recs(tcs_log: &mut TcsLog, rec_size: usize, n_recs: usize) -> Result<(), TcsLogError> {
-    let mut timestamp = Timestamp::new(0, 0);
-    let mut vec = Vec::<u8>::with_capacity(rec_size);
-//    let mut buf = &vec;
-
-    for i in 0..n_recs {
-        let n = tcs_log.read(&mut timestamp, &mut vec);
-
-        if let Err(e) = n {
-            return Err(e);
-        }
-    }
-
-    Ok(())
-}

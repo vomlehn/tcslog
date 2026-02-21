@@ -1,16 +1,14 @@
 //! Log file header block handling.
 
+use crate::{BLOCK_SIZE, FILE_TIMESTAMP_LEN, FILE_TYPE, MAX_PREFIX_LEN, VERSION_00_01_00};
 use crate::error::TcsLogError;
-use crate::{BLOCK_SIZE, FILE_TIMESTAMP_LEN, FILE_TYPE, MAX_PREFIX_LEN, VERSION, Timestamp};
+use crate::timestamp::Timestamp;
 
 /// Size of the file type field in bytes.
 pub const FILE_TYPE_SIZE: usize = 8;
 
 /// Size of the version field in bytes.
 pub const VERSION_SIZE: usize = 8;
-
-/// Size of the timestamp field in bytes.
-pub const TIMESTAMP_SIZE: usize = Timestamp::len();
 
 /// Maximum length of the file name (excluding NUL terminator).
 pub const FILE_NAME_MAX_LEN: usize = MAX_PREFIX_LEN + FILE_TIMESTAMP_LEN;
@@ -53,7 +51,7 @@ impl Header {
 
         Header {
             file_type: *FILE_TYPE,
-            version: *VERSION,
+            version: *VERSION_00_01_00,
             timestamp,
             index_offset,
             data_offset,
@@ -75,8 +73,8 @@ impl Header {
         offset += VERSION_SIZE;
 
         // Timestamp (little-endian)
-        buffer[offset..offset + TIMESTAMP_SIZE].copy_from_slice(&self.timestamp.to_le_bytes());
-        offset += TIMESTAMP_SIZE;
+        buffer[offset..offset + Timestamp::TIMESTAMP_SIZE].copy_from_slice(&self.timestamp.to_le_bytes());
+        offset += Timestamp::TIMESTAMP_SIZE;
 
         // Index offset (little-endian)
         buffer[offset..offset + INDEX_OFFSET_SIZE]
@@ -112,14 +110,15 @@ impl Header {
         let mut version = [0u8; VERSION_SIZE];
         version.copy_from_slice(&buffer[offset..offset + VERSION_SIZE]);
         offset += VERSION_SIZE;
+println!("Header::from_bytes: version {version:?}, offset {offset}");
 
         // Timestamp
         let timestamp = Timestamp::from_le_bytes(
-            buffer[offset..offset + TIMESTAMP_SIZE]
+            buffer[offset..offset + Timestamp::TIMESTAMP_SIZE]
                 .try_into()
                 .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
         );
-        offset += TIMESTAMP_SIZE;
+        offset += Timestamp::TIMESTAMP_SIZE;
 
         // Index offset
         let index_offset = u64::from_le_bytes(
@@ -170,10 +169,10 @@ mod tests {
     #[test]
     fn test_header_roundtrip() {
         let header = Header::new(
-            1234567890_000_000_000,
-            "test-0001_2345_6789_0abc",
+            Timestamp::from_nanos(1234567890_000_000_000),
             HEADER_SIZE as u64,
             HEADER_SIZE as u64 + BLOCK_SIZE as u64,
+            "test-0001_2345_6789_0abc",
         );
 
         let bytes = header.to_bytes();
@@ -189,7 +188,7 @@ mod tests {
 
     #[test]
     fn test_file_name_str() {
-        let header = Header::new(0, "test-file", HEADER_SIZE as u64, HEADER_SIZE as u64);
+        let header = Header::new(Timestamp::ZERO, HEADER_SIZE as u64, HEADER_SIZE as u64, "test-file");
         assert_eq!(header.file_name_str(), "test-file");
     }
 }
