@@ -149,9 +149,7 @@ impl<'a> TcsLog<'a> {
 
         let (path, mut file, header) = loop {
             let timestamp = timestamper.timestamp().unwrap();
-            println!("open_with_timestamp: timestamp: {:?}", timestamp);
             let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
-            println!("open_with_timestamp: file_name: {:?}", file_name);
 
             // Create header
             let header = Header::new(timestamp, index_offset, data_offset, &file_name);
@@ -159,7 +157,6 @@ impl<'a> TcsLog<'a> {
             // Create the file
 
             let path = PathBuf::from(dir_name).join(&file_name);
-            println!("open_with_timestamp: path: {:?}", path);
 
             match OpenOptions::new()
                 // FIXME: remove this?
@@ -180,7 +177,6 @@ impl<'a> TcsLog<'a> {
                 Err(e) => return Err(TcsLogError::Io(e)),
             }
         };
-        println!("open_with_timestamp: writing the header\n");
 
         // Write the header
         let header_bytes = header.to_bytes();
@@ -199,7 +195,6 @@ impl<'a> TcsLog<'a> {
 
         // Seek to beginning of data section
         file.seek(SeekFrom::Start(data_offset))?;
-        println!("open_with_timestamp: returning");
 
         Ok(TcsLog {
             dir_name,
@@ -338,7 +333,6 @@ impl<'a> TcsLog<'a> {
             return Err(TcsLogError::NotFound);
         }
 
-        println!("Opening path {:?}", path);
         let mut file = OpenOptions::new().read(true).open(path)?;
 
         // Read and parse header
@@ -483,7 +477,6 @@ impl<'a> TcsLog<'a> {
         // Check if at start of new block
         println!("read_position {:?}", self.read_position);
         let block_offset = (self.read_position - self.header.data_offset) % BLOCK_SIZE as u64;
-        println!("block_offset {:?}", block_offset);
         if block_offset == 0 {
             // Skip block header
             self.read_position += data::BLOCK_HEADER_SIZE as u64;
@@ -501,7 +494,7 @@ impl<'a> TcsLog<'a> {
         // Rust runtime library? I think it is by Linux, but this might be
         // a portability if the Rust RT doesn't guarantee it. It looks like the
         // answer is no, so this needs to be fixed.
-        println!("TcsLog::read: reading timestamp");
+println!("TcsLog::read: reading timestamp");
         match self.file.read(&mut ts_bytes) {
             Err(e) => return Err(TcsLogError::Io(e)),
             Ok(n) => {
@@ -509,13 +502,12 @@ impl<'a> TcsLog<'a> {
                     return Err(TcsLogError::EOF);
                 } else if n != Timestamp::TIMESTAMP_SIZE {
                     return Err(TcsLogError::CorruptedEOF);
-                } else {
                 }
             }
         }
 
         *timestamp = Timestamp::from_le_bytes(ts_bytes);
-        println!("TcsLog::read: read timestamp {:?}", timestamp);
+println!("TcsLog::read: read timestamp {:?}", timestamp);
         if *timestamp == Timestamp::EOF {
             return Err(TcsLogError::EOF);
         }
@@ -537,7 +529,7 @@ impl<'a> TcsLog<'a> {
         self.read_position += 8;
 
         println!("TcsLog::read: Reading record data");
-        let read_offset: u64 = size_of::<Timestamp>().try_into().unwrap();
+        let read_offset: u64 = (Timestamp::TIMESTAMP_SIZE as u64).try_into().unwrap();
         self.read_position += read_offset;
 
         // Read data
@@ -552,6 +544,7 @@ impl<'a> TcsLog<'a> {
         self.file.read_exact(&mut data[..len])?;
         println!("Timestamp::read: read data len {len}");
         self.read_position += len as u64;
+println!("Final read position {:?}", self.read_position);
 
         Ok(len)
     }

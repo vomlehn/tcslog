@@ -111,7 +111,6 @@ impl Header {
         let mut version = [0u8; VERSION_SIZE];
         version.copy_from_slice(&buffer[offset..offset + VERSION_SIZE]);
         offset += VERSION_SIZE;
-        println!("Header::from_bytes: version {version:?}, offset {offset}");
 
         // Timestamp
         let timestamp = Timestamp::from_le_bytes(
