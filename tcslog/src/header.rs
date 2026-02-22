@@ -34,12 +34,12 @@ pub struct Header {
     pub version: [u8; VERSION_SIZE],
     /// Timestamp in nanoseconds since UNIX epoch.
     pub timestamp: Timestamp,
-    /// File name (up to 52 characters plus NUL).
-    pub file_name: [u8; FILE_NAME_SIZE],
     /// Offset to the beginning of the index section.
     pub index_offset: u64,
     /// Offset to the beginning of the data section.
     pub data_offset: u64,
+    /// File name (up to 52 characters plus NUL).
+    pub file_name: [u8; FILE_NAME_SIZE],
 }
 
 impl Header {
@@ -93,7 +93,7 @@ impl Header {
     }
 
     /// Deserializes a header from a byte buffer.
-    pub fn from_bytes(buffer: &[u8; HEADER_SIZE]) -> Result<Self, TcsLogError> {
+    pub fn from_bytes(buffer: &[u8; HEADER_SIZE]) -> Result<Self, TcsLogError<'static>> {
         let mut offset = 0;
 
         // File type
@@ -135,6 +135,7 @@ println!("Header::from_bytes: version {version:?}, offset {offset}");
                 .map_err(|_| TcsLogError::InvalidFormat("Invalid data offset".to_string()))?,
         );
         offset += DATA_OFFSET_SIZE;
+println!("header::frombytes: index offset {index_offset} data_offset {data_offset}");
 
         // File name
         let mut file_name = [0u8; FILE_NAME_SIZE];

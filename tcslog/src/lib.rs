@@ -109,7 +109,7 @@ pub struct TcsLog<'a> {
 
 impl<'a> TcsLog<'a> {
     /// Creates a new TcsLog with a specified maximum file size.
-    pub fn new(dir_name: &'a str, prefix: &str, max_size: u64) -> Result<TcsLog<'a>, TcsLogError> {
+    pub fn new(dir_name: &'a str, prefix: &str, max_size: u64) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         // Generate timestamp and file name
         let mut timestamper = Timestamper::new();
         Self::new_with_timestamp(dir_name, prefix, &mut timestamper, max_size)
@@ -118,7 +118,7 @@ impl<'a> TcsLog<'a> {
     /// Creates a new TcsLog with a specified maximum file size while
     /// specifying the timestamp. This is useful for testing when you
     /// want to know the name of the file.
-    pub fn new_with_timestamp(dir_name: &'a str, prefix: &str, timestamper: &mut dyn Timestampable, max_size: u64) -> Result<TcsLog<'a>, TcsLogError> {
+    pub fn new_with_timestamp(dir_name: &'a str, prefix: &str, timestamper: &mut dyn Timestampable, max_size: u64) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         // Validate prefix
         if prefix.is_empty() || prefix.len() > MAX_PREFIX_LEN {
             return Err(TcsLogError::InvalidPrefix(format!(
@@ -205,7 +205,7 @@ println!("open_with_timestamp: returning");
     }
 
     /// Generates a file name from prefix and timestamp.
-    pub fn generate_file_name(prefix: &str, timestamp: Timestamp) -> Result<String, TcsLogError> {
+    pub fn generate_file_name(prefix: &str, timestamp: Timestamp) -> Result<String, TcsLogError<'static>> {
         Self::validate_prefix(prefix)?;
 
         // Format: prefix-XXXX_XXXX_XXXX_XXXX_XXXX_XXXX (where X is hex digit)
@@ -225,7 +225,7 @@ println!("open_with_timestamp: returning");
 
     // Determines whether the prefix is valid
     // Returns Ok(()) if valid, Err(TcsLogError) if not
-    pub fn validate_prefix(prefix: &str) -> Result<(), TcsLogError> {
+    pub fn validate_prefix(prefix: &str) -> Result<(), TcsLogError<'static>> {
         if prefix.len() == 0 || prefix.len() > MAX_PREFIX_LEN {
             return Err(TcsLogError::InvalidPrefix(prefix.to_string()));
         }
@@ -277,7 +277,7 @@ println!("open_with_timestamp: returning");
     /// Opens an existing TcsLog so that the telemetry records it contains may be read.
     ///
     /// If successful, returns a TcsLog. Otherwise, returns Err(TcsLogError).
-    pub fn open(dir_name: &'a str, prefix: &str, timestamp: Timestamp) -> Result<TcsLog<'a>, TcsLogError> {
+    pub fn open(dir_name: &'a str, prefix: &str, timestamp: Timestamp) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
         let path = PathBuf::from(&file_name);
 println!("TcsLog::open: path {:?}", path);
@@ -313,7 +313,7 @@ println!("read header bytes");
     /// Opens an existing TcsLog by path. This specifically does not validate
     /// the format of the path name so that, if used for recovery efforts,
     /// there is more flexibility in its use.
-    pub fn open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog<'a>, TcsLogError> {
+    pub fn open_path<P: AsRef<Path>>(path: P) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         let path = path.as_ref();
         if !path.exists() {
             return Err(TcsLogError::NotFound);
@@ -324,9 +324,9 @@ println!("Opening path {:?}", path);
 
         // Read and parse header
         let mut header_bytes = [0u8; HEADER_SIZE];
-println!("reading {header_bytes:?}");
+//println!("reading {:?}", header_bytes[..160]);
         file.read_exact(&mut header_bytes)?;
-println!("read {header_bytes:?}");
+//println!("read {:?}", header_bytes[..160]);
         let header = Header::from_bytes(&header_bytes)?;
 
         let max_size = DEFAULT_FILE_SIZE;
@@ -340,6 +340,7 @@ println!("extracting prefix");
             .unwrap_or("")
             .to_string();
         Self::validate_prefix(&prefix)?;
+println!("open_path: initial read_position {:?}", header.data_offset);
 
         Ok(TcsLog {
             dir_name: "",              // FIXME: not needed
@@ -360,7 +361,7 @@ println!("extracting prefix");
     /// It is an error to write more data than will fit in a newly created log file.
     ///
     /// Returns () if the data was written, otherwise Err(TcsLogError).
-    pub fn write(&mut self, timestamper: &mut dyn Timestampable, data: &[u8]) -> Result<(), TcsLogError> {
+    pub fn write(&mut self, timestamper: &mut dyn Timestampable, data: &[u8]) -> Result<(), TcsLogError<'static>> {
         if !self.writing {
             return Err(TcsLogError::InvalidFormat(
                 "Log not opened for writing".to_string(),
@@ -406,14 +407,15 @@ println!("extracting prefix");
             return self.write(timestamper, data);
         }
 
-        // Write record length
-        self.file.write_all(&(data.len() as u64).to_le_bytes())?;
-        self.write_position += 8;
-
         // Write timestamp
+println!("TcsLog::write: writing timetamp {:?} at {:?}", timestamp, self.file.stream_position());
         let buf = timestamp.to_le_bytes();
         self.file.write_all(&buf)?;
         self.write_position += buf.len() as u64;
+
+        // Write record length
+        self.file.write_all(&(data.len() as u64).to_le_bytes())?;
+        self.write_position += 8;
 
         // Write data
         self.file.write_all(data)?;
@@ -426,7 +428,7 @@ println!("extracting prefix");
     }
 
     /// Updates the index with a new record.
-    fn update_index(&mut self, _offset: u64, _timestamp: Timestamp) -> Result<(), TcsLogError> {
+    fn update_index(&mut self, _offset: u64, _timestamp: Timestamp) -> Result<(), TcsLogError<'static>> {
         // Index update implementation
         // For simplicity, we update the first index block entry
         // A full implementation would maintain a proper B-tree structure
@@ -437,7 +439,7 @@ println!("extracting prefix");
     ///
     /// Returns the number of bytes placed in data on success,
     /// Err(TcsLogError) otherwise.
-    pub fn read(&mut self, timestamp: &mut Timestamp, data: &mut [u8]) -> Result<usize, TcsLogError> {
+    pub fn read(&mut self, timestamp: &mut Timestamp, data: &mut [u8]) -> Result<usize, TcsLogError<'static>> {
         if self.writing {
             return Err(TcsLogError::InvalidFormat(
                 "Log not opened for reading".to_string(),
@@ -446,55 +448,68 @@ println!("extracting prefix");
 println!("Reading...");
 
         // Check if at start of new block
+println!("read_position {:?}", self.read_position);
         let block_offset = (self.read_position - self.header.data_offset) % BLOCK_SIZE as u64;
+println!("block_offset {:?}", block_offset);
         if block_offset == 0 {
             // Skip block header
             self.read_position += data::BLOCK_HEADER_SIZE as u64;
+println!("read_position adjusted to {:?}", self.read_position);
         }
 
-        // Read record length
+        // Read timestamp. If we get zero bytes, we're at the physical, and
+        // hence, logical EOF. If the timestamp is Timestamp::EOF, we are
+        // at the logical EOF.
         self.file.seek(SeekFrom::Start(self.read_position))?;
-        let mut len_bytes = [0u8; 8];
-        
-println!("read: reading record length {} from {}", len_bytes.len(), self.read_position);
-        if let Err(e) = self.file.read_exact(&mut len_bytes) {
-println!("read: record length read failed");
-            return Err(TcsLogError::Io(e));
-        }
-        let len = u64::from_le_bytes(len_bytes) as usize;
-
-        if len == 0 {
-            return Err(TcsLogError::MissingEOF);
-        }
-
-        self.read_position += 8;
-
-        // Read timestamp
         let mut ts_bytes = [0u8; Timestamp::TIMESTAMP_SIZE];
-println!("reading timestamp");
-        self.file.read_exact(&mut ts_bytes)?;
-println!("read timestamp");
-        *timestamp = Timestamp::from_le_bytes(ts_bytes);
 
-        // Check for the special EOF marker in the timestamp field
+        // FIXME: this code assumes that seeking past the end of the file and
+        // then reading will return zero bytes. Is that guaranteed by the
+        // Rust runtime library? I think it is by Linux, but this might be
+        // a portability if the Rust RT doesn't guarantee it. It looks like the
+        // answer is no, so this needs to be fixed.
+println!("TcsLog::read: reading timestamp");
+        match self.file.read(&mut ts_bytes) {
+            Err(e) => return Err(TcsLogError::Io(e)),
+            Ok(n) => if n == 0 { return Err(TcsLogError::EOF) }
+                else if n != Timestamp::TIMESTAMP_SIZE { return Err(TcsLogError::CorruptedEOF) }
+                else {},
+        }
+
+        *timestamp = Timestamp::from_le_bytes(ts_bytes);
+println!("TcsLog::read: read timestamp {:?}", timestamp);
         if *timestamp == Timestamp::EOF {
             return Err(TcsLogError::EOF);
         }
+        
+        // Read record length
+        let mut len_bytes = [0u8; 8];
+        
+println!("TcsLog::read: position {:?}", self.file.stream_position());
+println!("TcsLog::read: reading record length {} from {}", len_bytes.len(), self.read_position);
+        if let Err(e) = self.file.read_exact(&mut len_bytes) {
+println!("TcsLog::read: record length read failed");
+            return Err(TcsLogError::Io(e));
+        }
+        let len = u64::from_le_bytes(len_bytes) as usize;
+        self.read_position += 8;
 
+
+println!("TcsLog::read: Reading record data");
         let read_offset: u64 = size_of::<Timestamp>().try_into().unwrap();
         self.read_position += read_offset;
 
         // Read data
-println!("len {len} data.len {}", data.len());
+println!("TcsLogTimestamp::read: len {len} data.len {}", data.len());
         if len > data.len() {
             return Err(TcsLogError::InvalidFormat(
                 "Buffer too small for record".to_string(),
             ));
         }
 
-println!("reading data len {len}");
+println!("Timestamp::read: reading data len {len}");
         self.file.read_exact(&mut data[..len])?;
-println!("read data len {len}");
+println!("Timestamp::read: read data len {len}");
         self.read_position += len as u64;
 
         Ok(len)
@@ -504,7 +519,7 @@ println!("read data len {len}");
     /// containing a header with that timestamp or greater.
     ///
     /// If no error occurred, returns the offset. Otherwise, returns Err(TcsLogError).
-    pub fn timestamp_offset(&mut self, timestamp: Timestamp) -> Result<u64, TcsLogError> {
+    pub fn timestamp_offset(&mut self, timestamp: Timestamp) -> Result<u64, TcsLogError<'static>> {
         // Read index block
         let mut index_bytes = [0u8; BLOCK_SIZE];
         self.file.seek(SeekFrom::Start(self.header.index_offset))?;
@@ -544,7 +559,7 @@ println!("timestamp_offset: read index");
     }
 
     /// Flushes any buffered data to disk.
-    pub fn flush(&mut self) -> Result<(), TcsLogError> {
+    pub fn flush(&mut self) -> Result<(), TcsLogError<'static>> {
         self.file.flush()?;
         Ok(())
     }

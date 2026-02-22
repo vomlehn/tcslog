@@ -161,7 +161,7 @@ pub struct IndexStructure {
 
 impl IndexStructure {
     /// Computes the index structure for the given number of data blocks.
-    pub fn compute(data_blocks: usize) -> Result<Self, TcsLogError> {
+    pub fn compute<'a>(data_blocks: usize) -> Result<Self, TcsLogError<'a>> {
         if data_blocks == 0 {
             return Ok(IndexStructure {
                 levels: 1,

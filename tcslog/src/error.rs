@@ -6,7 +6,9 @@ use thiserror::Error;
 use crate::TimestampableError;
 
 #[derive(Debug, Error)]
-pub enum TcsLogError {
+pub enum TcsLogError<'a> {
+    #[error("Test error: {0}")]
+    TestError(&'a str),
 	#[error("Header block too small")]
     BlockSizeTooSmall,
 	#[error("I/O error: {0}")]
@@ -17,6 +19,8 @@ pub enum TcsLogError {
     RecordTooLarge,
 	#[error("End of log reached")]
     EOF,
+    #[error("Corrupted EOF")]
+    CorruptedEOF,
 	#[error("Log file not found")]
     NotFound,
 	#[error("Invalid timestamp")]
@@ -35,13 +39,13 @@ pub enum TcsLogError {
     MissingEOF,
 }
 
-impl From<std::io::Error> for TcsLogError {
+impl From<std::io::Error> for TcsLogError<'_> {
     fn from(value: std::io::Error) -> Self {
         TcsLogError::Io(value)
     }
 }
 
-impl From<TimestampableError> for TcsLogError {
+impl From<TimestampableError> for TcsLogError<'_> {
     fn from(value: TimestampableError) -> Self {
         TcsLogError::TimestampableError(value)
     }

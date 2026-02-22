@@ -20,7 +20,7 @@ pub const RECORD_LENGTH_SIZE: usize = 8;
 pub const RECORD_TIMESTAMP_SIZE: usize = size_of::<Timestamp>();
 
 /// Size of record metadata (length + timestamp).
-pub const RECORD_METADATA_SIZE: usize = RECORD_LENGTH_SIZE + RECORD_TIMESTAMP_SIZE;
+pub const RECORD_METADATA_SIZE: usize = RECORD_TIMESTAMP_SIZE + RECORD_LENGTH_SIZE;
 
 /// Maximum record size that can fit in a single data block.
 pub const MAX_RECORD_SIZE: usize = BLOCK_SIZE - BLOCK_HEADER_SIZE - RECORD_METADATA_SIZE;
@@ -38,7 +38,7 @@ pub enum BlockHeader {
 
 impl BlockHeader {
     /// Parses a block header from its u64 representation.
-    pub fn from_u64(value: u64) -> Result<Self, TcsLogError> {
+    pub fn from_u64<'a>(value: u64) -> Result<Self, TcsLogError<'a>> {
         let lower_byte = value & 0xFF;
         let upper_bytes = value >> 8;
 
@@ -67,14 +67,14 @@ impl BlockHeader {
 #[derive(Debug, Clone)]
 pub struct DataRecord {
     /// Timestamp when the record was written (nanoseconds since UNIX epoch).
-    pub timestamp: u64,
+    pub timestamp: Timestamp,
     /// The actual data payload.
     pub data: Vec<u8>,
 }
 
 impl DataRecord {
     /// Creates a new data record.
-    pub fn new(timestamp: u64, data: Vec<u8>) -> Self {
+    pub fn new(timestamp: Timestamp, data: Vec<u8>) -> Self {
         DataRecord { timestamp, data }
     }
 
@@ -86,8 +86,8 @@ impl DataRecord {
     /// Serializes the record metadata and data to bytes.
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(self.total_size());
-        bytes.extend_from_slice(&(self.data.len() as u64).to_le_bytes());
         bytes.extend_from_slice(&self.timestamp.to_le_bytes());
+        bytes.extend_from_slice(&(self.data.len() as u64).to_le_bytes());
         bytes.extend_from_slice(&self.data);
         bytes
     }
@@ -100,16 +100,18 @@ impl DataRecord {
             ));
         }
 
-        let length =
-            u64::from_le_bytes(bytes[0..8].try_into().map_err(|_| {
-                TcsLogError::InvalidFormat("Invalid record length".to_string())
-            })?) as usize;
-
-        let timestamp = u64::from_le_bytes(
+        let timestamp = Timestamp::from_le_bytes(
             bytes[8..16]
                 .try_into()
                 .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
         );
+println!("DataRecord::timestamp: {:?}", timestamp);
+
+        let length =
+            u64::from_le_bytes(bytes[0..8].try_into().map_err(|_| {
+                TcsLogError::InvalidFormat("Invalid record length".to_string())
+            })?) as usize;
+println!("DataRecord::timestamp: {:?}", length);
 
         if bytes.len() < RECORD_METADATA_SIZE + length {
             return Err(TcsLogError::InvalidFormat(
