@@ -93,7 +93,7 @@ impl DataRecord {
     }
 
     /// Deserializes a record from bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, TcsLogError> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, TcsLogError<'_>> {
         if bytes.len() < RECORD_METADATA_SIZE {
             return Err(TcsLogError::InvalidFormat(
                 "Record too short for metadata".to_string(),
@@ -221,7 +221,7 @@ impl DataBlockReader {
 
     /// Returns the block header.
     #[allow(unused)]
-    pub fn header(&self) -> Result<BlockHeader, TcsLogError> {
+    pub fn header(&self) -> Result<BlockHeader, TcsLogError<'_>> {
         let value = u64::from_le_bytes(self.buffer[0..8].try_into().unwrap());
         BlockHeader::from_u64(value)
     }

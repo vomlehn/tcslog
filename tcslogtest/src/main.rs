@@ -1,6 +1,6 @@
 use std::path::PathBuf;
-use std::fs::OpenOptions;
-use std::io::Read;
+//use std::fs::OpenOptions;
+//use std::io::Read;
 
 use tcslog::{BLOCK_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable, TimestampableError};
 
@@ -11,17 +11,18 @@ use tcslog::{BLOCK_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timest
 #[derive(Debug)]
 pub struct Teststamper {
     time:       Timestamp,
-    first_time: Option<Timestamp>
+//    first_time: Option<Timestamp>
 }
 
 impl Teststamper {
     fn new() -> Teststamper {
         Teststamper {
             time:       Timestamp::ZERO,
-            first_time: None,
+//            first_time: None,
         }
     }
 
+/*
     fn new_init(first: Timestamp) -> Teststamper {
         Teststamper {
             time:       first,
@@ -32,6 +33,7 @@ impl Teststamper {
     fn first(&self) -> Timestamp {
         self.first_time.unwrap()
     }
+*/
 
     fn snapshot(&self) -> Timestamp {
         self.time
@@ -44,10 +46,12 @@ impl Timestampable for Teststamper {
         let mut time_ns = self.time.as_nanos();
         time_ns += 1;
         self.time = Timestamp::from_nanos(time_ns);
+/*
         if self.first_time.is_none() {
 println!("Set first time to {:?}", self.time);
             self.first_time = Some(self.time);
         }
+*/
         Ok(self.time)
     }
 }
