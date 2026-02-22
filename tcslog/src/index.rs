@@ -1,7 +1,7 @@
 //! Index structure and operations for log files.
 
 use crate::error::TcsLogError;
-use crate::{BLOCK_SIZE, Timestamp};
+use crate::{Timestamp, BLOCK_SIZE};
 use std::mem::size_of;
 
 /// Size of an index entry (offset + timestamp).
@@ -204,7 +204,10 @@ mod tests {
 
     #[test]
     fn test_index_entry_roundtrip() {
-        let entry = IndexEntry::new(0x1234_5678_9ABC_DEF0, Timestamp::from_nanos(0xFEDC_BA98_7654_3210));
+        let entry = IndexEntry::new(
+            0x1234_5678_9ABC_DEF0,
+            Timestamp::from_nanos(0xFEDC_BA98_7654_3210),
+        );
         let bytes = entry.to_bytes();
         let restored = IndexEntry::from_bytes(&bytes);
         assert_eq!(entry.offset, restored.offset);

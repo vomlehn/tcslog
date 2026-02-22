@@ -1,8 +1,8 @@
 //! Data block handling for log files.
 
 use crate::error::TcsLogError;
-use crate::BLOCK_SIZE;
 use crate::Timestamp;
+use crate::BLOCK_SIZE;
 
 /// Block header indicating null pointer (does not reference a file).
 pub const TCSLOG_NULL: u64 = 0x0000_0000_0000_0001;
@@ -105,13 +105,14 @@ impl DataRecord {
                 .try_into()
                 .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
         );
-println!("DataRecord::timestamp: {:?}", timestamp);
+        println!("DataRecord::timestamp: {:?}", timestamp);
 
-        let length =
-            u64::from_le_bytes(bytes[0..8].try_into().map_err(|_| {
-                TcsLogError::InvalidFormat("Invalid record length".to_string())
-            })?) as usize;
-println!("DataRecord::timestamp: {:?}", length);
+        let length = u64::from_le_bytes(
+            bytes[0..8]
+                .try_into()
+                .map_err(|_| TcsLogError::InvalidFormat("Invalid record length".to_string()))?,
+        ) as usize;
+        println!("DataRecord::timestamp: {:?}", length);
 
         if bytes.len() < RECORD_METADATA_SIZE + length {
             return Err(TcsLogError::InvalidFormat(

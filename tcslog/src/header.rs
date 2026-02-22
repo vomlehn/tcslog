@@ -1,8 +1,8 @@
 //! Log file header block handling.
 
-use crate::{BLOCK_SIZE, FILE_TIMESTAMP_LEN, FILE_TYPE, MAX_PREFIX_LEN, VERSION_00_01_00};
 use crate::error::TcsLogError;
 use crate::timestamp::Timestamp;
+use crate::{BLOCK_SIZE, FILE_TIMESTAMP_LEN, FILE_TYPE, MAX_PREFIX_LEN, VERSION_00_01_00};
 
 /// Size of the file type field in bytes.
 pub const FILE_TYPE_SIZE: usize = 8;
@@ -73,7 +73,8 @@ impl Header {
         offset += VERSION_SIZE;
 
         // Timestamp (little-endian)
-        buffer[offset..offset + Timestamp::TIMESTAMP_SIZE].copy_from_slice(&self.timestamp.to_le_bytes());
+        buffer[offset..offset + Timestamp::TIMESTAMP_SIZE]
+            .copy_from_slice(&self.timestamp.to_le_bytes());
         offset += Timestamp::TIMESTAMP_SIZE;
 
         // Index offset (little-endian)
@@ -87,7 +88,7 @@ impl Header {
 
         // File name
         buffer[offset..offset + FILE_NAME_SIZE].copy_from_slice(&self.file_name);
-//        offset += FILE_NAME_SIZE;
+        //        offset += FILE_NAME_SIZE;
 
         buffer
     }
@@ -110,7 +111,7 @@ impl Header {
         let mut version = [0u8; VERSION_SIZE];
         version.copy_from_slice(&buffer[offset..offset + VERSION_SIZE]);
         offset += VERSION_SIZE;
-println!("Header::from_bytes: version {version:?}, offset {offset}");
+        println!("Header::from_bytes: version {version:?}, offset {offset}");
 
         // Timestamp
         let timestamp = Timestamp::from_le_bytes(
@@ -135,12 +136,12 @@ println!("Header::from_bytes: version {version:?}, offset {offset}");
                 .map_err(|_| TcsLogError::InvalidFormat("Invalid data offset".to_string()))?,
         );
         offset += DATA_OFFSET_SIZE;
-println!("header::frombytes: index offset {index_offset} data_offset {data_offset}");
+        println!("header::frombytes: index offset {index_offset} data_offset {data_offset}");
 
         // File name
         let mut file_name = [0u8; FILE_NAME_SIZE];
         file_name.copy_from_slice(&buffer[offset..offset + FILE_NAME_SIZE]);
-//        offset += FILE_NAME_SIZE;
+        //        offset += FILE_NAME_SIZE;
 
         Ok(Header {
             file_type,
@@ -189,7 +190,12 @@ mod tests {
 
     #[test]
     fn test_file_name_str() {
-        let header = Header::new(Timestamp::ZERO, HEADER_SIZE as u64, HEADER_SIZE as u64, "test-file");
+        let header = Header::new(
+            Timestamp::ZERO,
+            HEADER_SIZE as u64,
+            HEADER_SIZE as u64,
+            "test-file",
+        );
         assert_eq!(header.file_name_str(), "test-file");
     }
 }

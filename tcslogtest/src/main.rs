@@ -2,7 +2,9 @@ use std::path::PathBuf;
 //use std::fs::OpenOptions;
 //use std::io::Read;
 
-use tcslog::{BLOCK_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable, TimestampableError};
+use tcslog::{
+    TcsLog, TcsLogError, Timestamp, Timestampable, TimestampableError, BLOCK_SIZE, MAX_RECORD_SIZE,
+};
 
 /*
  * Define a type that returns the timestamp. The timestamp advances by one
@@ -10,30 +12,30 @@ use tcslog::{BLOCK_SIZE, MAX_RECORD_SIZE, TcsLog, TcsLogError, Timestamp, Timest
  */
 #[derive(Debug)]
 pub struct Teststamper {
-    time:       Timestamp,
-//    first_time: Option<Timestamp>
+    time: Timestamp,
+    //    first_time: Option<Timestamp>
 }
 
 impl Teststamper {
     fn new() -> Teststamper {
         Teststamper {
-            time:       Timestamp::ZERO,
-//            first_time: None,
+            time: Timestamp::ZERO,
+            //            first_time: None,
         }
     }
 
-/*
-    fn new_init(first: Timestamp) -> Teststamper {
-        Teststamper {
-            time:       first,
-            first_time: Some(first),
+    /*
+        fn new_init(first: Timestamp) -> Teststamper {
+            Teststamper {
+                time:       first,
+                first_time: Some(first),
+            }
         }
-    }
 
-    fn first(&self) -> Timestamp {
-        self.first_time.unwrap()
-    }
-*/
+        fn first(&self) -> Timestamp {
+            self.first_time.unwrap()
+        }
+    */
 
     fn snapshot(&self) -> Timestamp {
         self.time
@@ -46,12 +48,12 @@ impl Timestampable for Teststamper {
         let mut time_ns = self.time.as_nanos();
         time_ns += 1;
         self.time = Timestamp::from_nanos(time_ns);
-/*
-        if self.first_time.is_none() {
-println!("Set first time to {:?}", self.time);
-            self.first_time = Some(self.time);
-        }
-*/
+        /*
+                if self.first_time.is_none() {
+        println!("Set first time to {:?}", self.time);
+                    self.first_time = Some(self.time);
+                }
+        */
         Ok(self.time)
     }
 }
@@ -59,7 +61,6 @@ println!("Set first time to {:?}", self.time);
 fn main() {
     testit()
 }
-
 
 fn testit<'a>() {
     let mut test: &str;
@@ -69,40 +70,40 @@ fn testit<'a>() {
         Err(e) => println!("{} FAILED: {:?}", test, e),
         Ok(_) => println!("{} succeeded", test),
     }
-println!("---");
+    println!("---");
 
     test = "test_one_small";
     match test_one_small() {
         Err(e) => println!("{} FAILED: {:?}", test, e),
         Ok(_) => println!("{} succeeded", test),
     }
-println!("---");
+    println!("---");
 
     test = "test_multiple_small";
     match test_multiple_small() {
         Err(e) => println!("{} FAILED: {:?}", test, e),
         Ok(_) => println!("{} succeeded", test),
     }
-println!("---");
+    println!("---");
 
-/*
-    let over_four = MAX_RECORD_SIZE / 4;
-    let result = test_write_one(over_four);
-    match &result {
-        Err(e) => println!("test_write_one: FAILED: {:?}", e),
-        Ok(timestamp) => {
-            let result = test_read_one(*timestamp, over_four);
-            match &result {
-                Err(e) => println!("test_read_one: FAILED: {:?}", e),
-                Ok(n) => println!("test_read_one: success"),
+    /*
+        let over_four = MAX_RECORD_SIZE / 4;
+        let result = test_write_one(over_four);
+        match &result {
+            Err(e) => println!("test_write_one: FAILED: {:?}", e),
+            Ok(timestamp) => {
+                let result = test_read_one(*timestamp, over_four);
+                match &result {
+                    Err(e) => println!("test_read_one: FAILED: {:?}", e),
+                    Ok(n) => println!("test_read_one: success"),
+                }
             }
         }
-    }
-println!("---");
+    println!("---");
 
-    let result = test_fill_one();
-    println!("Test {}", if result.is_ok() { "successful" } else { "FAILED" });
-*/
+        let result = test_fill_one();
+        println!("Test {}", if result.is_ok() { "successful" } else { "FAILED" });
+    */
 }
 
 // Test reading from a log file with no information
@@ -128,10 +129,15 @@ fn test_write_read<'a>(rec_size: usize, n: usize) -> Result<TcsLog<'a>, TcsLogEr
 
     // Get a timestamp producer
     let mut teststamper = Teststamper::new();
-println!("Creating TcsLog");
+    println!("Creating TcsLog");
 
     // Create the log
-    let mut tcs_log = TcsLog::new_with_timestamp(dir_name, prefix, &mut teststamper, (3 * BLOCK_SIZE).try_into().unwrap())?;
+    let mut tcs_log = TcsLog::new_with_timestamp(
+        dir_name,
+        prefix,
+        &mut teststamper,
+        (3 * BLOCK_SIZE).try_into().unwrap(),
+    )?;
 
     // Write records
     let timestamp = teststamper.snapshot();
@@ -139,11 +145,11 @@ println!("Creating TcsLog");
 
     // Reopen the file for reading
     let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
-println!("test_write_read: file_name {}", file_name);
+    println!("test_write_read: file_name {}", file_name);
     let path = PathBuf::from(dir_name).join(&file_name);
-println!("test_write_read: path {:?}", path);
+    println!("test_write_read: path {:?}", path);
     let mut tcs_log = TcsLog::open_path(path)?;
-println!("test_write_read: path is open");
+    println!("test_write_read: path is open");
 
     // Read records, with an expected EOF
     read_recs_eof(&mut tcs_log, rec_size, n)?;
@@ -156,8 +162,12 @@ println!("test_write_read: path is open");
  * rec_size:    Number of bytes
  * n_recs:      Number of records to write
  */
-fn write_recs<'a>(tcs_log: &mut TcsLog, teststamper: &mut Teststamper, rec_size: usize, n_recs: usize) -> Result<Timestamp, TcsLogError<'a>> {
-
+fn write_recs<'a>(
+    tcs_log: &mut TcsLog,
+    teststamper: &mut Teststamper,
+    rec_size: usize,
+    n_recs: usize,
+) -> Result<Timestamp, TcsLogError<'a>> {
     for i in 0..n_recs {
         let rec = create_record(rec_size, i);
         tcs_log.write(teststamper, &rec)?;
@@ -184,13 +194,17 @@ fn create_record(rec_size: usize, i: usize) -> Vec<u8> {
  * Read the given number of records, then one more and verify the last
  * read gets an EOF
  */
-fn read_recs_eof<'a>(tcs_log: &mut TcsLog, rec_size: usize, n_recs: usize) -> Result<(), TcsLogError<'a>> {
+fn read_recs_eof<'a>(
+    tcs_log: &mut TcsLog,
+    rec_size: usize,
+    n_recs: usize,
+) -> Result<(), TcsLogError<'a>> {
     read_recs(tcs_log, rec_size, n_recs)?;
 
     let mut timestamp = Timestamp::new(0, 0);
     let mut buf = vec![0u8; rec_size];
 
-println!("read_recs_eof: rec_size {} size {}", rec_size, buf.len());
+    println!("read_recs_eof: rec_size {} size {}", rec_size, buf.len());
     // Read one more record to verify EOF
     let eof = tcs_log.read(&mut timestamp, &mut buf);
     match eof {
@@ -200,12 +214,16 @@ println!("read_recs_eof: rec_size {} size {}", rec_size, buf.len());
     }
 }
 
-fn read_recs<'a>(tcs_log: &mut TcsLog, rec_size: usize, n_recs: usize) -> Result<(), TcsLogError<'a>> {
+fn read_recs<'a>(
+    tcs_log: &mut TcsLog,
+    rec_size: usize,
+    n_recs: usize,
+) -> Result<(), TcsLogError<'a>> {
     let mut timestamp = Timestamp::new(0, 0);
     let mut buf = vec![0u8; rec_size];
 
     for i in 0..n_recs {
-println!("read_rec: i {i} rec_size {} size {}", rec_size, buf.len());
+        println!("read_rec: i {i} rec_size {} size {}", rec_size, buf.len());
         let n = tcs_log.read(&mut timestamp, &mut buf)?;
 
         let rec = create_record(rec_size, i);
@@ -242,7 +260,7 @@ fn test_read_one(timestamp: Timestamp, over_four: usize) -> Result<(), TcsLogErr
 println!("test_read_one: file_name {}", file_name);
 
     // Open the file
-    
+
     let dir_name = "/tmp";
     let path = PathBuf::from(dir_name).join(&file_name);
 println!("test_read_one: path {:?}", path);

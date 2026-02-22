@@ -9,29 +9,29 @@ use crate::TimestampableError;
 pub enum TcsLogError<'a> {
     #[error("Test error: {0}")]
     TestError(&'a str),
-	#[error("Header block too small")]
+    #[error("Header block too small")]
     BlockSizeTooSmall,
-	#[error("I/O error: {0}")]
+    #[error("I/O error: {0}")]
     Io(io::Error),
-	#[error("Invalid format: {0}")]
+    #[error("Invalid format: {0}")]
     InvalidFormat(String),
-	#[error("Record too large to fit in log file")]
+    #[error("Record too large to fit in log file")]
     RecordTooLarge,
-	#[error("End of log reached")]
+    #[error("End of log reached")]
     EOF,
     #[error("Corrupted EOF")]
     CorruptedEOF,
-	#[error("Log file not found")]
+    #[error("Log file not found")]
     NotFound,
-	#[error("Invalid timestamp")]
+    #[error("Invalid timestamp")]
     InvalidTimestamp,
-	#[error("Log file already exists")]
+    #[error("Log file already exists")]
     AlreadyExists,
-	#[error("Invalid prefix: {0}")]
+    #[error("Invalid prefix: {0}")]
     InvalidPrefix(String),
-	#[error("Index corruption detected")]
+    #[error("Index corruption detected")]
     IndexCorrupted,
-	#[error("Value too large")]
+    #[error("Value too large")]
     ValueTooLarge,
     #[error("Timestamp error: {0}")]
     TimestampableError(TimestampableError),

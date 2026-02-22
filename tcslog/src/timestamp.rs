@@ -2,9 +2,9 @@
 //! indicate an EOF with a zero bits. This means sacrificing a nanosecond
 //! from the over thirty million year range.
 
+use std::cmp::Ordering;
 use std::fmt;
 use std::num::ParseIntError;
-use std::cmp::Ordering;
 //use std::time::{SystemTime, UNIX_EPOCH};
 use std::mem::size_of;
 
@@ -14,13 +14,13 @@ use std::mem::size_of;
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(C)]
 pub struct Timestamp {
-    nanos:  u32,    // Must be 0 <= and < 1_000_000_000
-    secs:   u64,
+    nanos: u32, // Must be 0 <= and < 1_000_000_000
+    secs: u64,
 }
 
 impl Timestamp {
-    pub const ZERO:Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
-    pub const MAX:Timestamp = Self::new_raw(0xffffffffffffffff, 999_999_998);
+    pub const ZERO: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
+    pub const MAX: Timestamp = Self::new_raw(0xffffffffffffffff, 999_999_998);
     pub const EOF: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
     pub const TIMESTAMP_SIZE: usize = size_of::<u32>() + size_of::<u64>();
 
@@ -35,7 +35,10 @@ impl Timestamp {
             nanos -= 1_000_000_000;
             secs += 1;
         }
-        Timestamp { nanos: nanos as u32, secs }
+        Timestamp {
+            nanos: nanos as u32,
+            secs,
+        }
     }
 
     const fn new_raw(secs: u64, nanos: u32) -> Timestamp {
@@ -52,20 +55,14 @@ impl Timestamp {
         let nanos = (nanos_arg % 1_000_000_000) as u32;
         let secs = (nanos_arg / 1_000_000_000).try_into().unwrap();
 
-        Timestamp {
-            nanos,
-            secs
-        }
+        Timestamp { nanos, secs }
     }
 
     const fn from_nanos_raw(nanos_arg: u128) -> Timestamp {
         let nanos = (nanos_arg % 1_000_000_000) as u32;
         let secs = ((nanos_arg / 1_000_000_000) & 0xffff_ffff_ffff_ffff) as u64;
 
-        Timestamp {
-            nanos,
-            secs
-        }
+        Timestamp { nanos, secs }
     }
 
     pub const fn as_nanos(&self) -> u128 {
@@ -108,18 +105,15 @@ impl Timestamp {
 
 impl PartialEq for Timestamp {
     fn eq(&self, r: &Timestamp) -> bool {
-let t =
-        self.secs == r.secs && self.nanos == r.nanos
-;
-println!("eq self {:?} r {:?} t {:?}", *self, *r, t);
-t
+        let t = self.secs == r.secs && self.nanos == r.nanos;
+        println!("eq self {:?} r {:?} t {:?}", *self, *r, t);
+        t
     }
 }
 
 impl PartialOrd for Timestamp {
     fn partial_cmp(&self, r: &Timestamp) -> Option<Ordering> {
-let t =
-        if self.secs < r.secs {
+        let t = if self.secs < r.secs {
             Some(Ordering::Less)
         } else if self.secs > r.secs {
             Some(Ordering::Greater)
@@ -129,10 +123,9 @@ let t =
             Some(Ordering::Greater)
         } else {
             Some(Ordering::Equal)
-        }
-;
-println!("partial_cmd self {:?} r {:?} t {:?}", *self, *r, t);
-t
+        };
+        println!("partial_cmd self {:?} r {:?} t {:?}", *self, *r, t);
+        t
     }
 }
 

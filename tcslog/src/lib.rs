@@ -7,20 +7,22 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
+use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
-use std::mem::size_of;
 use thiserror::Error;
 
-mod data;
 mod config;
+mod data;
 mod error;
 mod header;
 mod index;
 mod timestamp;
 
 pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
-pub use data::{BlockHeader, DataRecord, BLOCK_HEADER_SIZE, MAX_RECORD_SIZE, TCSLOG_NULL, TCSLOG_REC};
+pub use data::{
+    BlockHeader, DataRecord, BLOCK_HEADER_SIZE, MAX_RECORD_SIZE, TCSLOG_NULL, TCSLOG_REC,
+};
 pub use error::TcsLogError;
 pub use header::{Header, HEADER_SIZE};
 pub use index::{IndexBlock, IndexEntry, IndexStructure, ENTRIES_PER_BLOCK, FILE_NULL};
@@ -51,13 +53,11 @@ pub trait Timestampable {
  * we return the time since the UNIX epoch.
  */
 #[derive(Debug)]
-pub struct Timestamper {
-}
+pub struct Timestamper {}
 
 impl Timestamper {
     fn new() -> Timestamper {
-        Timestamper {
-        }
+        Timestamper {}
     }
 }
 
@@ -109,7 +109,11 @@ pub struct TcsLog<'a> {
 
 impl<'a> TcsLog<'a> {
     /// Creates a new TcsLog with a specified maximum file size.
-    pub fn new(dir_name: &'a str, prefix: &str, max_size: u64) -> Result<TcsLog<'a>, TcsLogError<'static>> {
+    pub fn new(
+        dir_name: &'a str,
+        prefix: &str,
+        max_size: u64,
+    ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         // Generate timestamp and file name
         let mut timestamper = Timestamper::new();
         Self::new_with_timestamp(dir_name, prefix, &mut timestamper, max_size)
@@ -118,7 +122,12 @@ impl<'a> TcsLog<'a> {
     /// Creates a new TcsLog with a specified maximum file size while
     /// specifying the timestamp. This is useful for testing when you
     /// want to know the name of the file.
-    pub fn new_with_timestamp(dir_name: &'a str, prefix: &str, timestamper: &mut dyn Timestampable, max_size: u64) -> Result<TcsLog<'a>, TcsLogError<'static>> {
+    pub fn new_with_timestamp(
+        dir_name: &'a str,
+        prefix: &str,
+        timestamper: &mut dyn Timestampable,
+        max_size: u64,
+    ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         // Validate prefix
         if prefix.is_empty() || prefix.len() > MAX_PREFIX_LEN {
             return Err(TcsLogError::InvalidPrefix(format!(
@@ -136,32 +145,33 @@ impl<'a> TcsLog<'a> {
         // Compute offsets
         let (index_offset, data_offset, _index_blocks) = TcsLog::compute_offsets(max_size);
 
-
         let mut retries = 0;
 
         let (path, mut file, header) = loop {
             let timestamp = timestamper.timestamp().unwrap();
-println!("open_with_timestamp: timestamp: {:?}", timestamp);
+            println!("open_with_timestamp: timestamp: {:?}", timestamp);
             let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
-println!("open_with_timestamp: file_name: {:?}", file_name);
+            println!("open_with_timestamp: file_name: {:?}", file_name);
 
             // Create header
             let header = Header::new(timestamp, index_offset, data_offset, &file_name);
 
             // Create the file
-            
+
             let path = PathBuf::from(dir_name).join(&file_name);
-println!("open_with_timestamp: path: {:?}", path);
+            println!("open_with_timestamp: path: {:?}", path);
 
             match OpenOptions::new()
-// FIXME: remove this?
-//                .read(true)
+                // FIXME: remove this?
+                //                .read(true)
                 .write(true)
                 .create_new(true)
                 .open(&path)
             {
                 Ok(f) => break (path, f, header),
-                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists && retries < MAX_RETRIES => {
+                Err(e)
+                    if e.kind() == std::io::ErrorKind::AlreadyExists && retries < MAX_RETRIES =>
+                {
                     // Wait and try again with new timestamp
                     std::thread::sleep(std::time::Duration::from_micros(WAIT_FOR_NEW_NAME));
                     retries += 1;
@@ -170,7 +180,7 @@ println!("open_with_timestamp: path: {:?}", path);
                 Err(e) => return Err(TcsLogError::Io(e)),
             }
         };
-println!("open_with_timestamp: writing the header\n");
+        println!("open_with_timestamp: writing the header\n");
 
         // Write the header
         let header_bytes = header.to_bytes();
@@ -183,13 +193,13 @@ println!("open_with_timestamp: writing the header\n");
         file.write_all(&header.to_bytes())?;
 
         // Initialize index block(s) with zeros (already zeroed by OS for sparse files)
-    //    let index_size = data_offset - index_offset;
+        //    let index_size = data_offset - index_offset;
         file.seek(SeekFrom::Start(data_offset - 1))?;
         file.write_all(&[0])?;
 
         // Seek to beginning of data section
         file.seek(SeekFrom::Start(data_offset))?;
-println!("open_with_timestamp: returning");
+        println!("open_with_timestamp: returning");
 
         Ok(TcsLog {
             dir_name,
@@ -205,7 +215,10 @@ println!("open_with_timestamp: returning");
     }
 
     /// Generates a file name from prefix and timestamp.
-    pub fn generate_file_name(prefix: &str, timestamp: Timestamp) -> Result<String, TcsLogError<'static>> {
+    pub fn generate_file_name(
+        prefix: &str,
+        timestamp: Timestamp,
+    ) -> Result<String, TcsLogError<'static>> {
         Self::validate_prefix(prefix)?;
 
         // Format: prefix-XXXX_XXXX_XXXX_XXXX_XXXX_XXXX (where X is hex digit)
@@ -230,8 +243,10 @@ println!("open_with_timestamp: returning");
             return Err(TcsLogError::InvalidPrefix(prefix.to_string()));
         }
 
-        if prefix.chars()
-            .all(|c| { !c.is_ascii_alphanumeric() && c != '_'}) {
+        if prefix
+            .chars()
+            .all(|c| !c.is_ascii_alphanumeric() && c != '_')
+        {
             return Err(TcsLogError::InvalidPrefix(prefix.to_string()));
         }
 
@@ -277,10 +292,14 @@ println!("open_with_timestamp: returning");
     /// Opens an existing TcsLog so that the telemetry records it contains may be read.
     ///
     /// If successful, returns a TcsLog. Otherwise, returns Err(TcsLogError).
-    pub fn open(dir_name: &'a str, prefix: &str, timestamp: Timestamp) -> Result<TcsLog<'a>, TcsLogError<'static>> {
+    pub fn open(
+        dir_name: &'a str,
+        prefix: &str,
+        timestamp: Timestamp,
+    ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
         let path = PathBuf::from(&file_name);
-println!("TcsLog::open: path {:?}", path);
+        println!("TcsLog::open: path {:?}", path);
 
         if !path.exists() {
             return Err(TcsLogError::NotFound);
@@ -290,9 +309,9 @@ println!("TcsLog::open: path {:?}", path);
 
         // Read and parse header
         let mut header_bytes = [0u8; HEADER_SIZE];
-println!("reading header bytes");
+        println!("reading header bytes");
         file.read_exact(&mut header_bytes)?;
-println!("read header bytes");
+        println!("read header bytes");
         let header = Header::from_bytes(&header_bytes)?;
 
         let max_size = DEFAULT_FILE_SIZE; // Could also store in header
@@ -319,31 +338,27 @@ println!("read header bytes");
             return Err(TcsLogError::NotFound);
         }
 
-println!("Opening path {:?}", path);
+        println!("Opening path {:?}", path);
         let mut file = OpenOptions::new().read(true).open(path)?;
 
         // Read and parse header
         let mut header_bytes = [0u8; HEADER_SIZE];
-//println!("reading {:?}", header_bytes[..160]);
+        //println!("reading {:?}", header_bytes[..160]);
         file.read_exact(&mut header_bytes)?;
-//println!("read {:?}", header_bytes[..160]);
+        //println!("read {:?}", header_bytes[..160]);
         let header = Header::from_bytes(&header_bytes)?;
 
         let max_size = DEFAULT_FILE_SIZE;
 
         // Extract prefix from file name
-println!("extracting prefix");
+        println!("extracting prefix");
         let file_name = header.file_name_str();
-        let prefix = file_name
-            .split('-')
-            .next()
-            .unwrap_or("")
-            .to_string();
+        let prefix = file_name.split('-').next().unwrap_or("").to_string();
         Self::validate_prefix(&prefix)?;
-println!("open_path: initial read_position {:?}", header.data_offset);
+        println!("open_path: initial read_position {:?}", header.data_offset);
 
         Ok(TcsLog {
-            dir_name: "",              // FIXME: not needed
+            dir_name: "", // FIXME: not needed
             file,
             path: path.to_path_buf(),
             header: header.clone(),
@@ -361,7 +376,11 @@ println!("open_path: initial read_position {:?}", header.data_offset);
     /// It is an error to write more data than will fit in a newly created log file.
     ///
     /// Returns () if the data was written, otherwise Err(TcsLogError).
-    pub fn write(&mut self, timestamper: &mut dyn Timestampable, data: &[u8]) -> Result<(), TcsLogError<'static>> {
+    pub fn write(
+        &mut self,
+        timestamper: &mut dyn Timestampable,
+        data: &[u8],
+    ) -> Result<(), TcsLogError<'static>> {
         if !self.writing {
             return Err(TcsLogError::InvalidFormat(
                 "Log not opened for writing".to_string(),
@@ -379,15 +398,16 @@ println!("open_path: initial read_position {:?}", header.data_offset);
         let timestamp = timestamper.timestamp()?;
 
         // Calculate space needed in current block
-        let current_block_offset = (self.write_position - self.header.data_offset) % BLOCK_SIZE as u64;
+        let current_block_offset =
+            (self.write_position - self.header.data_offset) % BLOCK_SIZE as u64;
 
-/*
-        let space_in_block = if current_block_offset == 0 {
-            BLOCK_SIZE - data::BLOCK_HEADER_SIZE
-        } else {
-            BLOCK_SIZE - current_block_offset as usize
-        };
-*/
+        /*
+                let space_in_block = if current_block_offset == 0 {
+                    BLOCK_SIZE - data::BLOCK_HEADER_SIZE
+                } else {
+                    BLOCK_SIZE - current_block_offset as usize
+                };
+        */
 
         // Write block header if at start of new block
         if current_block_offset == 0 {
@@ -402,13 +422,18 @@ println!("open_path: initial read_position {:?}", header.data_offset);
 
         if total_needed as u64 > remaining_in_file {
             // Create a new log file
-            let new_log = Self::new_with_timestamp(&self.dir_name, &self.prefix, timestamper, self.max_size)?;
+            let new_log =
+                Self::new_with_timestamp(&self.dir_name, &self.prefix, timestamper, self.max_size)?;
             *self = new_log;
             return self.write(timestamper, data);
         }
 
         // Write timestamp
-println!("TcsLog::write: writing timetamp {:?} at {:?}", timestamp, self.file.stream_position());
+        println!(
+            "TcsLog::write: writing timetamp {:?} at {:?}",
+            timestamp,
+            self.file.stream_position()
+        );
         let buf = timestamp.to_le_bytes();
         self.file.write_all(&buf)?;
         self.write_position += buf.len() as u64;
@@ -428,7 +453,11 @@ println!("TcsLog::write: writing timetamp {:?} at {:?}", timestamp, self.file.st
     }
 
     /// Updates the index with a new record.
-    fn update_index(&mut self, _offset: u64, _timestamp: Timestamp) -> Result<(), TcsLogError<'static>> {
+    fn update_index(
+        &mut self,
+        _offset: u64,
+        _timestamp: Timestamp,
+    ) -> Result<(), TcsLogError<'static>> {
         // Index update implementation
         // For simplicity, we update the first index block entry
         // A full implementation would maintain a proper B-tree structure
@@ -439,22 +468,26 @@ println!("TcsLog::write: writing timetamp {:?} at {:?}", timestamp, self.file.st
     ///
     /// Returns the number of bytes placed in data on success,
     /// Err(TcsLogError) otherwise.
-    pub fn read(&mut self, timestamp: &mut Timestamp, data: &mut [u8]) -> Result<usize, TcsLogError<'static>> {
+    pub fn read(
+        &mut self,
+        timestamp: &mut Timestamp,
+        data: &mut [u8],
+    ) -> Result<usize, TcsLogError<'static>> {
         if self.writing {
             return Err(TcsLogError::InvalidFormat(
                 "Log not opened for reading".to_string(),
             ));
         }
-println!("Reading...");
+        println!("Reading...");
 
         // Check if at start of new block
-println!("read_position {:?}", self.read_position);
+        println!("read_position {:?}", self.read_position);
         let block_offset = (self.read_position - self.header.data_offset) % BLOCK_SIZE as u64;
-println!("block_offset {:?}", block_offset);
+        println!("block_offset {:?}", block_offset);
         if block_offset == 0 {
             // Skip block header
             self.read_position += data::BLOCK_HEADER_SIZE as u64;
-println!("read_position adjusted to {:?}", self.read_position);
+            println!("read_position adjusted to {:?}", self.read_position);
         }
 
         // Read timestamp. If we get zero bytes, we're at the physical, and
@@ -468,48 +501,56 @@ println!("read_position adjusted to {:?}", self.read_position);
         // Rust runtime library? I think it is by Linux, but this might be
         // a portability if the Rust RT doesn't guarantee it. It looks like the
         // answer is no, so this needs to be fixed.
-println!("TcsLog::read: reading timestamp");
+        println!("TcsLog::read: reading timestamp");
         match self.file.read(&mut ts_bytes) {
             Err(e) => return Err(TcsLogError::Io(e)),
-            Ok(n) => if n == 0 { return Err(TcsLogError::EOF) }
-                else if n != Timestamp::TIMESTAMP_SIZE { return Err(TcsLogError::CorruptedEOF) }
-                else {},
+            Ok(n) => {
+                if n == 0 {
+                    return Err(TcsLogError::EOF);
+                } else if n != Timestamp::TIMESTAMP_SIZE {
+                    return Err(TcsLogError::CorruptedEOF);
+                } else {
+                }
+            }
         }
 
         *timestamp = Timestamp::from_le_bytes(ts_bytes);
-println!("TcsLog::read: read timestamp {:?}", timestamp);
+        println!("TcsLog::read: read timestamp {:?}", timestamp);
         if *timestamp == Timestamp::EOF {
             return Err(TcsLogError::EOF);
         }
-        
+
         // Read record length
         let mut len_bytes = [0u8; 8];
-        
-println!("TcsLog::read: position {:?}", self.file.stream_position());
-println!("TcsLog::read: reading record length {} from {}", len_bytes.len(), self.read_position);
+
+        println!("TcsLog::read: position {:?}", self.file.stream_position());
+        println!(
+            "TcsLog::read: reading record length {} from {}",
+            len_bytes.len(),
+            self.read_position
+        );
         if let Err(e) = self.file.read_exact(&mut len_bytes) {
-println!("TcsLog::read: record length read failed");
+            println!("TcsLog::read: record length read failed");
             return Err(TcsLogError::Io(e));
         }
         let len = u64::from_le_bytes(len_bytes) as usize;
         self.read_position += 8;
 
-
-println!("TcsLog::read: Reading record data");
+        println!("TcsLog::read: Reading record data");
         let read_offset: u64 = size_of::<Timestamp>().try_into().unwrap();
         self.read_position += read_offset;
 
         // Read data
-println!("TcsLogTimestamp::read: len {len} data.len {}", data.len());
+        println!("TcsLogTimestamp::read: len {len} data.len {}", data.len());
         if len > data.len() {
             return Err(TcsLogError::InvalidFormat(
                 "Buffer too small for record".to_string(),
             ));
         }
 
-println!("Timestamp::read: reading data len {len}");
+        println!("Timestamp::read: reading data len {len}");
         self.file.read_exact(&mut data[..len])?;
-println!("Timestamp::read: read data len {len}");
+        println!("Timestamp::read: read data len {len}");
         self.read_position += len as u64;
 
         Ok(len)
@@ -523,9 +564,9 @@ println!("Timestamp::read: read data len {len}");
         // Read index block
         let mut index_bytes = [0u8; BLOCK_SIZE];
         self.file.seek(SeekFrom::Start(self.header.index_offset))?;
-println!("timestamp_offset: reading index");
+        println!("timestamp_offset: reading index");
         self.file.read_exact(&mut index_bytes)?;
-println!("timestamp_offset: read index");
+        println!("timestamp_offset: read index");
 
         let index_block = IndexBlock::from_bytes(&index_bytes);
 
@@ -578,8 +619,16 @@ mod tests {
 
     #[test]
     fn test_parse_timestamp_from_name() {
-        let ts = TcsLog::parse_timestamp_from_name("test-0001_2345_6789_abcd_ef01_2345_6789_abcd", "test");
-        assert_eq!(ts, Some(Timestamp::from_nanos(0x0001_2345_6789_ABCD_EF01_2345_6789_ABCD)));
+        let ts = TcsLog::parse_timestamp_from_name(
+            "test-0001_2345_6789_abcd_ef01_2345_6789_abcd",
+            "test",
+        );
+        assert_eq!(
+            ts,
+            Some(Timestamp::from_nanos(
+                0x0001_2345_6789_ABCD_EF01_2345_6789_ABCD
+            ))
+        );
     }
 
     #[test]
@@ -595,7 +644,7 @@ mod tests {
         let result = TcsLog::new("", "", DEFAULT_FILE_SIZE);
         assert!(matches!(result, Err(TcsLogError::InvalidPrefix(_))));
 
-//        let result = TestLog::create("a/b");
-//        assert!(matches!(result, Err(TcsLogError::InvalidPrefix(_))));
+        //        let result = TestLog::create("a/b");
+        //        assert!(matches!(result, Err(TcsLogError::InvalidPrefix(_))));
     }
 }
