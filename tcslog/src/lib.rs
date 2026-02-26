@@ -70,6 +70,57 @@ impl PartialOrd for Offset {
     }
 }
 
+struct RecNo {
+    rec_no: u64,
+}
+
+impl RecNo {
+    const REC_NO_SIZE: usize = size_of::<u64>();
+
+    fn new(rec_no: u64) -> RecNo {
+        RecNo { rec_no }
+    }
+
+    // Length when packed
+    pub const fn len() -> usize {
+        size_of::<u64>()
+    }
+
+    pub fn to_le_bytes(&self) -> [u8; Self::REC_NO_SIZE] {
+        let a_rec_no = self.rec_no.to_le_bytes();
+
+        let mut rec_no = [0; Self::REC_NO_SIZE];
+        rec_no[..8].copy_from_slice(&a_rec_no);
+
+        rec_no
+    }
+
+    pub fn from_le_bytes(buf: [u8; Self::REC_NO_SIZE]) -> RecNo {
+        let mut a_rec_no: [u8; Self::REC_NO_SIZE] = [0; Self::REC_NO_SIZE];
+        a_rec_no.copy_from_slice(&buf[..Self::REC_NO_SIZE]);
+        let rec_no = u64::from_le_bytes(a_rec_no);
+        RecNo { rec_no }
+    }
+}
+
+impl PartialEq for RecNo {
+    fn eq(&self, r: &RecNo) -> bool {
+        self.rec_no == r.rec_no
+    }
+}
+
+impl PartialOrd for RecNo {
+    fn partial_cmp(&self, r: &RecNo) -> Option<Ordering> {
+        if self.rec_no < r.rec_no {
+            Some(Ordering::Less)
+        } else if self.rec_no > r.rec_no {
+            Some(Ordering::Greater)
+        } else {
+            Some(Ordering::Equal)
+        }
+    }
+}
+
 pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
 pub use data::{
     BlockHeader, CONT_SIZE, DataRecord, BLOCK_HEADER_SIZE, MAX_RECORD_SIZE, RECORD_METADATA_SIZE, TCSLOG_NULL, TCSLOG_REC,
