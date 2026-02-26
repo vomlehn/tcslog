@@ -5,6 +5,7 @@
 //! * Indexed by automatically supplied timestamps with nanosecond resolution
 //! * Metadata all in little-endian form
 
+use std::cmp::Ordering;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -17,6 +18,57 @@ mod error;
 mod header;
 mod index;
 mod timestamp;
+
+struct Offset {
+    offset: u64,
+}
+
+impl Offset {
+    const OFFSET_SIZE: usize = size_of::<u64>();
+
+    fn new(offset: u64) -> Offset {
+        Offset { offset }
+    }
+
+    // Length when packed
+    pub const fn len() -> usize {
+        size_of::<u64>()
+    }
+
+    pub fn to_le_bytes(&self) -> [u8; Self::OFFSET_SIZE] {
+        let a_offset = self.offset.to_le_bytes();
+
+        let mut offset = [0; Self::OFFSET_SIZE];
+        offset[..8].copy_from_slice(&a_offset);
+
+        offset
+    }
+
+    pub fn from_le_bytes(buf: [u8; Self::OFFSET_SIZE]) -> Offset {
+        let mut a_offset: [u8; Self::OFFSET_SIZE] = [0; Self::OFFSET_SIZE];
+        a_offset.copy_from_slice(&buf[..Self::OFFSET_SIZE]);
+        let offset = u64::from_le_bytes(a_offset);
+        Offset { offset }
+    }
+}
+
+impl PartialEq for Offset {
+    fn eq(&self, r: &Offset) -> bool {
+        self.offset == r.offset
+    }
+}
+
+impl PartialOrd for Offset {
+    fn partial_cmp(&self, r: &Offset) -> Option<Ordering> {
+        if self.offset < r.offset {
+            Some(Ordering::Less)
+        } else if self.offset > r.offset {
+            Some(Ordering::Greater)
+        } else {
+            Some(Ordering::Equal)
+        }
+    }
+}
 
 pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
 pub use data::{
