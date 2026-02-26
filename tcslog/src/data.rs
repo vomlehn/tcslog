@@ -3,6 +3,7 @@
 use crate::error::TcsLogError;
 use crate::Timestamp;
 use crate::BLOCK_SIZE;
+use crate::MAX_FILENAME_LEN;
 
 /// Block header indicating null pointer (does not reference a file).
 pub const TCSLOG_NULL: u64 = 0x0000_0000_0000_0001;
@@ -21,6 +22,8 @@ pub const RECORD_TIMESTAMP_SIZE: usize = size_of::<Timestamp>();
 
 /// Size of record metadata (length + timestamp).
 pub const RECORD_METADATA_SIZE: usize = RECORD_TIMESTAMP_SIZE + RECORD_LENGTH_SIZE;
+
+pub const CONT_SIZE: usize = Timestamp::TIMESTAMP_SIZE + MAX_FILENAME_LEN;
 
 /// Maximum record size that can fit in a single data block.
 pub const MAX_RECORD_SIZE: usize = BLOCK_SIZE - BLOCK_HEADER_SIZE - RECORD_METADATA_SIZE;

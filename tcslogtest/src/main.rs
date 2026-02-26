@@ -3,7 +3,7 @@ use std::path::PathBuf;
 //use std::io::Read;
 
 use tcslog::{
-    TcsLog, TcsLogError, Timestamp, Timestampable, TimestampableError, BLOCK_SIZE, MAX_RECORD_SIZE,
+    BLOCK_HEADER_SIZE, CONT_SIZE, TcsLog, TcsLogError, Timestamp, Timestampable, TimestampableError, BLOCK_SIZE, MAX_RECORD_SIZE, RECORD_METADATA_SIZE
 };
 
 /*
@@ -64,6 +64,7 @@ fn main() {
 
 fn testit<'a>() {
     let mut test: &str;
+/*
 
     test = "test_empty";
     match test_empty() {
@@ -81,6 +82,21 @@ fn testit<'a>() {
 
     test = "test_multiple_small";
     match test_multiple_small() {
+        Err(e) => println!("{} FAILED: {:?}", test, e),
+        Ok(_) => println!("{} succeeded", test),
+    }
+    println!("---");
+
+    test = "test_many_small";
+    match test_many_small() {
+        Err(e) => println!("{} FAILED: {:?}", test, e),
+        Ok(_) => println!("{} succeeded", test),
+    }
+    println!("---");
+*/
+
+    test = "test_many_many_small";
+    match test_many_many_small() {
         Err(e) => println!("{} FAILED: {:?}", test, e),
         Ok(_) => println!("{} succeeded", test),
     }
@@ -123,9 +139,21 @@ fn test_multiple_small<'a>() -> Result<TcsLog<'a>, TcsLogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 12, 10)
 }
 
+// Test writing/reading records that will require many data blocks
+fn test_many_small<'a>() -> Result<TcsLog<'a>, TcsLogError<'a>> {
+    test_write_read(MAX_RECORD_SIZE / 4, 5)
+}
+
+// Test writing/reading records that will require many data blocks
+fn test_many_many_small<'a>() -> Result<TcsLog<'a>, TcsLogError<'a>> {
+//    test_write_read(MAX_RECORD_SIZE / 12, 100)
+    test_write_read(MAX_RECORD_SIZE / 12, 11)
+}
+
 fn test_write_read<'a>(rec_size: usize, n: usize) -> Result<TcsLog<'a>, TcsLogError<'a>> {
     let dir_name = "/tmp";
     let prefix = "testlog";
+    let suffix = ".tcsl";
 
     // Get a timestamp producer
     let mut teststamper = Teststamper::new();
@@ -136,6 +164,7 @@ fn test_write_read<'a>(rec_size: usize, n: usize) -> Result<TcsLog<'a>, TcsLogEr
         dir_name,
         prefix,
         &mut teststamper,
+        suffix,
         (3 * BLOCK_SIZE).try_into().unwrap(),
     )?;
 
@@ -144,7 +173,7 @@ fn test_write_read<'a>(rec_size: usize, n: usize) -> Result<TcsLog<'a>, TcsLogEr
     write_recs(&mut tcs_log, &mut teststamper, rec_size, n)?;
 
     // Reopen the file for reading
-    let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
+    let file_name = TcsLog::generate_file_name(prefix, timestamp, suffix)?;
     println!("test_write_read: file_name {}", file_name);
     let path = PathBuf::from(dir_name).join(&file_name);
     println!("test_write_read: path {:?}", path);
@@ -234,6 +263,27 @@ fn read_recs<'a>(
     }
 
     Ok(())
+}
+
+/*
+ * Compute the maximum size of record data that will fit in a given
+ * block without overflowing it.
+ *
+ * BLOCK_HEADER_SIZE_N = BLOCK_HEADER_SIZE + EOF_SIZE + n * RECORD_HEADER_SIZE;
+ *
+ * BLOCK_SIZE = BLOCK_HEADER_SIZE_N + n * rec_size)
+ *
+ * n * rec_size = BLOCK_SIZE - BLOCK_HEADER_SIZE_N
+ *
+ * rec_size = (BLOCK_SIZE - BLOCK_HEADER_N) / n
+ */
+fn max_block_rec_size(n: usize) -> usize {
+    let block_header_size_n = BLOCK_HEADER_SIZE + CONT_SIZE + n * RECORD_METADATA_SIZE;
+let rec_size = 
+    BLOCK_SIZE - block_header_size_n
+;
+println!("max_block_rec_size: n {n} rec_size {rec_size}");
+rec_size
 }
 
 /*

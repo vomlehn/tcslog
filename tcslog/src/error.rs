@@ -27,8 +27,14 @@ pub enum TcsLogError<'a> {
     InvalidTimestamp,
     #[error("Log file already exists")]
     AlreadyExists,
-    #[error("Invalid prefix: {0}")]
-    InvalidPrefix(String),
+    #[error("Invalid prefix character: {0}")]
+    InvalidPrefixChar(String),
+    #[error("Prefix lengths must by 1 < len <= {0}")]
+    InvalidPrefixLen(usize),
+    #[error("Invalid suffix character: {0}")]
+    InvalidSuffixChar(String),
+    #[error("Suffix lengths must by 1 < len <= {0}")]
+    InvalidSuffixLen(usize),
     #[error("Index corruption detected")]
     IndexCorrupted,
     #[error("Value too large")]

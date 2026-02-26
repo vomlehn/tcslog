@@ -7,7 +7,6 @@
 
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::mem::size_of;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 use thiserror::Error;
@@ -21,7 +20,7 @@ mod timestamp;
 
 pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
 pub use data::{
-    BlockHeader, DataRecord, BLOCK_HEADER_SIZE, MAX_RECORD_SIZE, TCSLOG_NULL, TCSLOG_REC,
+    BlockHeader, CONT_SIZE, DataRecord, BLOCK_HEADER_SIZE, MAX_RECORD_SIZE, RECORD_METADATA_SIZE, TCSLOG_NULL, TCSLOG_REC,
 };
 pub use error::TcsLogError;
 pub use header::{Header, HEADER_SIZE};
@@ -35,7 +34,13 @@ pub const DEFAULT_FILE_SIZE: u64 = 64 * 1024 * 1024;
 pub const MAX_PREFIX_LEN: usize = 32;
 
 /// Size of everything after the prefix
-pub const FILE_TIMESTAMP_LEN: usize = 1 + 5 * 1 + 6 * 4;
+pub const FILE_TIMESTAMP_LEN: usize = 6 * 5;
+
+// Max suffix length for file names
+pub const MAX_SUFFIX_LEN: usize = 8;
+
+pub const MAX_FILENAME_LEN: usize = MAX_PREFIX_LEN + FILE_TIMESTAMP_LEN +
+    MAX_SUFFIX_LEN;
 
 /// File type identifier.
 pub const FILE_TYPE: &[u8; 8] = b"tcslog  ";
@@ -103,6 +108,8 @@ pub struct TcsLog<'a> {
     read_position: u64,
     /// The prefix used for file naming.
     prefix: String,
+    /// The suffix used for file naming.
+    suffix: String,
     /// Whether the log is open for writing.
     writing: bool,
 }
@@ -112,11 +119,12 @@ impl<'a> TcsLog<'a> {
     pub fn new(
         dir_name: &'a str,
         prefix: &str,
+        suffix: &str,
         max_size: u64,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         // Generate timestamp and file name
         let mut timestamper = Timestamper::new();
-        Self::new_with_timestamp(dir_name, prefix, &mut timestamper, max_size)
+        Self::new_with_timestamp(dir_name, prefix, &mut timestamper, suffix, max_size)
     }
 
     /// Creates a new TcsLog with a specified maximum file size while
@@ -126,21 +134,13 @@ impl<'a> TcsLog<'a> {
         dir_name: &'a str,
         prefix: &str,
         timestamper: &mut dyn Timestampable,
+        suffix: &str,
         max_size: u64,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
-        // Validate prefix
-        if prefix.is_empty() || prefix.len() > MAX_PREFIX_LEN {
-            return Err(TcsLogError::InvalidPrefix(format!(
-                "Prefix must be 1-{} characters",
-                MAX_PREFIX_LEN
-            )));
-        }
+        Self::validate_prefix(prefix)?;
+        Self::validate_suffix(suffix)?;
 
-        if prefix.contains('/') || prefix.contains('\\') || prefix.contains('\0') {
-            return Err(TcsLogError::InvalidPrefix(
-                "Prefix contains invalid characters".to_string(),
-            ));
-        }
+        // FIXME: Need to validate whether there is room for any data
 
         // Compute offsets
         let (index_offset, data_offset, _index_blocks) = TcsLog::compute_offsets(max_size);
@@ -149,13 +149,12 @@ impl<'a> TcsLog<'a> {
 
         let (path, mut file, header) = loop {
             let timestamp = timestamper.timestamp().unwrap();
-            let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
+            let file_name = TcsLog::generate_file_name(prefix, timestamp, suffix)?;
 
             // Create header
             let header = Header::new(timestamp, index_offset, data_offset, &file_name);
 
             // Create the file
-
             let path = PathBuf::from(dir_name).join(&file_name);
 
             match OpenOptions::new()
@@ -205,6 +204,7 @@ impl<'a> TcsLog<'a> {
             write_position: data_offset,
             read_position: data_offset,
             prefix: prefix.to_string(),
+            suffix: suffix.to_string(),
             writing: true,
         })
     }
@@ -213,53 +213,61 @@ impl<'a> TcsLog<'a> {
     pub fn generate_file_name(
         prefix: &str,
         timestamp: Timestamp,
+        suffix: &str,
     ) -> Result<String, TcsLogError<'static>> {
         Self::validate_prefix(prefix)?;
+        Self::validate_suffix(suffix)?;
 
-        // Format: prefix-XXXX_XXXX_XXXX_XXXX_XXXX_XXXX (where X is hex digit)
+        // Format: <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix> (where X is hex digit)
         let timestamp_u128 = timestamp.as_nanos();
         let hex = format!("{:024}", timestamp_u128);
-        Ok(format!(
-            "{}-{}_{}_{}_{}_{}_{}",
+        let filename = format!(
+            "{}{}_{}_{}_{}_{}_{}{}",
             prefix,
             &hex[0..4],
             &hex[4..8],
             &hex[8..12],
             &hex[12..16],
             &hex[16..20],
-            &hex[20..24]
-        ))
+            &hex[20..24],
+            suffix,
+        );
+
+        Ok(filename)
     }
 
     // Determines whether the prefix is valid
     // Returns Ok(()) if valid, Err(TcsLogError) if not
     pub fn validate_prefix(prefix: &str) -> Result<(), TcsLogError<'static>> {
-        if prefix.len() == 0 || prefix.len() > MAX_PREFIX_LEN {
-            return Err(TcsLogError::InvalidPrefix(prefix.to_string()));
+        if prefix.is_empty() || prefix.len() > MAX_PREFIX_LEN {
+            return Err(TcsLogError::InvalidPrefixLen(MAX_PREFIX_LEN));
         }
 
         if prefix
             .chars()
             .all(|c| !c.is_ascii_alphanumeric() && c != '_')
         {
-            return Err(TcsLogError::InvalidPrefix(prefix.to_string()));
+            return Err(TcsLogError::InvalidPrefixChar(prefix.to_string()));
         }
 
         Ok(())
     }
 
-    /// Parses a timestamp from a file name.
-    /// FIXME: this doesn't verify the file name fits the expected template.
-    /// It should check against a regex.
-    #[allow(unused)]
-    fn parse_timestamp_from_name(name: &str, prefix: &str) -> Option<Timestamp> {
-        let suffix = name.strip_prefix(prefix)?.strip_prefix('-')?;
-        let hex: String = suffix.chars().filter(|c| c.is_ascii_hexdigit()).collect();
-        if hex.len() == size_of::<Timestamp>() {
-            Timestamp::from_str_radix(&hex, size_of::<Timestamp>().try_into().unwrap()).ok()
-        } else {
-            None
+    // Determines whether the suffix is valid
+    // Returns Ok(()) if valid, Err(TcsLogError) if not
+    pub fn validate_suffix(suffix: &str) -> Result<(), TcsLogError<'static>> {
+        if suffix.len() == 0 || suffix.len() > MAX_SUFFIX_LEN {
+            return Err(TcsLogError::InvalidSuffixLen(MAX_SUFFIX_LEN));
         }
+
+        if suffix
+            .chars()
+            .all(|c| !c.is_ascii_alphanumeric() && c != '_')
+        {
+            return Err(TcsLogError::InvalidSuffixChar(suffix.to_string()));
+        }
+
+        Ok(())
     }
 
     /// Computes the index and data section offsets.
@@ -291,8 +299,9 @@ impl<'a> TcsLog<'a> {
         dir_name: &'a str,
         prefix: &str,
         timestamp: Timestamp,
+        suffix: &str,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
-        let file_name = TcsLog::generate_file_name(prefix, timestamp)?;
+        let file_name = TcsLog::generate_file_name(prefix, timestamp, suffix)?;
         let path = PathBuf::from(&file_name);
         println!("TcsLog::open: path {:?}", path);
 
@@ -320,6 +329,7 @@ impl<'a> TcsLog<'a> {
             write_position: 0,
             read_position: header.data_offset,
             prefix: prefix.to_string(),
+            suffix: suffix.to_string(),
             writing: false,
         })
     }
@@ -347,8 +357,6 @@ impl<'a> TcsLog<'a> {
         // Extract prefix from file name
         println!("extracting prefix");
         let file_name = header.file_name_str();
-        let prefix = file_name.split('-').next().unwrap_or("").to_string();
-        Self::validate_prefix(&prefix)?;
         println!("open_path: initial read_position {:?}", header.data_offset);
 
         Ok(TcsLog {
@@ -359,7 +367,8 @@ impl<'a> TcsLog<'a> {
             max_size,
             write_position: 0,
             read_position: header.data_offset,
-            prefix,
+            prefix: "".to_string(), // FIXME: not needed
+            suffix: "".to_string(), // FIXME: not needed
             writing: false,
         })
     }
@@ -381,11 +390,7 @@ impl<'a> TcsLog<'a> {
             ));
         }
 
-        // Check if record fits
-        let record_size = data::RECORD_METADATA_SIZE + data.len();
-        let max_record_size = self.max_size as usize - HEADER_SIZE - BLOCK_SIZE; // Minimum index
-
-        if record_size > max_record_size {
+        if !self.record_fits(data.len()) {
             return Err(TcsLogError::RecordTooLarge);
         }
 
@@ -411,13 +416,13 @@ impl<'a> TcsLog<'a> {
         }
 
         // Check if we need a new file
-        let total_needed = record_size;
+        let total_needed = data.len();
         let remaining_in_file = self.max_size - self.write_position;
 
         if total_needed as u64 > remaining_in_file {
             // Create a new log file
             let new_log =
-                Self::new_with_timestamp(&self.dir_name, &self.prefix, timestamper, self.max_size)?;
+                Self::new_with_timestamp(&self.dir_name, &self.prefix, timestamper, &self.suffix, self.max_size)?;
             *self = new_log;
             return self.write(timestamper, data);
         }
@@ -441,9 +446,22 @@ impl<'a> TcsLog<'a> {
         self.write_position += data.len() as u64;
 
         // Update index
-        self.update_index(self.write_position - record_size as u64, timestamp)?;
+        self.update_index(self.write_position - data.len() as u64, timestamp)?;
 
         Ok(())
+    }
+
+    /* See whether this record fits in the current file. Specifically,
+     * we see whether the data plus the metadata plus a subsequent
+     * continuation marker will fit. This ensures that, if we write
+     * this record, we can still write a continuation marker.
+     *
+     * data_len:    Size of the data record
+     */
+    fn record_fits(&self, data_len: usize) -> bool {
+        let unused_space = self.max_size - self.write_position;
+        let record_size = data::RECORD_METADATA_SIZE + data_len;
+        record_size + CONT_SIZE < unused_space as usize
     }
 
     /// Updates the index with a new record.
@@ -484,8 +502,8 @@ impl<'a> TcsLog<'a> {
         }
 
         // Read timestamp. If we get zero bytes, we're at the physical, and
-        // hence, logical EOF. If the timestamp is Timestamp::EOF, we are
-        // at the logical EOF.
+        // hence, logical EOF. If the timestamp is Timestamp::CONT, we are
+        // at the continuation marker that ends the file.
         self.file.seek(SeekFrom::Start(self.read_position))?;
         let mut ts_bytes = [0u8; Timestamp::TIMESTAMP_SIZE];
 
@@ -499,6 +517,7 @@ println!("TcsLog::read: reading timestamp");
             Err(e) => return Err(TcsLogError::Io(e)),
             Ok(n) => {
                 if n == 0 {
+                    // FIXME: double check this
                     return Err(TcsLogError::EOF);
                 } else if n != Timestamp::TIMESTAMP_SIZE {
                     return Err(TcsLogError::CorruptedEOF);
@@ -508,7 +527,7 @@ println!("TcsLog::read: reading timestamp");
 
         *timestamp = Timestamp::from_le_bytes(ts_bytes);
 println!("TcsLog::read: read timestamp {:?}", timestamp);
-        if *timestamp == Timestamp::EOF {
+        if *timestamp == Timestamp::CONT {
             return Err(TcsLogError::EOF);
         }
 
@@ -606,22 +625,8 @@ mod tests {
     #[test]
     fn test_generate_file_name() {
         let ts: Timestamp = Timestamp::from_nanos(0x0001_2345_6789_ABCD_EF01_2345_6789_ABCD);
-        let name = TcsLog::generate_file_name("test", ts).unwrap();
-        assert_eq!(name, "test-0001_2345_6789_abcd_ef01_2345_6789_abcd");
-    }
-
-    #[test]
-    fn test_parse_timestamp_from_name() {
-        let ts = TcsLog::parse_timestamp_from_name(
-            "test-0001_2345_6789_abcd_ef01_2345_6789_abcd",
-            "test",
-        );
-        assert_eq!(
-            ts,
-            Some(Timestamp::from_nanos(
-                0x0001_2345_6789_ABCD_EF01_2345_6789_ABCD
-            ))
-        );
+        let name = TcsLog::generate_file_name("test-", ts, ".tcslog").unwrap();
+        assert_eq!(name, "test-0001_2345_6789_abcd_ef01_2345_6789_abcd.tcslog");
     }
 
     #[test]

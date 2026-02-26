@@ -1,6 +1,6 @@
 //! Time stamps. The tricky part is that I want to use a time stamp to
-//! indicate an EOF with a zero bits. This means sacrificing a nanosecond
-//! from the over thirty million year range.
+//! indicate a continuation to the next log file with a zero bits. This means
+//! sacrificing a nanosecond from the over thirty million year range.
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -21,10 +21,10 @@ pub struct Timestamp {
 impl Timestamp {
     pub const ZERO: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
     pub const MAX: Timestamp = Self::new_raw(0xffffffffffffffff, 999_999_998);
-    pub const EOF: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
+    pub const CONT: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
     pub const TIMESTAMP_SIZE: usize = size_of::<u32>() + size_of::<u64>();
 
-    // Number of nanoseconds to add so that EOF can be all zeros without
+    // Number of nanoseconds to add so that continuation can be all zeros without
     // interfering with the rest of the range. The range becomes smaller
     // by this many nanoseconds, but this is tiny.
     const TIMESTAMP_OFFSET: u8 = 1;
