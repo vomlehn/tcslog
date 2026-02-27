@@ -2,14 +2,17 @@
 
 use crate::error::TcsLogError;
 use crate::Timestamp;
+use crate::Offset;
 use crate::BLOCK_SIZE;
 use crate::MAX_FILENAME_LEN;
 
+/*
 /// Block header indicating null pointer (does not reference a file).
 pub const TCSLOG_NULL: u64 = 0x0000_0000_0000_0001;
 
 /// Block header indicating next record starts at end of header.
-pub const TCSLOG_REC: u64 = 0x0000_0000_0000_0002;
+pub const Offset::REC_START: u64 = 0x0000_0000_0000_0002;
+*/
 
 /// Size of block header in bytes.
 pub const BLOCK_HEADER_SIZE: usize = 8;
@@ -28,7 +31,13 @@ pub const CONT_SIZE: usize = Timestamp::TIMESTAMP_SIZE + MAX_FILENAME_LEN;
 /// Maximum record size that can fit in a single data block.
 pub const MAX_RECORD_SIZE: usize = BLOCK_SIZE - BLOCK_HEADER_SIZE - RECORD_METADATA_SIZE;
 
-/// Parses a block header value.
+/// Represent a block header
+#[derive(Debug, Clone, Copy)]
+pub struct BlockHeader {
+    offset: Offset
+}
+
+/*
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum BlockHeader {
     /// Null pointer - does not reference a file.
@@ -38,31 +47,32 @@ pub enum BlockHeader {
     /// Offset to end of current record (continuation from previous block).
     Continuation(u64),
 }
+*/
 
 impl BlockHeader {
-    /// Parses a block header from its u64 representation.
-    pub fn from_u64<'a>(value: u64) -> Result<Self, TcsLogError<'a>> {
-        let lower_byte = value & 0xFF;
-        let upper_bytes = value >> 8;
+    pub fn new(offset: Offset) -> BlockHeader {
+        BlockHeader { offset }
+    }
 
-        match (upper_bytes, lower_byte) {
-            (0, 0) => Ok(BlockHeader::Null),
-            (0, 1) => Ok(BlockHeader::NewRecord),
-            (offset, 0) if offset > 0 => Ok(BlockHeader::Continuation(offset << 8)),
-            _ => Err(TcsLogError::InvalidFormat(format!(
-                "Invalid block header: 0x{:016X}",
-                value
-            ))),
-        }
+    /// Converts a block header into its on-disk format
+    pub fn to_le_bytes(&self) -> [u8; Offset::OFFSET_SIZE] {
+        self.offset.to_le_bytes()
+    }
+
+    pub fn from_le_bytes(buf: [u8; Offset::OFFSET_SIZE]) -> BlockHeader {
+        BlockHeader { offset: Offset::from_le_bytes(buf) }
     }
 
     /// Converts the block header to its u64 representation.
     pub fn to_u64(&self) -> u64 {
+        self.offset.into()
+/*
         match self {
-            BlockHeader::Null => TCSLOG_NULL,
-            BlockHeader::NewRecord => TCSLOG_REC,
+            BlockHeader::Null => Offset::NULL,
+            BlockHeader::NewRecord => Offset::REC_START,
             BlockHeader::Continuation(offset) => *offset,
         }
+*/
     }
 }
 
@@ -151,8 +161,8 @@ impl DataBlockWriter {
     #[allow(unused)]
     pub fn new() -> Self {
         let mut buffer = [0u8; BLOCK_SIZE];
-        // Initialize with TCSLOG_REC header
-        buffer[0..8].copy_from_slice(&TCSLOG_REC.to_le_bytes());
+        // Initialize with Offset::REC_START header
+        buffer[0..8].copy_from_slice(&Offset::REC_START.to_le_bytes());
 
         DataBlockWriter {
             buffer,
@@ -183,7 +193,7 @@ impl DataBlockWriter {
     #[allow(unused)]
     pub fn reset(&mut self) {
         self.buffer = [0u8; BLOCK_SIZE];
-        self.buffer[0..8].copy_from_slice(&TCSLOG_REC.to_le_bytes());
+        self.buffer[0..8].copy_from_slice(&Offset::REC_START.to_le_bytes());
         self.position = BLOCK_HEADER_SIZE;
         self.in_record = false;
     }
@@ -226,8 +236,8 @@ impl DataBlockReader {
     /// Returns the block header.
     #[allow(unused)]
     pub fn header(&self) -> Result<BlockHeader, TcsLogError<'_>> {
-        let value = u64::from_le_bytes(self.buffer[0..8].try_into().unwrap());
-        BlockHeader::from_u64(value)
+        let offset = Offset::from_le_bytes(self.buffer[0..8].try_into().unwrap());
+        Ok(BlockHeader::new(offset))
     }
 
     /// Returns the remaining bytes in the block.
@@ -265,9 +275,9 @@ mod tests {
 
     #[test]
     fn test_block_header_new_record() {
-        let header = BlockHeader::from_u64(TCSLOG_REC).unwrap();
+        let header = BlockHeader::from_u64(Offset::REC_START).unwrap();
         assert_eq!(header, BlockHeader::NewRecord);
-        assert_eq!(header.to_u64(), TCSLOG_REC);
+        assert_eq!(header.to_u64(), Offset::REC_START);
     }
 
     #[test]

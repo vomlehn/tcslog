@@ -19,14 +19,25 @@ mod header;
 mod index;
 mod timestamp;
 
+#[derive(Debug, Clone, Copy)]
 struct Offset {
     offset: u64,
 }
 
 impl Offset {
-    const OFFSET_SIZE: usize = size_of::<u64>();
+    /// Block header indicating null pointer (does not reference within a file).
+    pub const NULL: Offset = Offset::new_raw(0x0000_0000_0000_0001);
 
-    fn new(offset: u64) -> Offset {
+    /// Block header indicating next record starts at end of header.
+    pub const REC_START: Offset = Offset::new_raw(0x0000_0000_0000_0002);
+
+    pub const OFFSET_SIZE: usize = size_of::<u64>();
+
+    pub const fn new(offset: u64) -> Offset {
+        Offset { offset }
+    }
+
+    pub const fn new_raw(offset: u64) -> Offset {
         Offset { offset }
     }
 
@@ -49,6 +60,12 @@ impl Offset {
         a_offset.copy_from_slice(&buf[..Self::OFFSET_SIZE]);
         let offset = u64::from_le_bytes(a_offset);
         Offset { offset }
+    }
+}
+
+impl From<Offset> for u64 {
+    fn from(value: Offset) -> Self {
+        value.offset
     }
 }
 
@@ -123,7 +140,7 @@ impl PartialOrd for RecNo {
 
 pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
 pub use data::{
-    BlockHeader, CONT_SIZE, DataRecord, BLOCK_HEADER_SIZE, MAX_RECORD_SIZE, RECORD_METADATA_SIZE, TCSLOG_NULL, TCSLOG_REC,
+    BlockHeader, CONT_SIZE, DataRecord, BLOCK_HEADER_SIZE, MAX_RECORD_SIZE, RECORD_METADATA_SIZE,
 };
 pub use error::TcsLogError;
 pub use header::{Header, HEADER_SIZE};
@@ -514,7 +531,7 @@ impl<'a> TcsLog<'a> {
         // Write block header if at start of new block
         if current_block_offset == 0 {
             self.file.seek(SeekFrom::Start(self.write_position))?;
-            self.file.write_all(&data::TCSLOG_REC.to_le_bytes())?;
+            self.file.write_all(&Offset::REC_START.to_le_bytes())?;
             self.write_position += data::BLOCK_HEADER_SIZE as u64;
         }
 
