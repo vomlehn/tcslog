@@ -951,6 +951,11 @@ println!("Final read position {:?}", self.read_position);
         self.header.timestamp
     }
 
+    /// Returns the header of the current log file.
+    pub fn header(&self) -> &Header {
+        &self.header
+    }
+
     /// Flushes any buffered data to disk.
     pub fn flush(&mut self) -> Result<(), TcsLogError<'static>> {
         self.file.flush()?;

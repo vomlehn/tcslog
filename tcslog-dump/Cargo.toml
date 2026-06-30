@@ -1,0 +1,10 @@
+[package]
+name = "tcslog-dump"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tcslog = { path = "../tcslog" }
+tcslog-sample = { path = "../tcslog-sample" }

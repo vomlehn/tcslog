@@ -2,7 +2,7 @@
 resolver = "2"
 
 members = [
-    "tcslog", "tcslogtest", "tcslog-sample",
+    "tcslog", "tcslogtest", "tcslog-sample", "tcslog-dump",
 ]
 
 [workspace.package]
