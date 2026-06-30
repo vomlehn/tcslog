@@ -293,8 +293,16 @@ pub trait Timestampable {
 pub struct Timestamper {}
 
 impl Timestamper {
-    fn new() -> Timestamper {
+    /// Creates a timestamper backed by the system clock (nanoseconds since the
+    /// UNIX epoch).
+    pub fn new() -> Timestamper {
         Timestamper {}
+    }
+}
+
+impl Default for Timestamper {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -358,6 +366,9 @@ pub struct TcsLog<'a> {
     suffix_len: usize,
     /// Whether the log is open for writing.
     writing: bool,
+    /// Total number of records written to this log, carried across rollover so
+    /// it counts every message written to the chain.
+    messages_written: u64,
 }
 
 impl<'a> TcsLog<'a> {
@@ -516,6 +527,7 @@ impl<'a> TcsLog<'a> {
             suffix: suffix_buf,
             suffix_len,
             writing: true,
+            messages_written: 0,
         })
     }
 
@@ -587,6 +599,7 @@ impl<'a> TcsLog<'a> {
             suffix: suffix_buf,
             suffix_len,
             writing: false,
+            messages_written: 0,
         })
     }
 
@@ -634,6 +647,7 @@ impl<'a> TcsLog<'a> {
             suffix: [0u8; Filename::MAX_SUFFIX_LEN], // FIXME: not needed
             suffix_len: 0,
             writing: false,
+            messages_written: 0,
         })
     }
 
@@ -687,7 +701,7 @@ impl<'a> TcsLog<'a> {
 
         if (total_needed + CONT_SIZE) as u64 > remaining_in_file {
             // Create the next log file in the chain, incrementing the chain count.
-            let new_log = Self::new_with_timestamp_chained(
+            let mut new_log = Self::new_with_timestamp_chained(
                 self.dir_name,
                 self.prefix(),
                 timestamper,
@@ -703,6 +717,9 @@ impl<'a> TcsLog<'a> {
             self.file.seek(SeekFrom::Start(self.write_position))?;
             self.file.write_all(&marker.to_le_bytes())?;
 
+            // Carry the running message count into the successor so it counts
+            // every message written across the whole chain.
+            new_log.messages_written = self.messages_written;
             *self = new_log;
             return self.write(timestamper, data);
         }
@@ -727,6 +744,8 @@ impl<'a> TcsLog<'a> {
 
         // Update index
         self.update_index(self.write_position - data.len() as u64, timestamp)?;
+
+        self.messages_written += 1;
 
         Ok(())
     }
@@ -916,9 +935,15 @@ println!("Final read position {:?}", self.read_position);
         Path::new(self.path_str())
     }
 
-    /// Returns the file name.
+    /// Returns the name of the current log file.
     pub fn file_name(&self) -> &str {
         self.header.file_name_str()
+    }
+
+    /// Returns the total number of log messages written through this log,
+    /// counting messages written to earlier files in the chain as well.
+    pub fn message_count(&self) -> u64 {
+        self.messages_written
     }
 
     /// Returns the creation timestamp.
