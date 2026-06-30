@@ -6,9 +6,12 @@
 //! * Metadata all in little-endian form
 
 use std::cmp::Ordering;
+// Imported only so the `write!` macro can reach `fmt::Write::write_fmt`; aliased
+// to `_` so it does not collide with `std::io::Write`.
+use std::fmt::Write as _;
 use std::fs::{File, OpenOptions};
 use std::io::{Read, Seek, SeekFrom, Write};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{SystemTime, SystemTimeError, UNIX_EPOCH};
 use thiserror::Error;
 
@@ -97,6 +100,67 @@ impl PartialOrd for Offset {
     }
 }
 
+/// A `fmt::Write` sink over a fixed-size byte buffer. It lets `write!` format
+/// names and paths into stack/inline storage without allocating on the heap.
+/// Writing more than the buffer holds fails with `fmt::Error`.
+struct ByteBuf<'a> {
+    buf: &'a mut [u8],
+    len: usize,
+}
+
+impl<'a> ByteBuf<'a> {
+    fn new(buf: &'a mut [u8]) -> Self {
+        ByteBuf { buf, len: 0 }
+    }
+}
+
+impl std::fmt::Write for ByteBuf<'_> {
+    fn write_str(&mut self, s: &str) -> std::fmt::Result {
+        let end = self.len + s.len();
+        if end > self.buf.len() {
+            return Err(std::fmt::Error);
+        }
+        self.buf[self.len..end].copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
+
+/// Packs a length-bounded string into a fixed `[u8; N]` buffer (truncating if it
+/// somehow exceeds `N`), returning the buffer and the number of bytes written.
+/// Used to store validated prefixes/suffixes inline without heap allocation.
+fn pack_str<const N: usize>(s: &str) -> ([u8; N], usize) {
+    let mut buf = [0u8; N];
+    let len = s.len().min(N);
+    buf[..len].copy_from_slice(&s.as_bytes()[..len]);
+    (buf, len)
+}
+
+/// Maximum length of a log file path, stored inline so that creating/opening a
+/// log file (including chain rollover) needs no heap allocation. This matches
+/// the typical POSIX `PATH_MAX`; tune it for platforms with different limits.
+const MAX_PATH_LEN: usize = 4096;
+
+/// Formats `<dir>/<name>` into `buf` without allocating, returning the byte
+/// length. Errors if the result would not fit in `buf`.
+fn build_path(buf: &mut [u8], dir: &str, name: &str) -> Result<usize, TcsLogError<'static>> {
+    let mut w = ByteBuf::new(buf);
+    write!(w, "{dir}/{name}")
+        .map_err(|_| TcsLogError::InvalidFormat("Path too long".to_string()))?;
+    Ok(w.len)
+}
+
+/// Copies an already-built path string into a fixed `MAX_PATH_LEN` buffer,
+/// erroring if it is too long. No heap allocation.
+fn pack_path(s: &str) -> Result<([u8; MAX_PATH_LEN], usize), TcsLogError<'static>> {
+    if s.len() > MAX_PATH_LEN {
+        return Err(TcsLogError::InvalidFormat("Path too long".to_string()));
+    }
+    let mut buf = [0u8; MAX_PATH_LEN];
+    buf[..s.len()].copy_from_slice(s.as_bytes());
+    Ok((buf, s.len()))
+}
+
 /// FIXME: This needs to use system-dependent functions file file name
 /// manipulation
 #[derive(Debug, Clone, Copy)]
@@ -126,34 +190,29 @@ impl Filename {
         Self::validate_prefix(prefix)?;
         Self::validate_suffix(suffix)?;
 
-        // Format: <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix>
-        // where the timestamp is the full u128 of nanoseconds rendered as
-        // 32 lowercase hex digits in eight underscore-separated groups.
-        let timestamp_u128 = timestamp.as_nanos();
-        let hex = format!("{:032x}", timestamp_u128);
-        let name = format!(
-            "{}{}_{}_{}_{}_{}_{}_{}_{}{}",
-            prefix,
-            &hex[0..4],
-            &hex[4..8],
-            &hex[8..12],
-            &hex[12..16],
-            &hex[16..20],
-            &hex[20..24],
-            &hex[24..28],
-            &hex[28..32],
-            suffix,
-        );
-
-        // Pack the name into a fixed-size, NUL-padded byte array.
-        if name.len() > Self::PACKLEN {
-            return Err(TcsLogError::InvalidFormat(
-                "File name too long".to_string(),
-            ));
-        }
-
+        // Format <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix>
+        // directly into the fixed-size, NUL-padded name buffer, with no heap
+        // allocation. The timestamp is the full u128 of nanoseconds rendered as
+        // 32 lowercase hex digits in eight underscore-separated groups (each
+        // group is one 16-bit slice of the value).
+        let ts = timestamp.as_nanos();
         let mut file_name = [0u8; Self::PACKLEN];
-        file_name[..name.len()].copy_from_slice(name.as_bytes());
+        {
+            let mut w = ByteBuf::new(&mut file_name);
+            write!(
+                w,
+                "{prefix}{:04x}_{:04x}_{:04x}_{:04x}_{:04x}_{:04x}_{:04x}_{:04x}{suffix}",
+                (ts >> 112) as u16,
+                (ts >> 96) as u16,
+                (ts >> 80) as u16,
+                (ts >> 64) as u16,
+                (ts >> 48) as u16,
+                (ts >> 32) as u16,
+                (ts >> 16) as u16,
+                ts as u16,
+            )
+            .map_err(|_| TcsLogError::InvalidFormat("File name too long".to_string()))?;
+        }
 
         Ok(Filename { file_name })
     }
@@ -280,8 +339,9 @@ pub enum TimestampableError {
 pub struct TcsLog<'a> {
     dir_name: &'a str,
     file: File,
-    /// The file path.
-    path: PathBuf,
+    /// The full file path, stored inline to avoid heap allocation.
+    path_buf: [u8; MAX_PATH_LEN],
+    path_len: usize,
     /// The file header.
     header: Header,
     /// Maximum file size.
@@ -290,10 +350,12 @@ pub struct TcsLog<'a> {
     write_position: u64,
     /// Current read position.
     read_position: u64,
-    /// The prefix used for file naming.
-    prefix: String,
-    /// The suffix used for file naming.
-    suffix: String,
+    /// The prefix used for file naming, stored inline to avoid heap allocation.
+    prefix: [u8; Filename::MAX_PREFIX_LEN],
+    prefix_len: usize,
+    /// The suffix used for file naming, stored inline to avoid heap allocation.
+    suffix: [u8; Filename::MAX_SUFFIX_LEN],
+    suffix_len: usize,
     /// Whether the log is open for writing.
     writing: bool,
 }
@@ -314,6 +376,16 @@ impl<'a> TcsLog<'a> {
     /// chain has a count of zero; each successor increments it.
     pub fn chain_count(&self) -> u32 {
         self.header.chain_count
+    }
+
+    /// The prefix used for this log's file names.
+    fn prefix(&self) -> &str {
+        std::str::from_utf8(&self.prefix[..self.prefix_len]).unwrap_or("")
+    }
+
+    /// The suffix used for this log's file names.
+    fn suffix(&self) -> &str {
+        std::str::from_utf8(&self.suffix[..self.suffix_len]).unwrap_or("")
     }
 
     /// Creates a new TcsLog with a specified maximum file size.
@@ -369,24 +441,31 @@ impl<'a> TcsLog<'a> {
 
         let mut retries = 0;
 
-        let (path, mut file, mut header) = loop {
+        let (path_buf, path_len, mut file, mut header) = loop {
             let timestamp = timestamper.timestamp().unwrap();
             let file_name = Filename::new(prefix, timestamp, suffix)?;
 
             // Create header
             let header = Header::new(timestamp, index_offset, data_offset, file_name.as_str());
 
-            // Create the file
-            let path = PathBuf::from(dir_name).join(file_name.as_str());
+            // Build the file path inline (no heap allocation).
+            let mut path_buf = [0u8; MAX_PATH_LEN];
+            let path_len = build_path(&mut path_buf, dir_name, file_name.as_str())?;
 
-            match OpenOptions::new()
-                // FIXME: remove this?
-                //                .read(true)
-                .write(true)
-                .create_new(true)
-                .open(&path)
-            {
-                Ok(f) => break (path, f, header),
+            // Create the file, scoping the `&Path` borrow so `path_buf` can be
+            // moved out of the loop afterwards.
+            let opened = {
+                let path = Path::new(std::str::from_utf8(&path_buf[..path_len]).unwrap());
+                OpenOptions::new()
+                    // FIXME: remove this?
+                    //                .read(true)
+                    .write(true)
+                    .create_new(true)
+                    .open(path)
+            };
+
+            match opened {
+                Ok(f) => break (path_buf, path_len, f, header),
                 Err(e)
                     if e.kind() == std::io::ErrorKind::AlreadyExists && retries < MAX_RETRIES =>
                 {
@@ -420,16 +499,22 @@ impl<'a> TcsLog<'a> {
         // Seek to beginning of data section
         file.seek(SeekFrom::Start(data_offset))?;
 
+        let (prefix_buf, prefix_len): ([u8; Filename::MAX_PREFIX_LEN], usize) = pack_str(prefix);
+        let (suffix_buf, suffix_len): ([u8; Filename::MAX_SUFFIX_LEN], usize) = pack_str(suffix);
+
         Ok(TcsLog {
             dir_name,
             file,
-            path,
+            path_buf,
+            path_len,
             header,
             max_size,
             write_position: data_offset,
             read_position: data_offset,
-            prefix: prefix.to_string(),
-            suffix: suffix.to_string(),
+            prefix: prefix_buf,
+            prefix_len,
+            suffix: suffix_buf,
+            suffix_len,
             writing: true,
         })
     }
@@ -466,14 +551,15 @@ impl<'a> TcsLog<'a> {
         suffix: &str,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         let file_name = Filename::new(prefix, timestamp, suffix)?;
-        let path = PathBuf::from(file_name.as_str());
+        let (path_buf, path_len) = pack_path(file_name.as_str())?;
+        let path = Path::new(std::str::from_utf8(&path_buf[..path_len]).unwrap());
         println!("TcsLog::open: path {:?}", path);
 
         if !path.exists() {
             return Err(TcsLogError::NotFound);
         }
 
-        let mut file = OpenOptions::new().read(true).open(&path)?;
+        let mut file = OpenOptions::new().read(true).open(path)?;
 
         // Read and parse header
         let mut header_bytes = [0u8; Header::HEADER_SIZE];
@@ -484,16 +570,22 @@ impl<'a> TcsLog<'a> {
 
         let max_size = DEFAULT_FILE_SIZE; // Could also store in header
 
+        let (prefix_buf, prefix_len): ([u8; Filename::MAX_PREFIX_LEN], usize) = pack_str(prefix);
+        let (suffix_buf, suffix_len): ([u8; Filename::MAX_SUFFIX_LEN], usize) = pack_str(suffix);
+
         Ok(TcsLog {
             dir_name,
             file,
-            path,
+            path_buf,
+            path_len,
             header: header.clone(),
             max_size,
             write_position: 0,
             read_position: header.data_offset,
-            prefix: prefix.to_string(),
-            suffix: suffix.to_string(),
+            prefix: prefix_buf,
+            prefix_len,
+            suffix: suffix_buf,
+            suffix_len,
             writing: false,
         })
     }
@@ -506,6 +598,12 @@ impl<'a> TcsLog<'a> {
         if !path.exists() {
             return Err(TcsLogError::NotFound);
         }
+
+        // Store the path inline (no heap allocation).
+        let path_str = path
+            .to_str()
+            .ok_or_else(|| TcsLogError::InvalidFormat("Path is not valid UTF-8".to_string()))?;
+        let (path_buf, path_len) = pack_path(path_str)?;
 
         let mut file = OpenOptions::new().read(true).open(path)?;
 
@@ -525,13 +623,16 @@ impl<'a> TcsLog<'a> {
         Ok(TcsLog {
             dir_name: "", // FIXME: not needed
             file,
-            path: path.to_path_buf(),
+            path_buf,
+            path_len,
             header: header.clone(),
             max_size,
             write_position: 0,
             read_position: header.data_offset,
-            prefix: "".to_string(), // FIXME: not needed
-            suffix: "".to_string(), // FIXME: not needed
+            prefix: [0u8; Filename::MAX_PREFIX_LEN], // FIXME: not needed
+            prefix_len: 0,
+            suffix: [0u8; Filename::MAX_SUFFIX_LEN], // FIXME: not needed
+            suffix_len: 0,
             writing: false,
         })
     }
@@ -587,10 +688,10 @@ impl<'a> TcsLog<'a> {
         if (total_needed + CONT_SIZE) as u64 > remaining_in_file {
             // Create the next log file in the chain, incrementing the chain count.
             let new_log = Self::new_with_timestamp_chained(
-                &self.dir_name,
-                &self.prefix,
+                self.dir_name,
+                self.prefix(),
                 timestamper,
-                &self.suffix,
+                self.suffix(),
                 self.max_size,
                 self.header.chain_count + 1,
             )?;
@@ -722,10 +823,20 @@ println!("TcsLog::read: read timestamp {:?}", timestamp);
             }
 
             // Open the successor in the same directory and continue reading.
-            let dir = self.path.parent().unwrap_or_else(|| Path::new(""));
-            let next_path = dir.join(next_name);
-            println!("TcsLog::read: following chain to {:?}", next_path);
-            let next = TcsLog::open_path(next_path)?;
+            // Build "<dir>/<next_name>" inline, with no heap allocation.
+            let dir = self
+                .path()
+                .parent()
+                .and_then(|p| p.to_str())
+                .unwrap_or("");
+            let mut next_path_buf = [0u8; MAX_PATH_LEN];
+            let next_path_len = build_path(&mut next_path_buf, dir, next_name)?;
+            let next = {
+                let next_path =
+                    Path::new(std::str::from_utf8(&next_path_buf[..next_path_len]).unwrap());
+                println!("TcsLog::read: following chain to {:?}", next_path);
+                TcsLog::open_path(next_path)?
+            };
             *self = next;
             return self.read(timestamp, data);
         }
@@ -795,9 +906,14 @@ println!("Final read position {:?}", self.read_position);
         Ok(self.header.data_offset)
     }
 
+    /// The full log file path as a string.
+    fn path_str(&self) -> &str {
+        std::str::from_utf8(&self.path_buf[..self.path_len]).unwrap_or("")
+    }
+
     /// Returns the path to the log file.
     pub fn path(&self) -> &Path {
-        &self.path
+        Path::new(self.path_str())
     }
 
     /// Returns the file name.
