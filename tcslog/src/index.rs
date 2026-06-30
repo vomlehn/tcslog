@@ -4,8 +4,10 @@ use crate::error::TcsLogError;
 use crate::{Timestamp, BLOCK_SIZE};
 use std::mem::size_of;
 
-/// Size of an index entry (offset + timestamp).
-pub const INDEX_ENTRY_SIZE: usize = 2 * size_of::<u64>();
+/// Size of an index entry (offset + packed timestamp). The timestamp's
+/// packed size (`Timestamp::PACKLEN`) is used rather than `size_of::<Timestamp>()`,
+/// which includes struct padding.
+pub const INDEX_ENTRY_SIZE: usize = size_of::<u64>() + Timestamp::PACKLEN;
 
 /// Number of index entries per block.
 pub const ENTRIES_PER_BLOCK: usize = BLOCK_SIZE / INDEX_ENTRY_SIZE;
@@ -45,15 +47,17 @@ impl IndexEntry {
     /// Serializes the entry to bytes (little-endian).
     pub fn to_bytes(&self) -> [u8; INDEX_ENTRY_SIZE] {
         let mut bytes = [0u8; INDEX_ENTRY_SIZE];
-        bytes[0..8].copy_from_slice(&self.offset.to_le_bytes());
-        bytes[8..16].copy_from_slice(&self.timestamp.to_le_bytes());
+        let i = size_of::<u64>();
+        bytes[0..i].copy_from_slice(&self.offset.to_le_bytes());
+        bytes[i..i + Timestamp::PACKLEN].copy_from_slice(&self.timestamp.to_le_bytes());
         bytes
     }
 
     /// Deserializes an entry from bytes.
     pub fn from_bytes(bytes: &[u8; INDEX_ENTRY_SIZE]) -> Self {
-        let offset = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
-        let timestamp = Timestamp::from_le_bytes(bytes[8..16].try_into().unwrap());
+        let i = size_of::<u64>();
+        let offset = u64::from_le_bytes(bytes[0..i].try_into().unwrap());
+        let timestamp = Timestamp::from_le_bytes(bytes[i..i + Timestamp::PACKLEN].try_into().unwrap());
         IndexEntry { offset, timestamp }
     }
 

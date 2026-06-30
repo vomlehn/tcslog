@@ -20,11 +20,15 @@ pub const Offset::REC_START: u64 = 0x0000_0000_0000_0002;
 /// Size of block header in bytes.
 pub const PACKLEN: usize = 8;
 
+/// Size of a block header in bytes (same as [`BlockHeader::PACKLEN`]).
+pub const BLOCK_HEADER_SIZE: usize = Offset::PACKLEN;
+
 /// Size of record length field in bytes.
 pub const RECORD_LENGTH_SIZE: usize = 8;
 
-/// Size of timestamp field in bytes.
-pub const RECORD_PACKLEN: usize = size_of::<Timestamp>();
+/// Size of timestamp field in bytes (the packed, on-disk size, which is
+/// smaller than `size_of::<Timestamp>()` because of struct padding).
+pub const RECORD_PACKLEN: usize = Timestamp::PACKLEN;
 
 /// Size of record metadata (length + timestamp).
 pub const RECORD_METADATA_SIZE: usize = RECORD_PACKLEN + RECORD_LENGTH_SIZE;
@@ -35,7 +39,7 @@ pub const CONT_SIZE: usize = Timestamp::PACKLEN + Filename::PACKLEN;
 pub const MAX_RECORD_SIZE: usize = BLOCK_SIZE - BlockHeader::PACKLEN - RECORD_METADATA_SIZE;
 
 /// Represent a block header
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct BlockHeader {
     offset: Offset
 }
@@ -139,12 +143,12 @@ impl EofMarker {
         let mut i = 0;
 
         // First, pull out the timestamp
-        let a_timestamp: [u8; Timestamp::PACKLEN] = [0; Timestamp::PACKLEN];
+        let mut a_timestamp: [u8; Timestamp::PACKLEN] = [0; Timestamp::PACKLEN];
         a_timestamp.copy_from_slice(&buf[i..Timestamp::PACKLEN]);
         let timestamp = Timestamp::from_le_bytes(a_timestamp);
 
         // First, pull out the next_file
-        let a_next_file: [u8; Filename::PACKLEN] = [0; Filename::PACKLEN];
+        let mut a_next_file: [u8; Filename::PACKLEN] = [0; Filename::PACKLEN];
         a_next_file.copy_from_slice(&buf[i..Filename::PACKLEN]);
         let next_file = Filename::from_le_bytes(a_next_file);
 
@@ -225,21 +229,22 @@ impl DataRecord {
 
         let mut i = 0;
 
-        let length = Offset::from_le_bytes(
-            bytes[i..Offset::PACKLEN]
-                .try_into()
-                .map_err(|_| TcsLogError::InvalidFormat("Invalid record length".to_string()))?,
-        ) as usize;
-
-        i += Offset::PACKLEN;
-
+        // On-disk order matches `to_le_bytes` and `TcsLog::write`:
+        // [timestamp][length][data].
         let timestamp = Timestamp::from_le_bytes(
             bytes[i..i + Timestamp::PACKLEN]
                 .try_into()
                 .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
         );
         i += Timestamp::PACKLEN;
-        println!("DataRecord::timestamp: {:?}", length);
+
+        let length = u64::from_le_bytes(
+            bytes[i..i + RECORD_LENGTH_SIZE]
+                .try_into()
+                .map_err(|_| TcsLogError::InvalidFormat("Invalid record length".to_string()))?,
+        ) as usize;
+        i += RECORD_LENGTH_SIZE;
+        debug_assert_eq!(i, RECORD_METADATA_SIZE);
 
         if bytes.len() < RECORD_METADATA_SIZE + length {
             return Err(TcsLogError::InvalidFormat(
@@ -327,10 +332,6 @@ impl DataBlockWriter {
         let header_value = (offset_in_block as u64) & !0xFF;
         self.buffer[0..8].copy_from_slice(&header_value.to_le_bytes());
     }
-
-    pub fn pathlen(&self) -> usize {
-        unimplemented!();
-    }
 }
 
 /// Manages reading data records from blocks.
@@ -386,30 +387,32 @@ mod tests {
 
     #[test]
     fn test_block_header_null() {
-        let header = BlockHeader::from_u64(TCSLOG_NULL).unwrap();
-        assert_eq!(header, BlockHeader::Null);
-        assert_eq!(header.to_u64(), data::TCSLOG_NULL);
+        let header = BlockHeader::from_le_bytes(Offset::NULL.to_le_bytes());
+        assert_eq!(header, BlockHeader::NULL);
+        assert_eq!(header.to_u64(), u64::from(Offset::NULL));
     }
 
     #[test]
-    fn test_block_header_new_record() {
-        let header = BlockHeader::from_u64(Offset::REC_START).unwrap();
-        assert_eq!(header, BlockHeader::NewRecord);
-        assert_eq!(header.to_u64(), Offset::REC_START);
+    fn test_block_header_rec_start() {
+        let header = BlockHeader::from_le_bytes(Offset::REC_START.to_le_bytes());
+        assert_eq!(header, BlockHeader::REC_START);
+        assert_eq!(header.to_u64(), u64::from(Offset::REC_START));
     }
 
     #[test]
-    fn test_block_header_continuation() {
+    fn test_block_header_roundtrip() {
         let offset: u64 = 0x1234_5600;
-        let header = BlockHeader::from_u64(offset).unwrap();
-        assert_eq!(header, BlockHeader::Continuation(offset));
+        let header = BlockHeader::new(Offset::new_raw(offset));
+        let restored = BlockHeader::from_le_bytes(header.to_le_bytes());
+        assert_eq!(header, restored);
+        assert_eq!(restored.to_u64(), offset);
     }
 
     #[test]
     fn test_data_record_roundtrip() {
-        let record = DataRecord::new(12345678900, vec![1, 2, 3, 4, 5]);
-        let bytes = record.to_bytes();
-        let restored = DataRecord::from_bytes(&bytes).unwrap();
+        let record = DataRecord::new(Timestamp::from_nanos(12345678900), vec![1, 2, 3, 4, 5]);
+        let bytes = record.to_le_bytes();
+        let restored = DataRecord::from_le_bytes(&bytes).unwrap();
 
         assert_eq!(record.timestamp, restored.timestamp);
         assert_eq!(record.data, restored.data);

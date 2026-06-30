@@ -1,0 +1,4 @@
+Building the project...
+error: no bin target named `tcspecial` in default-run packages
+help: available bin targets:
+    tcslogtest

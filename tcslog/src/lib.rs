@@ -21,7 +21,7 @@ mod timestamp;
 
 pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
 pub use data::{
-    BlockHeader, CONT_SIZE, DataRecord, MAX_RECORD_SIZE, RECORD_METADATA_SIZE,
+    BlockHeader, BLOCK_HEADER_SIZE, CONT_SIZE, DataRecord, MAX_RECORD_SIZE, RECORD_METADATA_SIZE,
 };
 pub use error::TcsLogError;
 pub use header::{Header};
@@ -44,10 +44,6 @@ impl Offset {
     pub const REC_START: Offset = Offset::new_raw(0x0000_0000_0000_0002);
 
     pub const PACKLEN: usize = size_of::<u64>();
-
-    pub const fn new(offset: u64) -> Offset {
-        Offset { offset }
-    }
 
     pub const fn new_raw(offset: u64) -> Offset {
         Offset { offset }
@@ -101,59 +97,6 @@ impl PartialOrd for Offset {
     }
 }
 
-struct RecNo {
-    rec_no: u64,
-}
-
-impl RecNo {
-    const PACKLEN: usize = size_of::<u64>();
-
-    fn new(rec_no: u64) -> RecNo {
-        RecNo { rec_no }
-    }
-
-/*
-    // Length when packed
-    pub const fn packlen() -> usize {
-        size_of::<u64>()
-    }
-*/
-
-    pub fn to_le_bytes(&self) -> [u8; Self::PACKLEN] {
-        let a_rec_no = self.rec_no.to_le_bytes();
-
-        let mut rec_no = [0; Self::PACKLEN];
-        rec_no[..8].copy_from_slice(&a_rec_no);
-
-        rec_no
-    }
-
-    pub fn from_le_bytes(buf: [u8; Self::PACKLEN]) -> RecNo {
-        let mut a_rec_no: [u8; Self::PACKLEN] = [0; Self::PACKLEN];
-        a_rec_no.copy_from_slice(&buf[..Self::PACKLEN]);
-        let rec_no = u64::from_le_bytes(a_rec_no);
-        RecNo { rec_no }
-    }
-}
-
-impl PartialEq for RecNo {
-    fn eq(&self, r: &RecNo) -> bool {
-        self.rec_no == r.rec_no
-    }
-}
-
-impl PartialOrd for RecNo {
-    fn partial_cmp(&self, r: &RecNo) -> Option<Ordering> {
-        if self.rec_no < r.rec_no {
-            Some(Ordering::Less)
-        } else if self.rec_no > r.rec_no {
-            Some(Ordering::Greater)
-        } else {
-            Some(Ordering::Equal)
-        }
-    }
-}
-
 /// FIXME: This needs to use system-dependent functions file file name
 /// manipulation
 #[derive(Debug, Clone, Copy)]
@@ -168,9 +111,9 @@ impl Filename {
     pub const MAX_PREFIX_LEN: usize = 32;
 
     /// Size of the timestamp portion of the file name. It has
-    /// five segments, each with four hex digits, separated by
-    /// underlines.
-    pub const FILE_TIMESTAMP_LEN: usize = 6 * 5;
+    /// eight segments, each with four hex digits, separated by
+    /// underlines (8 * 4 hex digits + 7 separators).
+    pub const FILE_TIMESTAMP_LEN: usize = 8 * 4 + 7;
 
     // Max suffix length for file names
     pub const MAX_SUFFIX_LEN: usize = 16;
@@ -183,11 +126,13 @@ impl Filename {
         Self::validate_prefix(prefix)?;
         Self::validate_suffix(suffix)?;
 
-        // Format: <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix> (where X is hex digit)
+        // Format: <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix>
+        // where the timestamp is the full u128 of nanoseconds rendered as
+        // 32 lowercase hex digits in eight underscore-separated groups.
         let timestamp_u128 = timestamp.as_nanos();
-        let hex = format!("{:024}", timestamp_u128);
-        let file_name = format!(
-            "{}{}_{}_{}_{}_{}_{}{}",
+        let hex = format!("{:032x}", timestamp_u128);
+        let name = format!(
+            "{}{}_{}_{}_{}_{}_{}_{}_{}{}",
             prefix,
             &hex[0..4],
             &hex[4..8],
@@ -195,10 +140,32 @@ impl Filename {
             &hex[12..16],
             &hex[16..20],
             &hex[20..24],
+            &hex[24..28],
+            &hex[28..32],
             suffix,
         );
 
+        // Pack the name into a fixed-size, NUL-padded byte array.
+        if name.len() > Self::PACKLEN {
+            return Err(TcsLogError::InvalidFormat(
+                "File name too long".to_string(),
+            ));
+        }
+
+        let mut file_name = [0u8; Self::PACKLEN];
+        file_name[..name.len()].copy_from_slice(name.as_bytes());
+
         Ok(Filename { file_name })
+    }
+
+    /// Returns the file name as a string slice (up to the first NUL byte).
+    pub fn as_str(&self) -> &str {
+        let nul_pos = self
+            .file_name
+            .iter()
+            .position(|&b| b == 0)
+            .unwrap_or(Self::PACKLEN);
+        std::str::from_utf8(&self.file_name[..nul_pos]).unwrap_or("")
     }
 
 /*
@@ -332,6 +299,17 @@ pub struct TcsLog<'a> {
 }
 
 impl<'a> TcsLog<'a> {
+    /// Generates the log file name for the given prefix, timestamp, and suffix.
+    /// This reproduces the name a log was (or would be) created under, so an
+    /// existing log can be reopened.
+    pub fn generate_file_name(
+        prefix: &str,
+        timestamp: Timestamp,
+        suffix: &str,
+    ) -> Result<String, TcsLogError<'static>> {
+        Ok(Filename::new(prefix, timestamp, suffix)?.as_str().to_string())
+    }
+
     /// Creates a new TcsLog with a specified maximum file size.
     /// dir_name    System-dependend directory name
     /// prefix      String that is prepended to the timestamp part of
@@ -360,8 +338,8 @@ impl<'a> TcsLog<'a> {
         suffix: &str,
         max_size: u64,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
-        Self::validate_prefix(prefix)?;
-        Self::validate_suffix(suffix)?;
+        Filename::validate_prefix(prefix)?;
+        Filename::validate_suffix(suffix)?;
 
         // FIXME: Need to validate whether there is room for any data
 
@@ -375,10 +353,10 @@ impl<'a> TcsLog<'a> {
             let file_name = Filename::new(prefix, timestamp, suffix)?;
 
             // Create header
-            let header = Header::new(timestamp, index_offset, data_offset, &file_name);
+            let header = Header::new(timestamp, index_offset, data_offset, file_name.as_str());
 
             // Create the file
-            let path = PathBuf::from(dir_name).join(&file_name);
+            let path = PathBuf::from(dir_name).join(file_name.as_str());
 
             match OpenOptions::new()
                 // FIXME: remove this?
@@ -403,7 +381,7 @@ impl<'a> TcsLog<'a> {
         // Write the header
         let header_bytes = header.to_bytes();
 
-        if header_bytes.packlen() > Header::HEADER_SIZE {
+        if header_bytes.len() > Header::HEADER_SIZE {
             return Err(TcsLogError::BlockSizeTooSmall);
         }
 
@@ -464,7 +442,7 @@ impl<'a> TcsLog<'a> {
         suffix: &str,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         let file_name = Filename::new(prefix, timestamp, suffix)?;
-        let path = PathBuf::from(&file_name);
+        let path = PathBuf::from(file_name.as_str());
         println!("TcsLog::open: path {:?}", path);
 
         if !path.exists() {
@@ -518,7 +496,6 @@ impl<'a> TcsLog<'a> {
 
         // Extract prefix from file name
         println!("extracting prefix");
-        let file_name = header.file_name_str();
         println!("open_path: initial read_position {:?}", header.data_offset);
 
         Ok(TcsLog {
@@ -552,7 +529,7 @@ impl<'a> TcsLog<'a> {
             ));
         }
 
-        if !self.record_fits(data.packlen()) {
+        if !self.record_fits(data.len()) {
             return Err(TcsLogError::RecordTooLarge);
         }
 
@@ -578,7 +555,7 @@ impl<'a> TcsLog<'a> {
         }
 
         // Check if we need a new file
-        let total_needed = data.packlen();
+        let total_needed = data::RECORD_METADATA_SIZE + data.len();
         let remaining_in_file = self.max_size - self.write_position;
 
         if total_needed as u64 > remaining_in_file {
@@ -715,7 +692,7 @@ println!("TcsLog::read: read timestamp {:?}", timestamp);
 
         // Read data
         println!("TcsLogTimestamp::read: len {len} data.len {}", data.len());
-        if len > data.packlen() {
+        if len > data.len() {
             return Err(TcsLogError::InvalidFormat(
                 "Buffer too small for record".to_string(),
             ));
@@ -786,9 +763,11 @@ mod tests {
 
     #[test]
     fn test_generate_file_name() {
-        let ts: Timestamp = Timestamp::from_nanos(0x0001_2345_6789_ABCD_EF01_2345_6789_ABCD);
+        // Use a timestamp within Timestamp's representable range (secs is a
+        // u64, so as_nanos() must fit u64 * 1e9 + nanos).
+        let ts: Timestamp = Timestamp::from_nanos(0x0123_4567_89AB_CDEF);
         let name = Filename::new("test-", ts, ".tcslog").unwrap();
-        assert_eq!(name, "test-0001_2345_6789_abcd_ef01_2345_6789_abcd.tcslog");
+        assert_eq!(name.as_str(), "test-0000_0000_0000_0000_0123_4567_89ab_cdef.tcslog");
     }
 
     #[test]

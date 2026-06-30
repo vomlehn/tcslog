@@ -20,7 +20,10 @@ pub struct Timestamp {
 
 impl Timestamp {
     pub const ZERO: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
-    pub const MAX: Timestamp = Self::new_raw(0xffffffffffffffff, 999_999_998);
+    // The largest representable timestamp: maximum seconds with the maximum
+    // valid nanoseconds (which must be < 1_000_000_000). This equals
+    // `Timestamp::new(u64::MAX, 999_999_998)` once the +1 offset is applied.
+    pub const MAX: Timestamp = Self::new_raw(0xffffffffffffffff, 999_999_999);
     pub const CONT: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
     pub const PACKLEN: usize = size_of::<u32>() + size_of::<u64>();
 
