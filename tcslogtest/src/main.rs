@@ -102,6 +102,13 @@ fn testit<'a>() {
     }
     println!("---");
 
+    test = "test_chain_count";
+    match test_chain_count() {
+        Err(e) => println!("{} FAILED: {:?}", test, e),
+        Ok(_) => println!("{} succeeded", test),
+    }
+    println!("---");
+
     /*
         let over_four = MAX_RECORD_SIZE / 4;
         let result = test_write_one(over_four);
@@ -123,35 +130,104 @@ fn testit<'a>() {
 }
 
 // Test reading from a log file with no information
-fn test_empty<'a>() -> Result<TcsLog<'a>, TcsLogError<'a>> {
+fn test_empty<'a>() -> Result<(), TcsLogError<'a>> {
     test_write_read(0, 0)
 }
 
 // Test writing/reading a record that will fit entirely in the first
 // data block
-fn test_one_small<'a>() -> Result<TcsLog<'a>, TcsLogError<'a>> {
+fn test_one_small<'a>() -> Result<(), TcsLogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 2, 1)
 }
 
 // Test writing/reading records that will fit entirely in the first
 // data block
-fn test_multiple_small<'a>() -> Result<TcsLog<'a>, TcsLogError<'a>> {
+fn test_multiple_small<'a>() -> Result<(), TcsLogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 12, 10)
 }
 
 // Test writing/reading records that will require many data blocks
-fn test_many_small<'a>() -> Result<TcsLog<'a>, TcsLogError<'a>> {
+fn test_many_small<'a>() -> Result<(), TcsLogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 4, 5)
 }
 
 // Test writing/reading records that will require many data blocks
-fn test_many_many_small<'a>() -> Result<TcsLog<'a>, TcsLogError<'a>> {
+fn test_many_many_small<'a>() -> Result<(), TcsLogError<'a>> {
 //    test_write_read(MAX_RECORD_SIZE / 12, 100)
     test_write_read(MAX_RECORD_SIZE / 12, 11)
 }
 
-fn test_write_read<'a>(rec_size: usize, n: usize) -> Result<TcsLog<'a>, TcsLogError<'a>> {
-    let dir_name = "/tmp";
+/**
+ * Create a log file and write enough records to spill over into two more
+ * chained files (three files in total), then read every file in the chain
+ * and verify that their chain counts are 0, 1, and 2.
+ */
+fn test_chain_count<'a>() -> Result<(), TcsLogError<'a>> {
+    // A self-cleaning, OS-independent temporary directory. It and the log files
+    // created inside it are removed automatically when `dir` is dropped, so the
+    // deterministic file names produced by the test timestamper never collide
+    // with a previous run.
+    let dir = tempfile::tempdir()?;
+    let dir_name = dir.path().to_str().expect("temp dir path is not valid UTF-8");
+    let prefix = "chainlog";
+    let suffix = ".tcsl";
+
+    let mut teststamper = Teststamper::new();
+
+    // Small files so a modest number of records spans several of them.
+    let max_size = (3 * BLOCK_SIZE) as u64;
+    let mut tcs_log =
+        TcsLog::new_with_timestamp(dir_name, prefix, &mut teststamper, suffix, max_size)?;
+
+    // The first file in the chain has a chain count of zero.
+    if tcs_log.chain_count() != 0 {
+        return Err(TcsLogError::TestError("first file chain count is not zero"));
+    }
+
+    // Keep writing until two successor files have been created. At that point
+    // the current (latest) file is the third in the chain, with a count of 2.
+    let rec_size = MAX_RECORD_SIZE / 2;
+    let mut n_recs = 0;
+    while tcs_log.chain_count() < 2 {
+        let rec = create_record(rec_size, n_recs);
+        tcs_log.write(&mut teststamper, &rec)?;
+        n_recs += 1;
+    }
+
+    // Verify the chain count of every file, and remember the first one.
+    let mut counts = Vec::new();
+    let mut first_file = None;
+    for entry in std::fs::read_dir(dir_name)? {
+        let entry = entry?;
+        let path = entry.path();
+        let log = TcsLog::open_path(&path)?;
+        if log.chain_count() == 0 {
+            first_file = Some(path);
+        }
+        counts.push(log.chain_count());
+    }
+
+    counts.sort();
+    if counts != [0, 1, 2] {
+        println!("test_chain_count: expected chain counts [0, 1, 2], got {:?}", counts);
+        return Err(TcsLogError::TestError("unexpected chain counts"));
+    }
+
+    // Read every record back through the first file. The reader must follow the
+    // chain transparently across all three files and then report EOF.
+    let first_file = first_file.ok_or(TcsLogError::TestError("no file with chain count 0"))?;
+    let mut reader = TcsLog::open_path(first_file)?;
+    read_recs_eof(&mut reader, rec_size, n_recs)?;
+
+    Ok(())
+}
+
+fn test_write_read<'a>(rec_size: usize, n: usize) -> Result<(), TcsLogError<'a>> {
+    // A self-cleaning, OS-independent temporary directory. It (and every log
+    // file created inside it) is removed automatically when `dir` is dropped at
+    // the end of this function.
+    let dir = tempfile::tempdir()?;
+    let dir_name = dir.path().to_str().expect("temp dir path is not valid UTF-8");
     let prefix = "testlog";
     let suffix = ".tcsl";
 
@@ -183,7 +259,7 @@ fn test_write_read<'a>(rec_size: usize, n: usize) -> Result<TcsLog<'a>, TcsLogEr
     // Read records, with an expected EOF
     read_recs_eof(&mut tcs_log, rec_size, n)?;
 
-    Ok(tcs_log)
+    Ok(())
 }
 
 /**
@@ -214,8 +290,13 @@ fn write_recs<'a>(
 fn create_record(rec_size: usize, i: usize) -> Vec<u8> {
     let start = format!("<<<Record {} ", i);
     let end = format!(" #{} >>>", i);
+    // Fill the middle so the whole record is exactly `rec_size` bytes. The fill
+    // string can be more than one character wide (e.g. "10"), so cycle its
+    // characters and take exactly the number of bytes needed rather than
+    // repeating the whole string.
+    let mid_len = rec_size - (start.len() + end.len());
     let fill = format!("{}", i);
-    let middle = fill.repeat(rec_size - (start.len() + end.len()));
+    let middle: String = fill.chars().cycle().take(mid_len).collect();
     (start + &middle + &end).into()
 }
 

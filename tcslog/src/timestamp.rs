@@ -24,7 +24,11 @@ impl Timestamp {
     // valid nanoseconds (which must be < 1_000_000_000). This equals
     // `Timestamp::new(u64::MAX, 999_999_998)` once the +1 offset is applied.
     pub const MAX: Timestamp = Self::new_raw(0xffffffffffffffff, 999_999_999);
-    pub const CONT: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
+    // The continuation marker: an all-zero-bits timestamp. Real timestamps are
+    // produced through `from_nanos`, which adds `TIMESTAMP_OFFSET`, so they can
+    // never be all zero — making this value safe as a sentinel that ends a file
+    // and points at the next file in the chain.
+    pub const CONT: Timestamp = Self::new_raw(0, 0);
     pub const PACKLEN: usize = size_of::<u32>() + size_of::<u64>();
 
     // Number of nanoseconds to add so that continuation can be all zeros without

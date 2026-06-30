@@ -1,5 +1,7 @@
 //! Log file header block handling.
 
+use std::mem::size_of;
+
 use crate::error::TcsLogError;
 use crate::Offset;
 use crate::timestamp::Timestamp;
@@ -20,6 +22,8 @@ pub struct Header {
     pub data_offset: u64,
     /// File name (up to 52 characters plus NUL).
     pub file_name: [u8; Filename::PACKLEN],
+    /// Number of files in the log file chain. Starts at zero.
+    pub chain_count: u32,
 }
 
 impl Header {
@@ -44,6 +48,9 @@ impl Header {
     /// Size of the data offset field in bytes.
     pub const DATA_OFFSET_PACKLEN: usize = Offset::PACKLEN;
 
+    /// Size of the chain count field in bytes.
+    pub const CHAIN_COUNT_SIZE: usize = size_of::<u32>();
+
     /// Header block size (same as BLOCK_SIZE).
     pub const HEADER_SIZE: usize = BLOCK_SIZE;
 
@@ -60,6 +67,7 @@ impl Header {
             index_offset,
             data_offset,
             file_name: name_bytes,
+            chain_count: 0,
         }
     }
 
@@ -92,7 +100,11 @@ impl Header {
 
         // File name
         buffer[offset..offset + Filename::PACKLEN].copy_from_slice(&self.file_name);
-        //        offset += Filename::MAX_FILENAME_SIZE;
+        offset += Filename::PACKLEN;
+
+        // Chain count (little-endian)
+        buffer[offset..offset + Self::CHAIN_COUNT_SIZE]
+            .copy_from_slice(&self.chain_count.to_le_bytes());
 
         buffer
     }
@@ -144,7 +156,14 @@ impl Header {
         // File name
         let mut file_name = [0u8; Filename::PACKLEN];
         file_name.copy_from_slice(&buffer[offset..offset + Filename::PACKLEN]);
-        //        offset += MAX_FILENAME_SIZE;
+        offset += Filename::PACKLEN;
+
+        // Chain count
+        let chain_count = u32::from_le_bytes(
+            buffer[offset..offset + Self::CHAIN_COUNT_SIZE]
+                .try_into()
+                .map_err(|_| TcsLogError::InvalidFormat("Invalid chain count".to_string()))?,
+        );
 
         Ok(Header {
             file_type,
@@ -153,6 +172,7 @@ impl Header {
             index_offset,
             data_offset,
             file_name,
+            chain_count,
         })
     }
 
@@ -189,6 +209,13 @@ mod tests {
         assert_eq!(header.file_name, restored.file_name);
         assert_eq!(header.index_offset, restored.index_offset);
         assert_eq!(header.data_offset, restored.data_offset);
+        assert_eq!(header.chain_count, restored.chain_count);
+    }
+
+    #[test]
+    fn test_chain_count_default_zero() {
+        let header = Header::new(Timestamp::ZERO, 0, 0, "test");
+        assert_eq!(header.chain_count, 0);
     }
 
     #[test]

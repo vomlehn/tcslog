@@ -107,20 +107,25 @@ impl BlockHeader {
  * timestamp    Time at which the EOF was written
  * next_file    Name of the next log file
  */
-struct EofMarker {
+pub(crate) struct EofMarker {
     timestamp:  Timestamp,
     next_file:  Filename,
 }
 
 impl EofMarker {
-    pub const PACKLEN: usize = Timestamp::PACKLEN + Filename::PACKLEN;
+    pub(crate) const PACKLEN: usize = Timestamp::PACKLEN + Filename::PACKLEN;
 
-    pub const fn new(timestamp: Timestamp, next_file: Filename) -> EofMarker {
+    pub(crate) const fn new(timestamp: Timestamp, next_file: Filename) -> EofMarker {
         EofMarker { timestamp, next_file }
     }
 
+    /// Returns the name of the next file in the chain.
+    pub(crate) fn next_file(&self) -> Filename {
+        self.next_file
+    }
+
     // Convert an EOF marker to its packed, i.e. in-file, representation
-    pub fn to_le_bytes(self) -> [u8; EofMarker::PACKLEN] {
+    pub(crate) fn to_le_bytes(self) -> [u8; EofMarker::PACKLEN] {
         // Allocate a place to put the result
         let mut eof_marker = [0; Self::PACKLEN];
 
@@ -139,17 +144,18 @@ impl EofMarker {
 
     // Convert an EOF marker from the representation in the file to its
     // manipulatable in-memory representation
-    pub fn from_le_bytes(buf: [u8; EofMarker::PACKLEN]) -> EofMarker {
+    pub(crate) fn from_le_bytes(buf: [u8; EofMarker::PACKLEN]) -> EofMarker {
         let mut i = 0;
 
         // First, pull out the timestamp
         let mut a_timestamp: [u8; Timestamp::PACKLEN] = [0; Timestamp::PACKLEN];
-        a_timestamp.copy_from_slice(&buf[i..Timestamp::PACKLEN]);
+        a_timestamp.copy_from_slice(&buf[i..i + Timestamp::PACKLEN]);
         let timestamp = Timestamp::from_le_bytes(a_timestamp);
+        i += Timestamp::PACKLEN;
 
-        // First, pull out the next_file
+        // Then, pull out the next_file
         let mut a_next_file: [u8; Filename::PACKLEN] = [0; Filename::PACKLEN];
-        a_next_file.copy_from_slice(&buf[i..Filename::PACKLEN]);
+        a_next_file.copy_from_slice(&buf[i..i + Filename::PACKLEN]);
         let next_file = Filename::from_le_bytes(a_next_file);
 
         EofMarker {

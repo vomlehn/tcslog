@@ -310,6 +310,12 @@ impl<'a> TcsLog<'a> {
         Ok(Filename::new(prefix, timestamp, suffix)?.as_str().to_string())
     }
 
+    /// Returns this log file's position in the chain. The first file in a
+    /// chain has a count of zero; each successor increments it.
+    pub fn chain_count(&self) -> u32 {
+        self.header.chain_count
+    }
+
     /// Creates a new TcsLog with a specified maximum file size.
     /// dir_name    System-dependend directory name
     /// prefix      String that is prepended to the timestamp part of
@@ -338,6 +344,21 @@ impl<'a> TcsLog<'a> {
         suffix: &str,
         max_size: u64,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
+        // The first file in a chain has a chain count of zero.
+        Self::new_with_timestamp_chained(dir_name, prefix, timestamper, suffix, max_size, 0)
+    }
+
+    /// Like `new_with_timestamp`, but stamps the new log file's header with the
+    /// given chain count. Used when a record overflows into a freshly created
+    /// successor file in the chain.
+    fn new_with_timestamp_chained(
+        dir_name: &'a str,
+        prefix: &str,
+        timestamper: &mut dyn Timestampable,
+        suffix: &str,
+        max_size: u64,
+        chain_count: u32,
+    ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         Filename::validate_prefix(prefix)?;
         Filename::validate_suffix(suffix)?;
 
@@ -348,7 +369,7 @@ impl<'a> TcsLog<'a> {
 
         let mut retries = 0;
 
-        let (path, mut file, header) = loop {
+        let (path, mut file, mut header) = loop {
             let timestamp = timestamper.timestamp().unwrap();
             let file_name = Filename::new(prefix, timestamp, suffix)?;
 
@@ -377,6 +398,9 @@ impl<'a> TcsLog<'a> {
                 Err(e) => return Err(TcsLogError::Io(e)),
             }
         };
+
+        // Record this file's position in the chain.
+        header.chain_count = chain_count;
 
         // Write the header
         let header_bytes = header.to_bytes();
@@ -554,14 +578,30 @@ impl<'a> TcsLog<'a> {
             self.write_position += data::PACKLEN as u64;
         }
 
-        // Check if we need a new file
+        // Check if we need a new file. We roll over when the record plus a
+        // trailing continuation marker would no longer fit, so there is always
+        // room to write the marker that links this file to its successor.
         let total_needed = data::RECORD_METADATA_SIZE + data.len();
         let remaining_in_file = self.max_size - self.write_position;
 
-        if total_needed as u64 > remaining_in_file {
-            // Create a new log file
-            let new_log =
-                Self::new_with_timestamp(&self.dir_name, &self.prefix, timestamper, &self.suffix, self.max_size)?;
+        if (total_needed + CONT_SIZE) as u64 > remaining_in_file {
+            // Create the next log file in the chain, incrementing the chain count.
+            let new_log = Self::new_with_timestamp_chained(
+                &self.dir_name,
+                &self.prefix,
+                timestamper,
+                &self.suffix,
+                self.max_size,
+                self.header.chain_count + 1,
+            )?;
+
+            // Write a continuation marker into this file pointing at the
+            // successor, so a reader can follow the chain.
+            let next_file = Filename::from_le_bytes(new_log.header.file_name);
+            let marker = data::EofMarker::new(Timestamp::CONT, next_file);
+            self.file.seek(SeekFrom::Start(self.write_position))?;
+            self.file.write_all(&marker.to_le_bytes())?;
+
             *self = new_log;
             return self.write(timestamper, data);
         }
@@ -590,17 +630,19 @@ impl<'a> TcsLog<'a> {
         Ok(())
     }
 
-    /* See whether this record fits in the current file. Specifically,
-     * we see whether the data plus the metadata plus a subsequent
-     * continuation marker will fit. This ensures that, if we write
-     * this record, we can still write a continuation marker.
+    /* See whether this record could fit in a (fresh) log file at all.
+     * Specifically, we see whether the data plus the metadata plus a
+     * subsequent continuation marker will fit within a single file's data
+     * section. When the current file lacks room, `write` rolls over to a new
+     * file in the chain, so this check only rejects records that are too large
+     * to fit in any file.
      *
      * data_len:    Size of the data record
      */
     fn record_fits(&self, data_len: usize) -> bool {
-        let unused_space = self.max_size - self.write_position;
+        let data_capacity = self.max_size - self.header.data_offset;
         let record_size = data::RECORD_METADATA_SIZE + data_len;
-        record_size + CONT_SIZE < unused_space as usize
+        record_size + CONT_SIZE < data_capacity as usize
     }
 
     /// Updates the index with a new record.
@@ -667,7 +709,25 @@ println!("TcsLog::read: reading timestamp");
         *timestamp = Timestamp::from_le_bytes(ts_bytes);
 println!("TcsLog::read: read timestamp {:?}", timestamp);
         if *timestamp == Timestamp::CONT {
-            return Err(TcsLogError::EOF);
+            // Continuation marker: read the successor file name and follow the
+            // chain. An empty name means this is the end of the chain.
+            let mut marker_bytes = [0u8; data::EofMarker::PACKLEN];
+            marker_bytes[..Timestamp::PACKLEN].copy_from_slice(&ts_bytes);
+            self.file.read_exact(&mut marker_bytes[Timestamp::PACKLEN..])?;
+            let marker = data::EofMarker::from_le_bytes(marker_bytes);
+            let next_file = marker.next_file();
+            let next_name = next_file.as_str();
+            if next_name.is_empty() {
+                return Err(TcsLogError::EOF);
+            }
+
+            // Open the successor in the same directory and continue reading.
+            let dir = self.path.parent().unwrap_or_else(|| Path::new(""));
+            let next_path = dir.join(next_name);
+            println!("TcsLog::read: following chain to {:?}", next_path);
+            let next = TcsLog::open_path(next_path)?;
+            *self = next;
+            return self.read(timestamp, data);
         }
 
         // Read record length
