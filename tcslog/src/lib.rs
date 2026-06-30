@@ -19,6 +19,18 @@ mod header;
 mod index;
 mod timestamp;
 
+pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
+pub use data::{
+    BlockHeader, CONT_SIZE, DataRecord, MAX_RECORD_SIZE, RECORD_METADATA_SIZE,
+};
+pub use error::TcsLogError;
+pub use header::{Header};
+pub use index::{IndexBlock, IndexEntry, IndexStructure, ENTRIES_PER_BLOCK, FILE_NULL};
+pub use timestamp::Timestamp;
+
+/// Default file size (64MB).
+pub const DEFAULT_FILE_SIZE: u64 = 64 * 1024 * 1024;
+
 #[derive(Debug, Clone, Copy)]
 struct Offset {
     offset: u64,
@@ -31,7 +43,7 @@ impl Offset {
     /// Block header indicating next record starts at end of header.
     pub const REC_START: Offset = Offset::new_raw(0x0000_0000_0000_0002);
 
-    pub const OFFSET_SIZE: usize = size_of::<u64>();
+    pub const PACKLEN: usize = size_of::<u64>();
 
     pub const fn new(offset: u64) -> Offset {
         Offset { offset }
@@ -41,23 +53,25 @@ impl Offset {
         Offset { offset }
     }
 
+/*
     // Length when packed
-    pub const fn len() -> usize {
-        size_of::<u64>()
+    pub const fn packlen(&self) -> usize {
+        size_of_val(&self.offset)
     }
+*/
 
-    pub fn to_le_bytes(&self) -> [u8; Self::OFFSET_SIZE] {
+    pub fn to_le_bytes(&self) -> [u8; Self::PACKLEN] {
         let a_offset = self.offset.to_le_bytes();
 
-        let mut offset = [0; Self::OFFSET_SIZE];
+        let mut offset = [0; Self::PACKLEN];
         offset[..8].copy_from_slice(&a_offset);
 
         offset
     }
 
-    pub fn from_le_bytes(buf: [u8; Self::OFFSET_SIZE]) -> Offset {
-        let mut a_offset: [u8; Self::OFFSET_SIZE] = [0; Self::OFFSET_SIZE];
-        a_offset.copy_from_slice(&buf[..Self::OFFSET_SIZE]);
+    pub fn from_le_bytes(buf: [u8; Self::PACKLEN]) -> Offset {
+        let mut a_offset: [u8; Self::PACKLEN] = [0; Self::PACKLEN];
+        a_offset.copy_from_slice(&buf[..Self::PACKLEN]);
         let offset = u64::from_le_bytes(a_offset);
         Offset { offset }
     }
@@ -92,29 +106,31 @@ struct RecNo {
 }
 
 impl RecNo {
-    const REC_NO_SIZE: usize = size_of::<u64>();
+    const PACKLEN: usize = size_of::<u64>();
 
     fn new(rec_no: u64) -> RecNo {
         RecNo { rec_no }
     }
 
+/*
     // Length when packed
-    pub const fn len() -> usize {
+    pub const fn packlen() -> usize {
         size_of::<u64>()
     }
+*/
 
-    pub fn to_le_bytes(&self) -> [u8; Self::REC_NO_SIZE] {
+    pub fn to_le_bytes(&self) -> [u8; Self::PACKLEN] {
         let a_rec_no = self.rec_no.to_le_bytes();
 
-        let mut rec_no = [0; Self::REC_NO_SIZE];
+        let mut rec_no = [0; Self::PACKLEN];
         rec_no[..8].copy_from_slice(&a_rec_no);
 
         rec_no
     }
 
-    pub fn from_le_bytes(buf: [u8; Self::REC_NO_SIZE]) -> RecNo {
-        let mut a_rec_no: [u8; Self::REC_NO_SIZE] = [0; Self::REC_NO_SIZE];
-        a_rec_no.copy_from_slice(&buf[..Self::REC_NO_SIZE]);
+    pub fn from_le_bytes(buf: [u8; Self::PACKLEN]) -> RecNo {
+        let mut a_rec_no: [u8; Self::PACKLEN] = [0; Self::PACKLEN];
+        a_rec_no.copy_from_slice(&buf[..Self::PACKLEN]);
         let rec_no = u64::from_le_bytes(a_rec_no);
         RecNo { rec_no }
     }
@@ -138,35 +154,105 @@ impl PartialOrd for RecNo {
     }
 }
 
-pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
-pub use data::{
-    BlockHeader, CONT_SIZE, DataRecord, BLOCK_HEADER_SIZE, MAX_RECORD_SIZE, RECORD_METADATA_SIZE,
-};
-pub use error::TcsLogError;
-pub use header::{Header, HEADER_SIZE};
-pub use index::{IndexBlock, IndexEntry, IndexStructure, ENTRIES_PER_BLOCK, FILE_NULL};
-pub use timestamp::Timestamp;
+/// FIXME: This needs to use system-dependent functions file file name
+/// manipulation
+#[derive(Debug, Clone, Copy)]
+pub struct Filename {
+    file_name:  [u8; Self::PACKLEN],
+}
 
-/// Default file size (64MB).
-pub const DEFAULT_FILE_SIZE: u64 = 64 * 1024 * 1024;
+type FilenameLen = u8;
 
-/// Maximum prefix length for file names.
-pub const MAX_PREFIX_LEN: usize = 32;
+impl Filename {
+    /// Maximum prefix length for file names.
+    pub const MAX_PREFIX_LEN: usize = 32;
 
-/// Size of everything after the prefix
-pub const FILE_TIMESTAMP_LEN: usize = 6 * 5;
+    /// Size of the timestamp portion of the file name. It has
+    /// five segments, each with four hex digits, separated by
+    /// underlines.
+    pub const FILE_TIMESTAMP_LEN: usize = 6 * 5;
 
-// Max suffix length for file names
-pub const MAX_SUFFIX_LEN: usize = 8;
+    // Max suffix length for file names
+    pub const MAX_SUFFIX_LEN: usize = 16;
 
-pub const MAX_FILENAME_LEN: usize = MAX_PREFIX_LEN + FILE_TIMESTAMP_LEN +
-    MAX_SUFFIX_LEN;
+    pub const PACKLEN: usize = size_of::<FilenameLen>() +
+        Self::MAX_PREFIX_LEN + Self::FILE_TIMESTAMP_LEN + Self::MAX_SUFFIX_LEN;
 
-/// File type identifier.
-pub const FILE_TYPE: &[u8; 8] = b"tcslog  ";
+    pub fn new(prefix: &str, timestamp: Timestamp, suffix: &str) -> 
+        Result<Filename, TcsLogError<'static>> {
+        Self::validate_prefix(prefix)?;
+        Self::validate_suffix(suffix)?;
 
-/// Version string (major.minor.patch).
-pub const VERSION_00_01_00: &[u8; 8] = b"00.01.00";
+        // Format: <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix> (where X is hex digit)
+        let timestamp_u128 = timestamp.as_nanos();
+        let hex = format!("{:024}", timestamp_u128);
+        let file_name = format!(
+            "{}{}_{}_{}_{}_{}_{}{}",
+            prefix,
+            &hex[0..4],
+            &hex[4..8],
+            &hex[8..12],
+            &hex[12..16],
+            &hex[16..20],
+            &hex[20..24],
+            suffix,
+        );
+
+        Ok(Filename { file_name })
+    }
+
+/*
+    pub fn packlen(&self) -> usize {
+        size_of_val(&self.file_name)
+    }
+*/
+
+
+
+    pub fn to_le_bytes(&self) -> [u8; Self::PACKLEN] {
+        self.file_name
+    }
+
+    pub fn from_le_bytes(file_name: [u8; Self::PACKLEN]) -> Filename {
+        Filename {
+            file_name,
+        }
+    }
+
+    // Determines whether the prefix is valid
+    // Returns Ok(()) if valid, Err(TcsLogError) if not
+    pub fn validate_prefix(prefix: &str) -> Result<(), TcsLogError<'static>> {
+        if prefix.is_empty() || prefix.len() > Filename::MAX_PREFIX_LEN {
+            return Err(TcsLogError::InvalidPrefixLen(Filename::MAX_PREFIX_LEN));
+        }
+
+        if prefix
+            .chars()
+            .all(|c| !c.is_ascii_alphanumeric() && c != '_')
+        {
+            return Err(TcsLogError::InvalidPrefixChar(prefix.to_string()));
+        }
+
+        Ok(())
+    }
+
+    // Determines whether the suffix is valid
+    // Returns Ok(()) if valid, Err(TcsLogError) if not
+    pub fn validate_suffix(suffix: &str) -> Result<(), TcsLogError<'static>> {
+        if suffix.is_empty() || suffix.len() > Filename::MAX_SUFFIX_LEN {
+            return Err(TcsLogError::InvalidSuffixLen(Filename::MAX_SUFFIX_LEN));
+        }
+
+        if suffix
+            .chars()
+            .all(|c| !c.is_ascii_alphanumeric() && c != '_')
+        {
+            return Err(TcsLogError::InvalidSuffixChar(suffix.to_string()));
+        }
+
+        Ok(())
+    }
+}
 
 // Object that keeps track of the time for timestamps
 pub trait Timestampable {
@@ -211,10 +297,21 @@ pub enum TimestampableError {
 
 /// Represents a TcsLog instance for reading or writing telemetry records.
 #[derive(Debug)]
+/*
+ * dir_name         System-dependend directory name
+ * file             The file handle for doing file I/O
+ * path             Absolute or relative path name to the file
+ * header           Header for the log file
+ * max_size         Maximum log file size, in bytes
+ * write_position   Byte offset of the next write from the beginning of the log
+ *                  file
+ * read_position    Byte offset of the next read from the beginning of the log
+ *                  file
+ * prefix           Prefix added to log file name before timestamp
+ * suffix           Suffix added to log file name after timestamp
+ */
 pub struct TcsLog<'a> {
-    /// Directory name
     dir_name: &'a str,
-    /// The file handle.
     file: File,
     /// The file path.
     path: PathBuf,
@@ -236,6 +333,12 @@ pub struct TcsLog<'a> {
 
 impl<'a> TcsLog<'a> {
     /// Creates a new TcsLog with a specified maximum file size.
+    /// dir_name    System-dependend directory name
+    /// prefix      String that is prepended to the timestamp part of
+    ///             the log file name
+    /// suffix      String that is appended to the timestamp part of the log
+    ///             file name.
+    /// max_size    Maximum size of the log file
     pub fn new(
         dir_name: &'a str,
         prefix: &str,
@@ -269,7 +372,7 @@ impl<'a> TcsLog<'a> {
 
         let (path, mut file, header) = loop {
             let timestamp = timestamper.timestamp().unwrap();
-            let file_name = TcsLog::generate_file_name(prefix, timestamp, suffix)?;
+            let file_name = Filename::new(prefix, timestamp, suffix)?;
 
             // Create header
             let header = Header::new(timestamp, index_offset, data_offset, &file_name);
@@ -300,7 +403,7 @@ impl<'a> TcsLog<'a> {
         // Write the header
         let header_bytes = header.to_bytes();
 
-        if header_bytes.len() > HEADER_SIZE {
+        if header_bytes.packlen() > Header::HEADER_SIZE {
             return Err(TcsLogError::BlockSizeTooSmall);
         }
 
@@ -329,70 +432,9 @@ impl<'a> TcsLog<'a> {
         })
     }
 
-    /// Generates a file name from prefix and timestamp.
-    pub fn generate_file_name(
-        prefix: &str,
-        timestamp: Timestamp,
-        suffix: &str,
-    ) -> Result<String, TcsLogError<'static>> {
-        Self::validate_prefix(prefix)?;
-        Self::validate_suffix(suffix)?;
-
-        // Format: <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix> (where X is hex digit)
-        let timestamp_u128 = timestamp.as_nanos();
-        let hex = format!("{:024}", timestamp_u128);
-        let filename = format!(
-            "{}{}_{}_{}_{}_{}_{}{}",
-            prefix,
-            &hex[0..4],
-            &hex[4..8],
-            &hex[8..12],
-            &hex[12..16],
-            &hex[16..20],
-            &hex[20..24],
-            suffix,
-        );
-
-        Ok(filename)
-    }
-
-    // Determines whether the prefix is valid
-    // Returns Ok(()) if valid, Err(TcsLogError) if not
-    pub fn validate_prefix(prefix: &str) -> Result<(), TcsLogError<'static>> {
-        if prefix.is_empty() || prefix.len() > MAX_PREFIX_LEN {
-            return Err(TcsLogError::InvalidPrefixLen(MAX_PREFIX_LEN));
-        }
-
-        if prefix
-            .chars()
-            .all(|c| !c.is_ascii_alphanumeric() && c != '_')
-        {
-            return Err(TcsLogError::InvalidPrefixChar(prefix.to_string()));
-        }
-
-        Ok(())
-    }
-
-    // Determines whether the suffix is valid
-    // Returns Ok(()) if valid, Err(TcsLogError) if not
-    pub fn validate_suffix(suffix: &str) -> Result<(), TcsLogError<'static>> {
-        if suffix.len() == 0 || suffix.len() > MAX_SUFFIX_LEN {
-            return Err(TcsLogError::InvalidSuffixLen(MAX_SUFFIX_LEN));
-        }
-
-        if suffix
-            .chars()
-            .all(|c| !c.is_ascii_alphanumeric() && c != '_')
-        {
-            return Err(TcsLogError::InvalidSuffixChar(suffix.to_string()));
-        }
-
-        Ok(())
-    }
-
     /// Computes the index and data section offsets.
     fn compute_offsets(max_size: u64) -> (u64, u64, usize) {
-        let header_size = HEADER_SIZE as u64;
+        let header_size = Header::HEADER_SIZE as u64;
         let remaining = max_size - header_size;
 
         // Start with one index block
@@ -421,7 +463,7 @@ impl<'a> TcsLog<'a> {
         timestamp: Timestamp,
         suffix: &str,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
-        let file_name = TcsLog::generate_file_name(prefix, timestamp, suffix)?;
+        let file_name = Filename::new(prefix, timestamp, suffix)?;
         let path = PathBuf::from(&file_name);
         println!("TcsLog::open: path {:?}", path);
 
@@ -432,7 +474,7 @@ impl<'a> TcsLog<'a> {
         let mut file = OpenOptions::new().read(true).open(&path)?;
 
         // Read and parse header
-        let mut header_bytes = [0u8; HEADER_SIZE];
+        let mut header_bytes = [0u8; Header::HEADER_SIZE];
         println!("reading header bytes");
         file.read_exact(&mut header_bytes)?;
         println!("read header bytes");
@@ -466,7 +508,7 @@ impl<'a> TcsLog<'a> {
         let mut file = OpenOptions::new().read(true).open(path)?;
 
         // Read and parse header
-        let mut header_bytes = [0u8; HEADER_SIZE];
+        let mut header_bytes = [0u8; Header::HEADER_SIZE];
         //println!("reading {:?}", header_bytes[..160]);
         file.read_exact(&mut header_bytes)?;
         //println!("read {:?}", header_bytes[..160]);
@@ -510,7 +552,7 @@ impl<'a> TcsLog<'a> {
             ));
         }
 
-        if !self.record_fits(data.len()) {
+        if !self.record_fits(data.packlen()) {
             return Err(TcsLogError::RecordTooLarge);
         }
 
@@ -522,7 +564,7 @@ impl<'a> TcsLog<'a> {
 
         /*
                 let space_in_block = if current_block_offset == 0 {
-                    BLOCK_SIZE - data::BLOCK_HEADER_SIZE
+                    BLOCK_SIZE - data::PACKLEN
                 } else {
                     BLOCK_SIZE - current_block_offset as usize
                 };
@@ -532,11 +574,11 @@ impl<'a> TcsLog<'a> {
         if current_block_offset == 0 {
             self.file.seek(SeekFrom::Start(self.write_position))?;
             self.file.write_all(&Offset::REC_START.to_le_bytes())?;
-            self.write_position += data::BLOCK_HEADER_SIZE as u64;
+            self.write_position += data::PACKLEN as u64;
         }
 
         // Check if we need a new file
-        let total_needed = data.len();
+        let total_needed = data.packlen();
         let remaining_in_file = self.max_size - self.write_position;
 
         if total_needed as u64 > remaining_in_file {
@@ -617,7 +659,7 @@ impl<'a> TcsLog<'a> {
         let block_offset = (self.read_position - self.header.data_offset) % BLOCK_SIZE as u64;
         if block_offset == 0 {
             // Skip block header
-            self.read_position += data::BLOCK_HEADER_SIZE as u64;
+            self.read_position += data::PACKLEN as u64;
             println!("read_position adjusted to {:?}", self.read_position);
         }
 
@@ -625,7 +667,7 @@ impl<'a> TcsLog<'a> {
         // hence, logical EOF. If the timestamp is Timestamp::CONT, we are
         // at the continuation marker that ends the file.
         self.file.seek(SeekFrom::Start(self.read_position))?;
-        let mut ts_bytes = [0u8; Timestamp::TIMESTAMP_SIZE];
+        let mut ts_bytes = [0u8; Timestamp::PACKLEN];
 
         // FIXME: this code assumes that seeking past the end of the file and
         // then reading will return zero bytes. Is that guaranteed by the
@@ -639,7 +681,7 @@ println!("TcsLog::read: reading timestamp");
                 if n == 0 {
                     // FIXME: double check this
                     return Err(TcsLogError::EOF);
-                } else if n != Timestamp::TIMESTAMP_SIZE {
+                } else if n != Timestamp::PACKLEN {
                     return Err(TcsLogError::CorruptedEOF);
                 }
             }
@@ -668,12 +710,12 @@ println!("TcsLog::read: read timestamp {:?}", timestamp);
         self.read_position += 8;
 
         println!("TcsLog::read: Reading record data");
-        let read_offset: u64 = (Timestamp::TIMESTAMP_SIZE as u64).try_into().unwrap();
+        let read_offset: u64 = (Timestamp::PACKLEN as u64).try_into().unwrap();
         self.read_position += read_offset;
 
         // Read data
         println!("TcsLogTimestamp::read: len {len} data.len {}", data.len());
-        if len > data.len() {
+        if len > data.packlen() {
             return Err(TcsLogError::InvalidFormat(
                 "Buffer too small for record".to_string(),
             ));
@@ -745,22 +787,22 @@ mod tests {
     #[test]
     fn test_generate_file_name() {
         let ts: Timestamp = Timestamp::from_nanos(0x0001_2345_6789_ABCD_EF01_2345_6789_ABCD);
-        let name = TcsLog::generate_file_name("test-", ts, ".tcslog").unwrap();
+        let name = Filename::new("test-", ts, ".tcslog").unwrap();
         assert_eq!(name, "test-0001_2345_6789_abcd_ef01_2345_6789_abcd.tcslog");
     }
 
     #[test]
     fn test_compute_offsets() {
         let (index_offset, data_offset, _) = TcsLog::compute_offsets(DEFAULT_FILE_SIZE);
-        assert_eq!(index_offset, HEADER_SIZE as u64);
+        assert_eq!(index_offset, Header::HEADER_SIZE as u64);
         assert!(data_offset > index_offset);
         assert_eq!(data_offset % BLOCK_SIZE as u64, 0);
     }
 
     #[test]
     fn test_invalid_prefix() {
-        let result = TcsLog::new("", "", DEFAULT_FILE_SIZE);
-        assert!(matches!(result, Err(TcsLogError::InvalidPrefix(_))));
+        let result = TcsLog::new("", "", "", DEFAULT_FILE_SIZE);
+        assert!(matches!(result, Err(TcsLogError::InvalidPrefixLen(_))));
 
         //        let result = TestLog::create("a/b");
         //        assert!(matches!(result, Err(TcsLogError::InvalidPrefix(_))));

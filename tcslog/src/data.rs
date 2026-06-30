@@ -1,10 +1,13 @@
 //! Data block handling for log files.
+//! FIXME: validate that no memory is allocated after the TcsLog is created
+
+//use std::cmp::Ordering;
 
 use crate::error::TcsLogError;
 use crate::Timestamp;
 use crate::Offset;
 use crate::BLOCK_SIZE;
-use crate::MAX_FILENAME_LEN;
+use crate::Filename;
 
 /*
 /// Block header indicating null pointer (does not reference a file).
@@ -15,21 +18,21 @@ pub const Offset::REC_START: u64 = 0x0000_0000_0000_0002;
 */
 
 /// Size of block header in bytes.
-pub const BLOCK_HEADER_SIZE: usize = 8;
+pub const PACKLEN: usize = 8;
 
 /// Size of record length field in bytes.
 pub const RECORD_LENGTH_SIZE: usize = 8;
 
 /// Size of timestamp field in bytes.
-pub const RECORD_TIMESTAMP_SIZE: usize = size_of::<Timestamp>();
+pub const RECORD_PACKLEN: usize = size_of::<Timestamp>();
 
 /// Size of record metadata (length + timestamp).
-pub const RECORD_METADATA_SIZE: usize = RECORD_TIMESTAMP_SIZE + RECORD_LENGTH_SIZE;
+pub const RECORD_METADATA_SIZE: usize = RECORD_PACKLEN + RECORD_LENGTH_SIZE;
 
-pub const CONT_SIZE: usize = Timestamp::TIMESTAMP_SIZE + MAX_FILENAME_LEN;
+pub const CONT_SIZE: usize = Timestamp::PACKLEN + Filename::PACKLEN;
 
 /// Maximum record size that can fit in a single data block.
-pub const MAX_RECORD_SIZE: usize = BLOCK_SIZE - BLOCK_HEADER_SIZE - RECORD_METADATA_SIZE;
+pub const MAX_RECORD_SIZE: usize = BLOCK_SIZE - BlockHeader::PACKLEN - RECORD_METADATA_SIZE;
 
 /// Represent a block header
 #[derive(Debug, Clone, Copy)]
@@ -50,16 +53,32 @@ pub enum BlockHeader {
 */
 
 impl BlockHeader {
-    pub fn new(offset: Offset) -> BlockHeader {
+    /// Block header indicating null pointer (does not reference within a file).
+    pub const NULL: BlockHeader = BlockHeader::new(Offset::NULL);
+
+    /// Number of bytes in block header in the log file
+    pub const PACKLEN: usize = Offset::PACKLEN;
+
+    /// Block header indicating next record starts at end of header.
+    pub const REC_START: BlockHeader = BlockHeader::new(Offset::REC_START);
+
+    pub const fn new(offset: Offset) -> BlockHeader {
         BlockHeader { offset }
     }
 
+/*
+    pub const fn packlen(&self) -> usize {
+        Offset::PACKLEN
+        self.offset.packlen()
+    }
+*/
+
     /// Converts a block header into its on-disk format
-    pub fn to_le_bytes(&self) -> [u8; Offset::OFFSET_SIZE] {
+    pub fn to_le_bytes(&self) -> [u8; Offset::PACKLEN] {
         self.offset.to_le_bytes()
     }
 
-    pub fn from_le_bytes(buf: [u8; Offset::OFFSET_SIZE]) -> BlockHeader {
+    pub fn from_le_bytes(buf: [u8; Offset::PACKLEN]) -> BlockHeader {
         BlockHeader { offset: Offset::from_le_bytes(buf) }
     }
 
@@ -76,6 +95,96 @@ impl BlockHeader {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+/*
+ * This is the marker used to indicate the end of this log file. It has the
+ * following fields:
+ * 
+ * timestamp    Time at which the EOF was written
+ * next_file    Name of the next log file
+ */
+struct EofMarker {
+    timestamp:  Timestamp,
+    next_file:  Filename,
+}
+
+impl EofMarker {
+    pub const PACKLEN: usize = Timestamp::PACKLEN + Filename::PACKLEN;
+
+    pub const fn new(timestamp: Timestamp, next_file: Filename) -> EofMarker {
+        EofMarker { timestamp, next_file }
+    }
+
+    // Convert an EOF marker to its packed, i.e. in-file, representation
+    pub fn to_le_bytes(self) -> [u8; EofMarker::PACKLEN] {
+        // Allocate a place to put the result
+        let mut eof_marker = [0; Self::PACKLEN];
+
+        // Copy in the timestamp bytes
+        let mut i = 0;
+        let a_timestamp = self.timestamp.to_le_bytes();
+        eof_marker[i..Timestamp::PACKLEN].copy_from_slice(&a_timestamp);
+        i += Timestamp::PACKLEN;
+
+        // Copy in the file name
+        let a_next_file = self.next_file.to_le_bytes();
+        eof_marker[i..i + Filename::PACKLEN].copy_from_slice(&a_next_file);
+
+        eof_marker
+    }
+
+    // Convert an EOF marker from the representation in the file to its
+    // manipulatable in-memory representation
+    pub fn from_le_bytes(buf: [u8; EofMarker::PACKLEN]) -> EofMarker {
+        let mut i = 0;
+
+        // First, pull out the timestamp
+        let a_timestamp: [u8; Timestamp::PACKLEN] = [0; Timestamp::PACKLEN];
+        a_timestamp.copy_from_slice(&buf[i..Timestamp::PACKLEN]);
+        let timestamp = Timestamp::from_le_bytes(a_timestamp);
+
+        // First, pull out the next_file
+        let a_next_file: [u8; Filename::PACKLEN] = [0; Filename::PACKLEN];
+        a_next_file.copy_from_slice(&buf[i..Filename::PACKLEN]);
+        let next_file = Filename::from_le_bytes(a_next_file);
+
+        EofMarker {
+            timestamp,
+            next_file,
+        }
+    }
+}
+
+/*
+ * FIXME: needed?
+impl From<EofMarker> for u64 {
+    fn from(value: EofMarker) -> Self {
+        value.timestamp
+    }
+}
+*/
+
+/*
+ * FIXME: needed?
+impl PartialEq for EofMarker {
+    fn eq(&self, r: &EofMarker) -> bool {
+        self.timestamp == r.timestamp
+    }
+}
+
+impl PartialOrd for EofMarker {
+    fn partial_cmp(&self, r: &EofMarker) -> Option<Ordering> {
+        if self < r.eof_marker {
+            Some(Ordering::Less)
+        } else if self > r.eof_marker {
+            Some(Ordering::Greater)
+        } else {
+            Some(Ordering::Equal)
+        }
+    }
+}
+*/
+
 /// Represents a data record with its metadata.
 #[derive(Debug, Clone)]
 pub struct DataRecord {
@@ -91,14 +200,15 @@ impl DataRecord {
         DataRecord { timestamp, data }
     }
 
-    /// Returns the total size of this record including metadata.
-    pub fn total_size(&self) -> usize {
+    /// Returns the total size of this record including metadata as it
+    /// is stored in the file.
+    pub fn packlen(&self) -> usize {
         RECORD_METADATA_SIZE + self.data.len()
     }
 
     /// Serializes the record metadata and data to bytes.
-    pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(self.total_size());
+    pub fn to_le_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(self.packlen());
         bytes.extend_from_slice(&self.timestamp.to_le_bytes());
         bytes.extend_from_slice(&(self.data.len() as u64).to_le_bytes());
         bytes.extend_from_slice(&self.data);
@@ -106,25 +216,29 @@ impl DataRecord {
     }
 
     /// Deserializes a record from bytes.
-    pub fn from_bytes(bytes: &[u8]) -> Result<Self, TcsLogError<'_>> {
+    pub fn from_le_bytes(bytes: &[u8]) -> Result<Self, TcsLogError<'_>> {
         if bytes.len() < RECORD_METADATA_SIZE {
             return Err(TcsLogError::InvalidFormat(
                 "Record too short for metadata".to_string(),
             ));
         }
 
-        let timestamp = Timestamp::from_le_bytes(
-            bytes[8..16]
-                .try_into()
-                .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
-        );
-        println!("DataRecord::timestamp: {:?}", timestamp);
+        let mut i = 0;
 
-        let length = u64::from_le_bytes(
-            bytes[0..8]
+        let length = Offset::from_le_bytes(
+            bytes[i..Offset::PACKLEN]
                 .try_into()
                 .map_err(|_| TcsLogError::InvalidFormat("Invalid record length".to_string()))?,
         ) as usize;
+
+        i += Offset::PACKLEN;
+
+        let timestamp = Timestamp::from_le_bytes(
+            bytes[i..i + Timestamp::PACKLEN]
+                .try_into()
+                .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
+        );
+        i += Timestamp::PACKLEN;
         println!("DataRecord::timestamp: {:?}", length);
 
         if bytes.len() < RECORD_METADATA_SIZE + length {
@@ -166,7 +280,7 @@ impl DataBlockWriter {
 
         DataBlockWriter {
             buffer,
-            position: BLOCK_HEADER_SIZE,
+            position: BlockHeader::PACKLEN,
             in_record: false,
         }
     }
@@ -180,7 +294,7 @@ impl DataBlockWriter {
     /// Returns true if the block is empty (only has header).
     #[allow(unused)]
     pub fn is_empty(&self) -> bool {
-        self.position == BLOCK_HEADER_SIZE
+        self.position == BlockHeader::PACKLEN
     }
 
     /// Returns the current buffer.
@@ -194,7 +308,7 @@ impl DataBlockWriter {
     pub fn reset(&mut self) {
         self.buffer = [0u8; BLOCK_SIZE];
         self.buffer[0..8].copy_from_slice(&Offset::REC_START.to_le_bytes());
-        self.position = BLOCK_HEADER_SIZE;
+        self.position = BlockHeader::PACKLEN;
         self.in_record = false;
     }
 
@@ -213,6 +327,10 @@ impl DataBlockWriter {
         let header_value = (offset_in_block as u64) & !0xFF;
         self.buffer[0..8].copy_from_slice(&header_value.to_le_bytes());
     }
+
+    pub fn pathlen(&self) -> usize {
+        unimplemented!();
+    }
 }
 
 /// Manages reading data records from blocks.
@@ -229,7 +347,7 @@ impl DataBlockReader {
     pub fn new(buffer: [u8; BLOCK_SIZE]) -> Self {
         DataBlockReader {
             buffer,
-            position: BLOCK_HEADER_SIZE,
+            position: BlockHeader::PACKLEN,
         }
     }
 
@@ -270,7 +388,7 @@ mod tests {
     fn test_block_header_null() {
         let header = BlockHeader::from_u64(TCSLOG_NULL).unwrap();
         assert_eq!(header, BlockHeader::Null);
-        assert_eq!(header.to_u64(), TCSLOG_NULL);
+        assert_eq!(header.to_u64(), data::TCSLOG_NULL);
     }
 
     #[test]
@@ -301,7 +419,7 @@ mod tests {
     fn test_data_block_writer() {
         let mut writer = DataBlockWriter::new();
         assert!(writer.is_empty());
-        assert_eq!(writer.remaining(), BLOCK_SIZE - BLOCK_HEADER_SIZE);
+        assert_eq!(writer.remaining(), BLOCK_SIZE - BlockHeader::PACKLEN);
 
         let data = vec![1, 2, 3, 4, 5];
         let written = writer.write(&data);

@@ -56,6 +56,10 @@ impl IndexEntry {
         let timestamp = Timestamp::from_le_bytes(bytes[8..16].try_into().unwrap());
         IndexEntry { offset, timestamp }
     }
+
+    pub fn pathlen(&self) -> usize {
+        unimplemented!();
+    }
 }
 
 /// Represents a block of index entries.

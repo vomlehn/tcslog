@@ -8,7 +8,7 @@ use std::num::ParseIntError;
 //use std::time::{SystemTime, UNIX_EPOCH};
 use std::mem::size_of;
 
-//pub const TIMESTAMP_SIZE: usize = Timestamp::len();
+//pub const PACKLEN: usize = Timestamp::packlen();
 
 /// Timestamp type (nanoseconds since UNIX epoch).
 #[derive(Debug, Clone, Copy, Default)]
@@ -22,7 +22,7 @@ impl Timestamp {
     pub const ZERO: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
     pub const MAX: Timestamp = Self::new_raw(0xffffffffffffffff, 999_999_998);
     pub const CONT: Timestamp = Self::from_nanos_raw(Self::TIMESTAMP_OFFSET as u128);
-    pub const TIMESTAMP_SIZE: usize = size_of::<u32>() + size_of::<u64>();
+    pub const PACKLEN: usize = size_of::<u32>() + size_of::<u64>();
 
     // Number of nanoseconds to add so that continuation can be all zeros without
     // interfering with the rest of the range. The range becomes smaller
@@ -46,8 +46,8 @@ impl Timestamp {
     }
 
     // Length when packed
-    pub const fn len() -> usize {
-        size_of::<u32>() + size_of::<u64>()
+    pub const fn packlen(&self) -> usize {
+        size_of_val(&self.nanos) + size_of_val(&self.secs)
     }
 
     pub fn from_nanos(mut nanos_arg: u128) -> Timestamp {
@@ -73,18 +73,18 @@ impl Timestamp {
         self.secs as u128 * 1_000_000_000 + self.nanos as u128
     }
 
-    pub fn to_le_bytes(&self) -> [u8; Self::TIMESTAMP_SIZE] {
+    pub fn to_le_bytes(&self) -> [u8; Self::PACKLEN] {
         let a_nanos = self.nanos.to_le_bytes();
         let a_secs = self.secs.to_le_bytes();
 
-        let mut timestamp = [0; Self::TIMESTAMP_SIZE];
+        let mut timestamp = [0; Self::PACKLEN];
         timestamp[..4].copy_from_slice(&a_nanos);
         timestamp[4..].copy_from_slice(&a_secs);
 
         timestamp
     }
 
-    pub fn from_le_bytes(buf: [u8; Self::TIMESTAMP_SIZE]) -> Timestamp {
+    pub fn from_le_bytes(buf: [u8; Self::PACKLEN]) -> Timestamp {
         let mut a_secs: [u8; 8] = [0; 8];
         let mut a_nanos: [u8; 4] = [0; 4];
 
