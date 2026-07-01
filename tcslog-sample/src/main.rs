@@ -4,9 +4,6 @@
 //! many messages fit per file and the log rolls over into successor files as
 //! they fill.
 //!
-//! The log file name prefix and suffix are required arguments. The number of
-//! rollover (successor) files is optional and defaults to 0 (root file only).
-//!
 //! Run with:
 //!
 //! ```text
@@ -18,25 +15,27 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 
+use clap::Parser;
+
 use tcslog_sample::create_sample_logs;
 
-const USAGE: &str = "usage: tcslog-sample <prefix> <suffix> [rollovers]";
+/// Create a chain of sample log files.
+#[derive(Parser)]
+#[command(version, about)]
+struct Args {
+    /// Log file name prefix.
+    prefix: String,
+
+    /// Log file name suffix.
+    suffix: String,
+
+    /// Number of rollover (successor) files to create.
+    #[arg(default_value_t = 0)]
+    rollovers: u32,
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = std::env::args().collect();
-
-    // Required arguments: the file-name prefix and suffix.
-    let prefix = args.get(1).ok_or(USAGE)?;
-    let suffix = args.get(2).ok_or(USAGE)?;
-
-    // Optional third argument: the number of rollover files to create. When it
-    // is absent we default to 0, leaving just the root log file.
-    let rollovers: u32 = match args.get(3) {
-        Some(arg) => arg
-            .parse()
-            .map_err(|_| format!("invalid rollover count {arg:?}: expected a non-negative integer"))?,
-        None => 0,
-    };
+    let args = Args::parse();
 
     // Choose an OS-independent directory to hold the log files. Start fresh so a
     // re-run does not collide with files left by a previous run.
@@ -45,7 +44,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&dir)?;
     let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");
 
-    let result = create_sample_logs(dir_name, prefix, suffix, rollovers)?;
+    let result = create_sample_logs(dir_name, &args.prefix, &args.suffix, args.rollovers)?;
 
     println!(
         "wrote {} message(s) across {} file(s) in {} (root: {})",

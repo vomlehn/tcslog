@@ -7,3 +7,4 @@ license.workspace = true
 
 [dependencies]
 tcslog = { path = "../tcslog" }
+clap.workspace = true

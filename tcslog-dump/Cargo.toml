@@ -8,3 +8,4 @@ license.workspace = true
 [dependencies]
 tcslog = { path = "../tcslog" }
 tcslog-sample = { path = "../tcslog-sample" }
+clap.workspace = true

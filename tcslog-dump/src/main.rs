@@ -17,6 +17,8 @@ use std::error::Error;
 use std::fs;
 use std::path::PathBuf;
 
+use clap::Parser;
+
 use tcslog::{Header, TcsLog, TcsLogError, Timestamp};
 use tcslog_sample::{create_sample_logs_with, SequentialTimestamper, MAX_MESSAGE_SIZE};
 
@@ -24,15 +26,25 @@ use tcslog_sample::{create_sample_logs_with, SequentialTimestamper, MAX_MESSAGE_
 /// files in total.
 const ROLLOVERS: u32 = 6;
 
-const USAGE: &str = "usage: tcslog-dump <prefix> <suffix> <timestamp>";
+/// Create a chain of log files, then read the whole chain back, printing each
+/// file's header and every log message.
+#[derive(Parser)]
+#[command(version, about)]
+struct Args {
+    /// Log file name prefix.
+    prefix: String,
+
+    /// Log file name suffix.
+    suffix: String,
+
+    /// Starting timestamp, in log-file name format: eight underscore-separated
+    /// groups of four hex digits (e.g. 0000_0000_0000_0000_18bd_f941_4276_56ae).
+    #[arg(value_parser = parse_timestamp)]
+    timestamp: Timestamp,
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args: Vec<String> = std::env::args().collect();
-
-    // Required arguments: the file-name prefix, suffix, and starting timestamp.
-    let prefix = args.get(1).ok_or(USAGE)?;
-    let suffix = args.get(2).ok_or(USAGE)?;
-    let timestamp = parse_timestamp(args.get(3).ok_or(USAGE)?)?;
+    let args = Args::parse();
 
     // Use an OS-independent directory, cleared first so a re-run is repeatable.
     let dir: PathBuf = std::env::temp_dir().join("tcslog-dump");
@@ -42,8 +54,9 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Create the seven-file chain, seeded with the supplied timestamp so the
     // root file is named with exactly that timestamp.
-    let mut timestamper = SequentialTimestamper::new(timestamp);
-    let sample = create_sample_logs_with(dir_name, prefix, suffix, ROLLOVERS, &mut timestamper)?;
+    let mut timestamper = SequentialTimestamper::new(args.timestamp);
+    let sample =
+        create_sample_logs_with(dir_name, &args.prefix, &args.suffix, ROLLOVERS, &mut timestamper)?;
     println!(
         "created {} log file(s) ({} message(s)); root = {}\n",
         sample.file_count, sample.message_count, sample.root_file,
