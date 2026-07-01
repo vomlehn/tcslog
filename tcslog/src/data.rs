@@ -66,7 +66,8 @@ impl BlockHeader {
     /// Block header indicating next record starts at end of header.
     pub const REC_START: BlockHeader = BlockHeader::new(Offset::REC_START);
 
-    pub const fn new(offset: Offset) -> BlockHeader {
+    // `pub(crate)` because it takes an `Offset`, which is a crate-private type.
+    pub(crate) const fn new(offset: Offset) -> BlockHeader {
         BlockHeader { offset }
     }
 

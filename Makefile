@@ -120,6 +120,10 @@ run:
 	)
 
 
+.PHONY: tcslog-sample
+tcslog-sample:
+	cd tcslog-sample && cargo run --bin tcslog-sample
+
 # Clean build artifacts
 clean:
 	@echo "Cleaning build artifacts..."

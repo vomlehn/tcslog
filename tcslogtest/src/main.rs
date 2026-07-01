@@ -130,23 +130,27 @@ fn testit<'a>() {
 }
 
 // Test reading from a log file with no information
+#[allow(dead_code)] // kept as a ready-to-enable test (see the commented block in testit)
 fn test_empty<'a>() -> Result<(), TcsLogError<'a>> {
     test_write_read(0, 0)
 }
 
 // Test writing/reading a record that will fit entirely in the first
 // data block
+#[allow(dead_code)] // kept as a ready-to-enable test (see the commented block in testit)
 fn test_one_small<'a>() -> Result<(), TcsLogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 2, 1)
 }
 
 // Test writing/reading records that will fit entirely in the first
 // data block
+#[allow(dead_code)] // kept as a ready-to-enable test (see the commented block in testit)
 fn test_multiple_small<'a>() -> Result<(), TcsLogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 12, 10)
 }
 
 // Test writing/reading records that will require many data blocks
+#[allow(dead_code)] // kept as a ready-to-enable test (see the commented block in testit)
 fn test_many_small<'a>() -> Result<(), TcsLogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 4, 5)
 }
@@ -358,6 +362,7 @@ fn read_recs<'a>(
  *
  * rec_size = (BLOCK_SIZE - BLOCK_HEADER_N) / n
  */
+#[allow(dead_code)] // kept as a helper for the ready-to-enable tests
 fn max_block_rec_size(n: usize) -> usize {
     let block_header_size_n = BLOCK_HEADER_SIZE + CONT_SIZE + n * RECORD_METADATA_SIZE;
 let rec_size = 
