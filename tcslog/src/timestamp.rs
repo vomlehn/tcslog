@@ -80,6 +80,16 @@ impl Timestamp {
         self.secs as u128 * 1_000_000_000 + self.nanos as u128
     }
 
+    /// The timestamp in microseconds, truncating any sub-microsecond part.
+    pub const fn as_micros(&self) -> u128 {
+        self.as_nanos() / 1_000
+    }
+
+    /// Builds a timestamp from a microsecond count.
+    pub fn from_micros(micros: u128) -> Timestamp {
+        Timestamp::from_nanos(micros * 1_000)
+    }
+
     pub fn to_le_bytes(&self) -> [u8; Self::PACKLEN] {
         let a_nanos = self.nanos.to_le_bytes();
         let a_secs = self.secs.to_le_bytes();

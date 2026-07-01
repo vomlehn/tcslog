@@ -16,8 +16,10 @@ pub const MAX_MESSAGE_SIZE: usize = 1025;
 pub const MIN_MESSAGES: u64 = 5;
 
 /// A deterministic timestamper that starts at a given timestamp and advances by
-/// one nanosecond per call. Useful for creating logs with predictable, known
-/// file names (e.g. so a log can later be reopened by its timestamp).
+/// one microsecond per call. Useful for creating logs with predictable, known
+/// file names. It steps by a microsecond (not a nanosecond) because log file
+/// names have microsecond resolution, so distinct calls must map to distinct
+/// file names to avoid collisions between successive files.
 pub struct SequentialTimestamper {
     next: Timestamp,
 }
@@ -32,7 +34,7 @@ impl SequentialTimestamper {
 impl Timestampable for SequentialTimestamper {
     fn timestamp(&mut self) -> Result<Timestamp, TimestampableError> {
         let current = self.next;
-        self.next = Timestamp::from_nanos(self.next.as_nanos() + 1);
+        self.next = Timestamp::from_nanos(self.next.as_nanos() + 1_000);
         Ok(current)
     }
 }

@@ -122,8 +122,7 @@ run:
 
 .PHONY: tcslog-sample
 tcslog-sample:
-	#cd tcslog-sample && cargo run --bin tcslog-sample -- prefix_ _suffix
-	cd tcslog-sample && cargo run --bin tcslog-sample -- --help
+	cd tcslog-sample && cargo run --bin tcslog-sample -- prefix_ _suffix
 
 # Clean build artifacts
 clean:

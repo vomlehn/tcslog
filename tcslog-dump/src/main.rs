@@ -3,14 +3,14 @@
 //! header and every log message.
 //!
 //! The log file name prefix, suffix, and timestamp are required arguments. The
-//! timestamp is given in the same format used in log file names — eight
-//! underscore-separated groups of four hex digits — and is used to seed log
-//! creation, so the root file is named with exactly that timestamp.
+//! timestamp is given in the same format used in log file names — six
+//! underscore-separated groups of four hex digits (microseconds) — and is used
+//! to seed log creation, so the root file is named with exactly that timestamp.
 //!
 //! Run with:
 //!
 //! ```text
-//! cargo run -p tcslog-dump -- sample- .tcslog 0000_0000_0000_0000_18bd_f941_4276_56ae
+//! cargo run -p tcslog-dump -- sample- .tcslog 0000_0000_0006_18bd_f941_4276
 //! ```
 
 use std::error::Error;
@@ -37,8 +37,9 @@ struct Args {
     /// Log file name suffix.
     suffix: String,
 
-    /// Starting timestamp, in log-file name format: eight underscore-separated
-    /// groups of four hex digits (e.g. 0000_0000_0000_0000_18bd_f941_4276_56ae).
+    /// Starting timestamp, in log-file name format: six underscore-separated
+    /// groups of four hex digits, in microseconds
+    /// (e.g. 0000_0000_0006_18bd_f941_4276).
     #[arg(value_parser = parse_timestamp)]
     timestamp: Timestamp,
 }
@@ -100,32 +101,33 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Parses a timestamp written in the same format used in log file names: eight
-/// underscore-separated groups of four lowercase hex digits (the full u128 of
-/// nanoseconds). Returns an error describing the expected format on bad input.
+/// Parses a timestamp written in the same format used in log file names: six
+/// underscore-separated groups of four lowercase hex digits, giving the
+/// timestamp in microseconds. Returns an error describing the expected format
+/// on bad input.
 fn parse_timestamp(s: &str) -> Result<Timestamp, String> {
     let groups: Vec<&str> = s.split('_').collect();
-    let well_formed = groups.len() == 8
+    let well_formed = groups.len() == 6
         && groups
             .iter()
             .all(|g| g.len() == 4 && g.bytes().all(|b| b.is_ascii_hexdigit()));
     if !well_formed {
         return Err(format!(
-            "invalid timestamp {s:?}: expected eight underscore-separated groups of four hex \
-             digits, e.g. 0000_0000_0000_0000_18bd_f941_4276_56ae"
+            "invalid timestamp {s:?}: expected six underscore-separated groups of four hex \
+             digits, e.g. 0000_0000_0006_18bd_f941_4276"
         ));
     }
 
     let hex: String = groups.concat();
-    let nanos =
+    let micros =
         u128::from_str_radix(&hex, 16).map_err(|e| format!("invalid timestamp {s:?}: {e}"))?;
 
     // Guard against values too large to represent (Timestamp stores seconds as a u64).
-    if nanos / 1_000_000_000 >= u64::MAX as u128 {
+    if micros / 1_000_000 >= u64::MAX as u128 {
         return Err(format!("timestamp {s:?} is out of range"));
     }
 
-    Ok(Timestamp::from_nanos(nanos))
+    Ok(Timestamp::from_micros(micros))
 }
 
 /// Prints the header of the log file `log` currently refers to.

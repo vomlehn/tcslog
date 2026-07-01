@@ -175,9 +175,9 @@ impl Filename {
     pub const MAX_PREFIX_LEN: usize = 32;
 
     /// Size of the timestamp portion of the file name. It has
-    /// eight segments, each with four hex digits, separated by
-    /// underlines (8 * 4 hex digits + 7 separators).
-    pub const FILE_TIMESTAMP_LEN: usize = 8 * 4 + 7;
+    /// six segments, each with four hex digits, separated by
+    /// underlines (6 * 4 hex digits + 5 separators).
+    pub const FILE_TIMESTAMP_LEN: usize = 6 * 4 + 5;
 
     // Max suffix length for file names
     pub const MAX_SUFFIX_LEN: usize = 16;
@@ -190,20 +190,18 @@ impl Filename {
         Self::validate_prefix(prefix)?;
         Self::validate_suffix(suffix)?;
 
-        // Format <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix>
-        // directly into the fixed-size, NUL-padded name buffer, with no heap
-        // allocation. The timestamp is the full u128 of nanoseconds rendered as
-        // 32 lowercase hex digits in eight underscore-separated groups (each
-        // group is one 16-bit slice of the value).
-        let ts = timestamp.as_nanos();
+        // Format <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix> directly into
+        // the fixed-size, NUL-padded name buffer, with no heap allocation. The
+        // timestamp is rendered in microseconds as 24 lowercase hex digits in
+        // six underscore-separated groups (each group is one 16-bit slice of
+        // the 96-bit value).
+        let ts = timestamp.as_micros();
         let mut file_name = [0u8; Self::PACKLEN];
         {
             let mut w = ByteBuf::new(&mut file_name);
             write!(
                 w,
-                "{prefix}{:04x}_{:04x}_{:04x}_{:04x}_{:04x}_{:04x}_{:04x}_{:04x}{suffix}",
-                (ts >> 112) as u16,
-                (ts >> 96) as u16,
+                "{prefix}{:04x}_{:04x}_{:04x}_{:04x}_{:04x}_{:04x}{suffix}",
                 (ts >> 80) as u16,
                 (ts >> 64) as u16,
                 (ts >> 48) as u16,
@@ -969,11 +967,11 @@ mod tests {
 
     #[test]
     fn test_generate_file_name() {
-        // Use a timestamp within Timestamp's representable range (secs is a
-        // u64, so as_nanos() must fit u64 * 1e9 + nanos).
-        let ts: Timestamp = Timestamp::from_nanos(0x0123_4567_89AB_CDEF);
+        // The file name encodes the timestamp in microseconds. 1_234_567_000 ns
+        // is 1_234_567 us = 0x12_d687, rendered as six 4-hex-digit groups.
+        let ts: Timestamp = Timestamp::from_nanos(1_234_567_000);
         let name = Filename::new("test-", ts, ".tcslog").unwrap();
-        assert_eq!(name.as_str(), "test-0000_0000_0000_0000_0123_4567_89ab_cdef.tcslog");
+        assert_eq!(name.as_str(), "test-0000_0000_0000_0000_0012_d687.tcslog");
     }
 
     #[test]

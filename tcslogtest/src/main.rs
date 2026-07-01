@@ -46,7 +46,9 @@ impl Timestampable for Teststamper {
     /// Returns the current timestamp in nanoseconds since UNIX epoch.
     fn timestamp(&mut self) -> Result<Timestamp, TimestampableError> {
         let mut time_ns = self.time.as_nanos();
-        time_ns += 1;
+        // Advance by a microsecond: log file names have microsecond resolution,
+        // so successive files must map to distinct names.
+        time_ns += 1_000;
         self.time = Timestamp::from_nanos(time_ns);
         /*
                 if self.first_time.is_none() {
