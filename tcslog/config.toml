@@ -1,0 +1,5 @@
+# Configuration file for tcslog
+
+# Timer resolution in seconds. Use when creating log file names to reduce
+# namespace collisions
+timer_resolution = 1e-6 
