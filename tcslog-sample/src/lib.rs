@@ -3,7 +3,7 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tcslog::{TcsLog, TcsLogError, Timestamp, Timestampable, TimestampableError, Timestamper};
+use tcslog::{TcsLog, TcsLogError, Uid, Uidable, UidableError, Uider};
 
 /// Each log file is limited to this many bytes.
 pub const MAX_SIZE: u64 = 10_240;
@@ -15,26 +15,26 @@ pub const MAX_MESSAGE_SIZE: usize = 1025;
 /// no rollover files are requested.
 pub const MIN_MESSAGES: u64 = 5;
 
-/// A deterministic timestamper that starts at a given timestamp and advances by
+/// A deterministic Uider that starts at a given Uid and advances by
 /// one microsecond per call. Useful for creating logs with predictable, known
 /// file names. It steps by a microsecond (not a nanosecond) because log file
 /// names have microsecond resolution, so distinct calls must map to distinct
 /// file names to avoid collisions between successive files.
-pub struct SequentialTimestamper {
-    next: Timestamp,
+pub struct SequentialUider {
+    next: Uid,
 }
 
-impl SequentialTimestamper {
-    /// Creates a timestamper whose first timestamp is `start`.
-    pub fn new(start: Timestamp) -> Self {
-        SequentialTimestamper { next: start }
+impl SequentialUider {
+    /// Creates a Uider whose first Uid is `start`.
+    pub fn new(start: Uid) -> Self {
+        SequentialUider { next: start }
     }
 }
 
-impl Timestampable for SequentialTimestamper {
-    fn timestamp(&mut self) -> Result<Timestamp, TimestampableError> {
+impl Uidable for SequentialUider {
+    fn Uid(&mut self) -> Result<Uid, UidableError> {
         let current = self.next;
-        self.next = Timestamp::from_nanos(self.next.as_nanos() + 1_000);
+        self.next = Uid::from_nanos(self.next.as_nanos() + 1_000);
         Ok(current)
     }
 }
@@ -50,7 +50,7 @@ pub struct SampleLogs {
 }
 
 /// Creates a sample log chain in `dir_name`, using the given file-name `prefix`
-/// and `suffix` and the system clock for timestamps: a root file plus
+/// and `suffix` and the system clock for Uids: a root file plus
 /// `rollovers` successor files filled with small ASCII messages.
 ///
 /// Returns a summary including the name of the root file (the head of the
@@ -61,22 +61,22 @@ pub fn create_sample_logs(
     suffix: &str,
     rollovers: u32,
 ) -> Result<SampleLogs, TcsLogError<'static>> {
-    let mut timestamper = Timestamper::new();
-    create_sample_logs_with(dir_name, prefix, suffix, rollovers, &mut timestamper)
+    let mut Uider = Uider::new();
+    create_sample_logs_with(dir_name, prefix, suffix, rollovers, &mut Uider)
 }
 
-/// Like [`create_sample_logs`], but uses the supplied `timestamper` instead of
-/// the system clock. Passing a [`SequentialTimestamper`] makes the file names
-/// deterministic, so the root file's timestamp is known in advance.
+/// Like [`create_sample_logs`], but uses the supplied `Uider` instead of
+/// the system clock. Passing a [`SequentialUider`] makes the file names
+/// deterministic, so the root file's Uid is known in advance.
 pub fn create_sample_logs_with(
     dir_name: &str,
     prefix: &str,
     suffix: &str,
     rollovers: u32,
-    timestamper: &mut dyn Timestampable,
+    Uider: &mut dyn Uidable,
 ) -> Result<SampleLogs, TcsLogError<'static>> {
     // Create the root log file and remember its name before any rollover.
-    let mut log = TcsLog::new_with_timestamp(dir_name, prefix, timestamper, suffix, MAX_SIZE)?;
+    let mut log = TcsLog::new_with_Uid(dir_name, prefix, Uider, suffix, MAX_SIZE)?;
     let root_file = log.file_name().to_string();
 
     // Append messages until the requested number of rollover files exist (and
@@ -91,7 +91,7 @@ pub fn create_sample_logs_with(
             log.message_count() + 1,
         );
         let data = &content.as_bytes()[..content.len().min(MAX_MESSAGE_SIZE)];
-        log.write(timestamper, data)?;
+        log.write(Uider, data)?;
     }
     log.flush()?;
 

@@ -4,7 +4,7 @@
 //use std::cmp::Ordering;
 
 use crate::error::TcsLogError;
-use crate::Timestamp;
+use crate::Uid;
 use crate::Offset;
 use crate::BLOCK_SIZE;
 use crate::Filename;
@@ -26,14 +26,14 @@ pub const BLOCK_HEADER_SIZE: usize = Offset::PACKLEN;
 /// Size of record length field in bytes.
 pub const RECORD_LENGTH_SIZE: usize = 8;
 
-/// Size of timestamp field in bytes (the packed, on-disk size, which is
-/// smaller than `size_of::<Timestamp>()` because of struct padding).
-pub const RECORD_PACKLEN: usize = Timestamp::PACKLEN;
+/// Size of Uid field in bytes (the packed, on-disk size, which is
+/// smaller than `size_of::<Uid>()` because of struct padding).
+pub const RECORD_PACKLEN: usize = Uid::PACKLEN;
 
-/// Size of record metadata (length + timestamp).
+/// Size of record metadata (length + Uid).
 pub const RECORD_METADATA_SIZE: usize = RECORD_PACKLEN + RECORD_LENGTH_SIZE;
 
-pub const CONT_SIZE: usize = Timestamp::PACKLEN + Filename::PACKLEN;
+pub const CONT_SIZE: usize = Uid::PACKLEN + Filename::PACKLEN;
 
 /// Maximum record size that can fit in a single data block.
 pub const MAX_RECORD_SIZE: usize = BLOCK_SIZE - BlockHeader::PACKLEN - RECORD_METADATA_SIZE;
@@ -105,19 +105,19 @@ impl BlockHeader {
  * This is the marker used to indicate the end of this log file. It has the
  * following fields:
  * 
- * timestamp    Time at which the EOF was written
+ * Uid    Time at which the EOF was written
  * next_file    Name of the next log file
  */
 pub(crate) struct EofMarker {
-    timestamp:  Timestamp,
+    Uid:  Uid,
     next_file:  Filename,
 }
 
 impl EofMarker {
-    pub(crate) const PACKLEN: usize = Timestamp::PACKLEN + Filename::PACKLEN;
+    pub(crate) const PACKLEN: usize = Uid::PACKLEN + Filename::PACKLEN;
 
-    pub(crate) const fn new(timestamp: Timestamp, next_file: Filename) -> EofMarker {
-        EofMarker { timestamp, next_file }
+    pub(crate) const fn new(Uid: Uid, next_file: Filename) -> EofMarker {
+        EofMarker { Uid, next_file }
     }
 
     /// Returns the name of the next file in the chain.
@@ -130,11 +130,11 @@ impl EofMarker {
         // Allocate a place to put the result
         let mut eof_marker = [0; Self::PACKLEN];
 
-        // Copy in the timestamp bytes
+        // Copy in the Uid bytes
         let mut i = 0;
-        let a_timestamp = self.timestamp.to_le_bytes();
-        eof_marker[i..Timestamp::PACKLEN].copy_from_slice(&a_timestamp);
-        i += Timestamp::PACKLEN;
+        let a_Uid = self.Uid.to_le_bytes();
+        eof_marker[i..Uid::PACKLEN].copy_from_slice(&a_Uid);
+        i += Uid::PACKLEN;
 
         // Copy in the file name
         let a_next_file = self.next_file.to_le_bytes();
@@ -148,11 +148,11 @@ impl EofMarker {
     pub(crate) fn from_le_bytes(buf: [u8; EofMarker::PACKLEN]) -> EofMarker {
         let mut i = 0;
 
-        // First, pull out the timestamp
-        let mut a_timestamp: [u8; Timestamp::PACKLEN] = [0; Timestamp::PACKLEN];
-        a_timestamp.copy_from_slice(&buf[i..i + Timestamp::PACKLEN]);
-        let timestamp = Timestamp::from_le_bytes(a_timestamp);
-        i += Timestamp::PACKLEN;
+        // First, pull out the Uid
+        let mut a_Uid: [u8; Uid::PACKLEN] = [0; Uid::PACKLEN];
+        a_Uid.copy_from_slice(&buf[i..i + Uid::PACKLEN]);
+        let Uid = Uid::from_le_bytes(a_Uid);
+        i += Uid::PACKLEN;
 
         // Then, pull out the next_file
         let mut a_next_file: [u8; Filename::PACKLEN] = [0; Filename::PACKLEN];
@@ -160,7 +160,7 @@ impl EofMarker {
         let next_file = Filename::from_le_bytes(a_next_file);
 
         EofMarker {
-            timestamp,
+            Uid,
             next_file,
         }
     }
@@ -170,7 +170,7 @@ impl EofMarker {
  * FIXME: needed?
 impl From<EofMarker> for u64 {
     fn from(value: EofMarker) -> Self {
-        value.timestamp
+        value.Uid
     }
 }
 */
@@ -179,7 +179,7 @@ impl From<EofMarker> for u64 {
  * FIXME: needed?
 impl PartialEq for EofMarker {
     fn eq(&self, r: &EofMarker) -> bool {
-        self.timestamp == r.timestamp
+        self.Uid == r.Uid
     }
 }
 
@@ -199,16 +199,16 @@ impl PartialOrd for EofMarker {
 /// Represents a data record with its metadata.
 #[derive(Debug, Clone)]
 pub struct DataRecord {
-    /// Timestamp when the record was written (nanoseconds since UNIX epoch).
-    pub timestamp: Timestamp,
+    /// Uid when the record was written (nanoseconds since UNIX epoch).
+    pub Uid: Uid,
     /// The actual data payload.
     pub data: Vec<u8>,
 }
 
 impl DataRecord {
     /// Creates a new data record.
-    pub fn new(timestamp: Timestamp, data: Vec<u8>) -> Self {
-        DataRecord { timestamp, data }
+    pub fn new(Uid: Uid, data: Vec<u8>) -> Self {
+        DataRecord { Uid, data }
     }
 
     /// Returns the total size of this record including metadata as it
@@ -220,7 +220,7 @@ impl DataRecord {
     /// Serializes the record metadata and data to bytes.
     pub fn to_le_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(self.packlen());
-        bytes.extend_from_slice(&self.timestamp.to_le_bytes());
+        bytes.extend_from_slice(&self.Uid.to_le_bytes());
         bytes.extend_from_slice(&(self.data.len() as u64).to_le_bytes());
         bytes.extend_from_slice(&self.data);
         bytes
@@ -237,13 +237,13 @@ impl DataRecord {
         let mut i = 0;
 
         // On-disk order matches `to_le_bytes` and `TcsLog::write`:
-        // [timestamp][length][data].
-        let timestamp = Timestamp::from_le_bytes(
-            bytes[i..i + Timestamp::PACKLEN]
+        // [Uid][length][data].
+        let Uid = Uid::from_le_bytes(
+            bytes[i..i + Uid::PACKLEN]
                 .try_into()
-                .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
+                .map_err(|_| TcsLogError::InvalidFormat("Invalid Uid".to_string()))?,
         );
-        i += Timestamp::PACKLEN;
+        i += Uid::PACKLEN;
 
         let length = u64::from_le_bytes(
             bytes[i..i + RECORD_LENGTH_SIZE]
@@ -261,7 +261,7 @@ impl DataRecord {
 
         let data = bytes[RECORD_METADATA_SIZE..RECORD_METADATA_SIZE + length].to_vec();
 
-        Ok(DataRecord { timestamp, data })
+        Ok(DataRecord { Uid, data })
     }
 }
 
@@ -417,11 +417,11 @@ mod tests {
 
     #[test]
     fn test_data_record_roundtrip() {
-        let record = DataRecord::new(Timestamp::from_nanos(12345678900), vec![1, 2, 3, 4, 5]);
+        let record = DataRecord::new(Uid::from_nanos(12345678900), vec![1, 2, 3, 4, 5]);
         let bytes = record.to_le_bytes();
         let restored = DataRecord::from_le_bytes(&bytes).unwrap();
 
-        assert_eq!(record.timestamp, restored.timestamp);
+        assert_eq!(record.Uid, restored.Uid);
         assert_eq!(record.data, restored.data);
     }
 

@@ -22,6 +22,17 @@ PROMPT = Generate Rust code ($(TCSLOG_CODE)) and create $(TCSLOG_OUTPUT) from $(
 
 TCSLOG_CRATES = tcslib tcslibgs g tcsmoc tcssim tcspayload.json
 
+# Uid regular expression definitions
+TS_RE_ATOM = [0-9a-f]
+TS_RE_CHUNK = ${TS_RE_ATOM}${TS_RE_ATOM}${TS_RE_ATOM}${TS_RE_ATOM}
+TS_RE_SECS = ${TS_RE_CHUNK}_${TS_RE_CHUNK}_${TS_RE_CHUNK}_${TS_RE_CHUNK}
+TS_RE_MSECS = ${TS_RE_CHUNK}_${TS_RE_CHUNK}
+TS_RE = ${TS_RE_SECS}_${TS_RE_MSECS}
+
+# Output directory for tcslog-sample
+# TODO: pass to tcslog-sample as an argument
+TCSLOG_SAMPLE_DIR = /tmp/tcslog-sample
+
 RELEASE = --release
 RELEASE =
 
@@ -119,10 +130,21 @@ run:
 		cd $(RUST) && RUST_LOG=info cargo run --bin tcspecial \
 	)
 
-
 .PHONY: tcslog-sample
 tcslog-sample:
-	cd tcslog-sample && cargo run --bin tcslog-sample -- prefix_ _suffix
+	cd tcslog-sample && cargo run --bin tcslog-sample -- prefix_ _suffix 1
+
+.PHONY: tcslog-dump
+tcslog-dump:
+	#cd tcslog-dump && cargo run --bin tcslog-dump -- prefix_ _suffix
+	set -eu; \
+		infile="$$(ls $(TCSLOG_SAMPLE_DIR)/ | sed -e '2,$$d')"; \
+		Uid="$$(echo "$$infile" | \
+			sed -e s/^prefix_// -e s/_suffix$$//)"; \
+		echo infile $$infile; \
+		echo Uid $$Uid; \
+		cd tcslog-dump; \
+		cargo run --bin tcslog-dump -- prefix_ "$$Uid" _suffix
 
 # Clean build artifacts
 clean:

@@ -4,7 +4,7 @@ use std::mem::size_of;
 
 use crate::error::TcsLogError;
 use crate::Offset;
-use crate::timestamp::Timestamp;
+use crate::uid::Uid;
 use crate::{BLOCK_SIZE, Filename};
 
 /// Represents the header block of a log file.
@@ -14,8 +14,8 @@ pub struct Header {
     pub file_type: [u8; Self::FILE_TYPE_SIZE],
     /// Version string (e.g., "00.01.00").
     pub version: [u8; Self::VERSION_SIZE],
-    /// Timestamp in nanoseconds since UNIX epoch.
-    pub timestamp: Timestamp,
+    /// Uid in nanoseconds since UNIX epoch.
+    pub Uid: Uid,
     /// Offset to the beginning of the index section.
     pub index_offset: u64,
     /// Offset to the beginning of the data section.
@@ -55,7 +55,7 @@ impl Header {
     pub const HEADER_SIZE: usize = BLOCK_SIZE;
 
     /// Creates a new header with the given parameters.
-    pub fn new(timestamp: Timestamp, index_offset: u64, data_offset: u64, file_name: &str) -> Self {
+    pub fn new(Uid: Uid, index_offset: u64, data_offset: u64, file_name: &str) -> Self {
         let mut name_bytes = [0u8; Filename::PACKLEN];
         let name_len = file_name.len().min(Filename::PACKLEN);
         name_bytes[..name_len].copy_from_slice(&file_name.as_bytes()[..name_len]);
@@ -63,7 +63,7 @@ impl Header {
         Header {
             file_type: *Self::FILE_TYPE,
             version: *Self::VERSION_00_01_00,
-            timestamp,
+            Uid,
             index_offset,
             data_offset,
             file_name: name_bytes,
@@ -84,10 +84,10 @@ impl Header {
         buffer[offset..offset + Self::VERSION_SIZE].copy_from_slice(&self.version);
         offset += Self::VERSION_SIZE;
 
-        // Timestamp (little-endian)
-        buffer[offset..offset + Timestamp::PACKLEN]
-            .copy_from_slice(&self.timestamp.to_le_bytes());
-        offset += Timestamp::PACKLEN;
+        // Uid (little-endian)
+        buffer[offset..offset + Uid::PACKLEN]
+            .copy_from_slice(&self.Uid.to_le_bytes());
+        offset += Uid::PACKLEN;
 
         // Index offset (little-endian)
         buffer[offset..offset + Self::INDEX_OFFSET_PACKLEN]
@@ -128,13 +128,13 @@ impl Header {
         version.copy_from_slice(&buffer[offset..offset + Self::VERSION_SIZE]);
         offset += Self::VERSION_SIZE;
 
-        // Timestamp
-        let timestamp = Timestamp::from_le_bytes(
-            buffer[offset..offset + Timestamp::PACKLEN]
+        // Uid
+        let Uid = Uid::from_le_bytes(
+            buffer[offset..offset + Uid::PACKLEN]
                 .try_into()
-                .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
+                .map_err(|_| TcsLogError::InvalidFormat("Invalid Uid".to_string()))?,
         );
-        offset += Timestamp::PACKLEN;
+        offset += Uid::PACKLEN;
 
         // Index offset
         let index_offset = u64::from_le_bytes(
@@ -168,7 +168,7 @@ impl Header {
         Ok(Header {
             file_type,
             version,
-            timestamp,
+            Uid,
             index_offset,
             data_offset,
             file_name,
@@ -194,7 +194,7 @@ mod tests {
     #[test]
     fn test_header_roundtrip() {
         let header = Header::new(
-            Timestamp::from_nanos(1234567890_000_000_000),
+            Uid::from_nanos(1234567890_000_000_000),
             Header::HEADER_SIZE as u64,
             Header::HEADER_SIZE as u64 + BLOCK_SIZE as u64,
             "test-0001_2345_6789_0abc",
@@ -205,7 +205,7 @@ mod tests {
 
         assert_eq!(header.file_type, restored.file_type);
         assert_eq!(header.version, restored.version);
-        assert_eq!(header.timestamp, restored.timestamp);
+        assert_eq!(header.Uid, restored.Uid);
         assert_eq!(header.file_name, restored.file_name);
         assert_eq!(header.index_offset, restored.index_offset);
         assert_eq!(header.data_offset, restored.data_offset);
@@ -214,14 +214,14 @@ mod tests {
 
     #[test]
     fn test_chain_count_default_zero() {
-        let header = Header::new(Timestamp::ZERO, 0, 0, "test");
+        let header = Header::new(Uid::ZERO, 0, 0, "test");
         assert_eq!(header.chain_count, 0);
     }
 
     #[test]
     fn test_file_name_str() {
         let header = Header::new(
-            Timestamp::ZERO,
+            Uid::ZERO,
             Header::HEADER_SIZE as u64,
             Header::HEADER_SIZE as u64,
             "test-file",

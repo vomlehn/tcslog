@@ -2,7 +2,7 @@
 //! * Fixed length logs with automatic switching to new logs when old ones fill
 //! * Arbitrary record sizes
 //! * Self-identified log files (the name is in the header)
-//! * Indexed by automatically supplied timestamps with nanosecond resolution
+//! * Indexed by automatically supplied Uids with nanosecond resolution
 //! * Metadata all in little-endian form
 
 use std::cmp::Ordering;
@@ -20,7 +20,7 @@ mod data;
 mod error;
 mod header;
 mod index;
-mod timestamp;
+mod uid;
 
 pub use config::{BLOCK_SIZE, MAX_RETRIES, WAIT_FOR_NEW_NAME};
 pub use data::{
@@ -29,7 +29,7 @@ pub use data::{
 pub use error::TcsLogError;
 pub use header::{Header};
 pub use index::{IndexBlock, IndexEntry, IndexStructure, ENTRIES_PER_BLOCK, FILE_NULL};
-pub use timestamp::Timestamp;
+pub use uid::Uid;
 
 /// Default file size (64MB).
 pub const DEFAULT_FILE_SIZE: u64 = 64 * 1024 * 1024;
@@ -174,28 +174,28 @@ impl Filename {
     /// Maximum prefix length for file names.
     pub const MAX_PREFIX_LEN: usize = 32;
 
-    /// Size of the timestamp portion of the file name. It has
+    /// Size of the Uid portion of the file name. It has
     /// six segments, each with four hex digits, separated by
     /// underlines (6 * 4 hex digits + 5 separators).
-    pub const FILE_TIMESTAMP_LEN: usize = 6 * 4 + 5;
+    pub const FILE_Uid_LEN: usize = 6 * 4 + 5;
 
     // Max suffix length for file names
     pub const MAX_SUFFIX_LEN: usize = 16;
 
     pub const PACKLEN: usize = size_of::<FilenameLen>() +
-        Self::MAX_PREFIX_LEN + Self::FILE_TIMESTAMP_LEN + Self::MAX_SUFFIX_LEN;
+        Self::MAX_PREFIX_LEN + Self::FILE_Uid_LEN + Self::MAX_SUFFIX_LEN;
 
-    pub fn new(prefix: &str, timestamp: Timestamp, suffix: &str) -> 
+    pub fn new(prefix: &str, Uid: Uid, suffix: &str) -> 
         Result<Filename, TcsLogError<'static>> {
         Self::validate_prefix(prefix)?;
         Self::validate_suffix(suffix)?;
 
         // Format <prefix><XXXX_XXXX_XXXX_XXXX_XXXX_XXXX><suffix> directly into
         // the fixed-size, NUL-padded name buffer, with no heap allocation. The
-        // timestamp is rendered in microseconds as 24 lowercase hex digits in
+        // Uid is rendered in microseconds as 24 lowercase hex digits in
         // six underscore-separated groups (each group is one 16-bit slice of
         // the 96-bit value).
-        let ts = timestamp.as_micros();
+        let ts = Uid.as_micros();
         let mut file_name = [0u8; Self::PACKLEN];
         {
             let mut w = ByteBuf::new(&mut file_name);
@@ -278,51 +278,51 @@ impl Filename {
     }
 }
 
-// Object that keeps track of the time for timestamps
-pub trait Timestampable {
-    fn timestamp(&mut self) -> Result<Timestamp, TimestampableError>;
+// Object that keeps track of the time for Uids
+pub trait Uidable {
+    fn Uid(&mut self) -> Result<Uid, UidableError>;
 }
 
 /*
- * Define a type that returns the timestamp. In this implementation,
+ * Define a type that returns the Uid. In this implementation,
  * we return the time since the UNIX epoch.
  */
 #[derive(Debug)]
-pub struct Timestamper {}
+pub struct Uider {}
 
-impl Timestamper {
-    /// Creates a timestamper backed by the system clock (nanoseconds since the
+impl Uider {
+    /// Creates a Uider backed by the system clock (nanoseconds since the
     /// UNIX epoch).
-    pub fn new() -> Timestamper {
-        Timestamper {}
+    pub fn new() -> Uider {
+        Uider {}
     }
 }
 
-impl Default for Timestamper {
+impl Default for Uider {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl Timestampable for Timestamper {
-    /// Returns the current timestamp in nanoseconds since UNIX epoch. This
+impl Uidable for Uider {
+    /// Returns the current Uid in nanoseconds since UNIX epoch. This
     /// can fail if the system clock was changed. In this case, the only
-    /// way to ensure consistent timestamps in a chain of log files is to
-    /// restart the application. This is because timestamps are assumed to
+    /// way to ensure consistent Uids in a chain of log files is to
+    /// restart the application. This is because Uids are assumed to
     /// be monotonically increasing
-    fn timestamp(&mut self) -> Result<Timestamp, TimestampableError> {
+    fn Uid(&mut self) -> Result<Uid, UidableError> {
         match SystemTime::now().duration_since(UNIX_EPOCH) {
-            Err(e) => Err(TimestampableError::DurationSinceFailed(e)),
+            Err(e) => Err(UidableError::DurationSinceFailed(e)),
             Ok(now) => {
                 let now_ns = now.as_nanos();
-                Ok(Timestamp::from_nanos(now_ns))
+                Ok(Uid::from_nanos(now_ns))
             }
         }
     }
 }
 
 #[derive(Clone, Debug, Error)]
-pub enum TimestampableError {
+pub enum UidableError {
     #[error("DurationSince failed: {0} (did SystemClock go backwards?)")]
     DurationSinceFailed(SystemTimeError),
 }
@@ -339,8 +339,8 @@ pub enum TimestampableError {
  *                  file
  * read_position    Byte offset of the next read from the beginning of the log
  *                  file
- * prefix           Prefix added to log file name before timestamp
- * suffix           Suffix added to log file name after timestamp
+ * prefix           Prefix added to log file name before Uid
+ * suffix           Suffix added to log file name after Uid
  */
 pub struct TcsLog<'a> {
     dir_name: &'a str,
@@ -370,15 +370,15 @@ pub struct TcsLog<'a> {
 }
 
 impl<'a> TcsLog<'a> {
-    /// Generates the log file name for the given prefix, timestamp, and suffix.
+    /// Generates the log file name for the given prefix, Uid, and suffix.
     /// This reproduces the name a log was (or would be) created under, so an
     /// existing log can be reopened.
     pub fn generate_file_name(
         prefix: &str,
-        timestamp: Timestamp,
+        Uid: Uid,
         suffix: &str,
     ) -> Result<String, TcsLogError<'static>> {
-        Ok(Filename::new(prefix, timestamp, suffix)?.as_str().to_string())
+        Ok(Filename::new(prefix, Uid, suffix)?.as_str().to_string())
     }
 
     /// Returns this log file's position in the chain. The first file in a
@@ -399,9 +399,9 @@ impl<'a> TcsLog<'a> {
 
     /// Creates a new TcsLog with a specified maximum file size.
     /// dir_name    System-dependend directory name
-    /// prefix      String that is prepended to the timestamp part of
+    /// prefix      String that is prepended to the Uid part of
     ///             the log file name
-    /// suffix      String that is appended to the timestamp part of the log
+    /// suffix      String that is appended to the Uid part of the log
     ///             file name.
     /// max_size    Maximum size of the log file
     pub fn new(
@@ -410,32 +410,32 @@ impl<'a> TcsLog<'a> {
         suffix: &str,
         max_size: u64,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
-        // Generate timestamp and file name
-        let mut timestamper = Timestamper::new();
-        Self::new_with_timestamp(dir_name, prefix, &mut timestamper, suffix, max_size)
+        // Generate Uid and file name
+        let mut Uider = Uider::new();
+        Self::new_with_Uid(dir_name, prefix, &mut Uider, suffix, max_size)
     }
 
     /// Creates a new TcsLog with a specified maximum file size while
-    /// specifying the timestamp. This is useful for testing when you
+    /// specifying the Uid. This is useful for testing when you
     /// want to know the name of the file.
-    pub fn new_with_timestamp(
+    pub fn new_with_Uid(
         dir_name: &'a str,
         prefix: &str,
-        timestamper: &mut dyn Timestampable,
+        Uider: &mut dyn Uidable,
         suffix: &str,
         max_size: u64,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
         // The first file in a chain has a chain count of zero.
-        Self::new_with_timestamp_chained(dir_name, prefix, timestamper, suffix, max_size, 0)
+        Self::new_with_Uid_chained(dir_name, prefix, Uider, suffix, max_size, 0)
     }
 
-    /// Like `new_with_timestamp`, but stamps the new log file's header with the
+    /// Like `new_with_Uid`, but stamps the new log file's header with the
     /// given chain count. Used when a record overflows into a freshly created
     /// successor file in the chain.
-    fn new_with_timestamp_chained(
+    fn new_with_Uid_chained(
         dir_name: &'a str,
         prefix: &str,
-        timestamper: &mut dyn Timestampable,
+        Uider: &mut dyn Uidable,
         suffix: &str,
         max_size: u64,
         chain_count: u32,
@@ -451,11 +451,11 @@ impl<'a> TcsLog<'a> {
         let mut retries = 0;
 
         let (path_buf, path_len, mut file, mut header) = loop {
-            let timestamp = timestamper.timestamp().unwrap();
-            let file_name = Filename::new(prefix, timestamp, suffix)?;
+            let Uid = Uider.Uid().unwrap();
+            let file_name = Filename::new(prefix, Uid, suffix)?;
 
             // Create header
-            let header = Header::new(timestamp, index_offset, data_offset, file_name.as_str());
+            let header = Header::new(Uid, index_offset, data_offset, file_name.as_str());
 
             // Build the file path inline (no heap allocation).
             let mut path_buf = [0u8; MAX_PATH_LEN];
@@ -478,7 +478,7 @@ impl<'a> TcsLog<'a> {
                 Err(e)
                     if e.kind() == std::io::ErrorKind::AlreadyExists && retries < MAX_RETRIES =>
                 {
-                    // Wait and try again with new timestamp
+                    // Wait and try again with new Uid
                     std::thread::sleep(std::time::Duration::from_micros(WAIT_FOR_NEW_NAME));
                     retries += 1;
                     continue;
@@ -557,10 +557,10 @@ impl<'a> TcsLog<'a> {
     pub fn open(
         dir_name: &'a str,
         prefix: &str,
-        timestamp: Timestamp,
+        Uid: Uid,
         suffix: &str,
     ) -> Result<TcsLog<'a>, TcsLogError<'static>> {
-        let file_name = Filename::new(prefix, timestamp, suffix)?;
+        let file_name = Filename::new(prefix, Uid, suffix)?;
         let (path_buf, path_len) = pack_path(file_name.as_str())?;
         let path = Path::new(std::str::from_utf8(&path_buf[..path_len]).unwrap());
         println!("TcsLog::open: path {:?}", path);
@@ -657,7 +657,7 @@ impl<'a> TcsLog<'a> {
     /// Returns () if the data was written, otherwise Err(TcsLogError).
     pub fn write(
         &mut self,
-        timestamper: &mut dyn Timestampable,
+        Uider: &mut dyn Uidable,
         data: &[u8],
     ) -> Result<(), TcsLogError<'static>> {
         if !self.writing {
@@ -670,7 +670,7 @@ impl<'a> TcsLog<'a> {
             return Err(TcsLogError::RecordTooLarge);
         }
 
-        let timestamp = timestamper.timestamp()?;
+        let Uid = Uider.Uid()?;
 
         // Calculate space needed in current block
         let current_block_offset =
@@ -699,10 +699,10 @@ impl<'a> TcsLog<'a> {
 
         if (total_needed + CONT_SIZE) as u64 > remaining_in_file {
             // Create the next log file in the chain, incrementing the chain count.
-            let mut new_log = Self::new_with_timestamp_chained(
+            let mut new_log = Self::new_with_Uid_chained(
                 self.dir_name,
                 self.prefix(),
-                timestamper,
+                Uider,
                 self.suffix(),
                 self.max_size,
                 self.header.chain_count + 1,
@@ -711,7 +711,7 @@ impl<'a> TcsLog<'a> {
             // Write a continuation marker into this file pointing at the
             // successor, so a reader can follow the chain.
             let next_file = Filename::from_le_bytes(new_log.header.file_name);
-            let marker = data::EofMarker::new(Timestamp::CONT, next_file);
+            let marker = data::EofMarker::new(Uid::CONT, next_file);
             self.file.seek(SeekFrom::Start(self.write_position))?;
             self.file.write_all(&marker.to_le_bytes())?;
 
@@ -719,16 +719,16 @@ impl<'a> TcsLog<'a> {
             // every message written across the whole chain.
             new_log.messages_written = self.messages_written;
             *self = new_log;
-            return self.write(timestamper, data);
+            return self.write(Uider, data);
         }
 
-        // Write timestamp
+        // Write Uid
         println!(
             "TcsLog::write: writing timetamp {:?} at {:?}",
-            timestamp,
+            Uid,
             self.file.stream_position()
         );
-        let buf = timestamp.to_le_bytes();
+        let buf = Uid.to_le_bytes();
         self.file.write_all(&buf)?;
         self.write_position += buf.len() as u64;
 
@@ -741,7 +741,7 @@ impl<'a> TcsLog<'a> {
         self.write_position += data.len() as u64;
 
         // Update index
-        self.update_index(self.write_position - data.len() as u64, timestamp)?;
+        self.update_index(self.write_position - data.len() as u64, Uid)?;
 
         self.messages_written += 1;
 
@@ -767,7 +767,7 @@ impl<'a> TcsLog<'a> {
     fn update_index(
         &mut self,
         _offset: u64,
-        _timestamp: Timestamp,
+        _Uid: Uid,
     ) -> Result<(), TcsLogError<'static>> {
         // Index update implementation
         // For simplicity, we update the first index block entry
@@ -781,7 +781,7 @@ impl<'a> TcsLog<'a> {
     /// Err(TcsLogError) otherwise.
     pub fn read(
         &mut self,
-        timestamp: &mut Timestamp,
+        Uid: &mut Uid,
         data: &mut [u8],
     ) -> Result<usize, TcsLogError<'static>> {
         if self.writing {
@@ -800,38 +800,38 @@ impl<'a> TcsLog<'a> {
             println!("read_position adjusted to {:?}", self.read_position);
         }
 
-        // Read timestamp. If we get zero bytes, we're at the physical, and
-        // hence, logical EOF. If the timestamp is Timestamp::CONT, we are
+        // Read Uid. If we get zero bytes, we're at the physical, and
+        // hence, logical EOF. If the Uid is Uid::CONT, we are
         // at the continuation marker that ends the file.
         self.file.seek(SeekFrom::Start(self.read_position))?;
-        let mut ts_bytes = [0u8; Timestamp::PACKLEN];
+        let mut ts_bytes = [0u8; Uid::PACKLEN];
 
         // FIXME: this code assumes that seeking past the end of the file and
         // then reading will return zero bytes. Is that guaranteed by the
         // Rust runtime library? I think it is by Linux, but this might be
         // a portability if the Rust RT doesn't guarantee it. It looks like the
         // answer is no, so this needs to be fixed.
-println!("TcsLog::read: reading timestamp");
+println!("TcsLog::read: reading Uid");
         match self.file.read(&mut ts_bytes) {
             Err(e) => return Err(TcsLogError::Io(e)),
             Ok(n) => {
                 if n == 0 {
                     // FIXME: double check this
                     return Err(TcsLogError::EOF);
-                } else if n != Timestamp::PACKLEN {
+                } else if n != Uid::PACKLEN {
                     return Err(TcsLogError::CorruptedEOF);
                 }
             }
         }
 
-        *timestamp = Timestamp::from_le_bytes(ts_bytes);
-println!("TcsLog::read: read timestamp {:?}", timestamp);
-        if *timestamp == Timestamp::CONT {
+        *Uid = Uid::from_le_bytes(ts_bytes);
+println!("TcsLog::read: read Uid {:?}", Uid);
+        if *Uid == Uid::CONT {
             // Continuation marker: read the successor file name and follow the
             // chain. An empty name means this is the end of the chain.
             let mut marker_bytes = [0u8; data::EofMarker::PACKLEN];
-            marker_bytes[..Timestamp::PACKLEN].copy_from_slice(&ts_bytes);
-            self.file.read_exact(&mut marker_bytes[Timestamp::PACKLEN..])?;
+            marker_bytes[..Uid::PACKLEN].copy_from_slice(&ts_bytes);
+            self.file.read_exact(&mut marker_bytes[Uid::PACKLEN..])?;
             let marker = data::EofMarker::from_le_bytes(marker_bytes);
             let next_file = marker.next_file();
             let next_name = next_file.as_str();
@@ -855,7 +855,7 @@ println!("TcsLog::read: read timestamp {:?}", timestamp);
                 TcsLog::open_path(next_path)?
             };
             *self = next;
-            return self.read(timestamp, data);
+            return self.read(Uid, data);
         }
 
         // Read record length
@@ -875,46 +875,46 @@ println!("TcsLog::read: read timestamp {:?}", timestamp);
         self.read_position += 8;
 
         println!("TcsLog::read: Reading record data");
-        let read_offset: u64 = (Timestamp::PACKLEN as u64).try_into().unwrap();
+        let read_offset: u64 = (Uid::PACKLEN as u64).try_into().unwrap();
         self.read_position += read_offset;
 
         // Read data
-        println!("TcsLogTimestamp::read: len {len} data.len {}", data.len());
+        println!("TcsLogUid::read: len {len} data.len {}", data.len());
         if len > data.len() {
             return Err(TcsLogError::InvalidFormat(
                 "Buffer too small for record".to_string(),
             ));
         }
 
-        println!("Timestamp::read: reading data len {len}");
+        println!("Uid::read: reading data len {len}");
         self.file.read_exact(&mut data[..len])?;
-        println!("Timestamp::read: read data len {len}");
+        println!("Uid::read: read data len {len}");
         self.read_position += len as u64;
 println!("Final read position {:?}", self.read_position);
 
         Ok(len)
     }
 
-    /// Given a timestamp, determines the offset in the log file of the first data block
-    /// containing a header with that timestamp or greater.
+    /// Given a Uid, determines the offset in the log file of the first data block
+    /// containing a header with that Uid or greater.
     ///
     /// If no error occurred, returns the offset. Otherwise, returns Err(TcsLogError).
-    pub fn timestamp_offset(&mut self, timestamp: Timestamp) -> Result<u64, TcsLogError<'static>> {
+    pub fn Uid_offset(&mut self, Uid: Uid) -> Result<u64, TcsLogError<'static>> {
         // Read index block
         let mut index_bytes = [0u8; BLOCK_SIZE];
         self.file.seek(SeekFrom::Start(self.header.index_offset))?;
-        println!("timestamp_offset: reading index");
+        println!("Uid_offset: reading index");
         self.file.read_exact(&mut index_bytes)?;
-        println!("timestamp_offset: read index");
+        println!("Uid_offset: read index");
 
         let index_block = IndexBlock::from_bytes(&index_bytes);
 
-        // Find the entry with timestamp >= given timestamp
+        // Find the entry with Uid >= given Uid
         for entry in index_block.entries.iter() {
             if entry.is_null() {
                 break;
             }
-            if entry.timestamp >= timestamp {
+            if entry.Uid >= Uid {
                 return Ok(entry.offset);
             }
         }
@@ -944,9 +944,9 @@ println!("Final read position {:?}", self.read_position);
         self.messages_written
     }
 
-    /// Returns the creation timestamp.
-    pub fn timestamp(&self) -> Timestamp {
-        self.header.timestamp
+    /// Returns the creation Uid.
+    pub fn Uid(&self) -> Uid {
+        self.header.Uid
     }
 
     /// Returns the header of the current log file.
@@ -967,9 +967,9 @@ mod tests {
 
     #[test]
     fn test_generate_file_name() {
-        // The file name encodes the timestamp in microseconds. 1_234_567_000 ns
+        // The file name encodes the Uid in microseconds. 1_234_567_000 ns
         // is 1_234_567 us = 0x12_d687, rendered as six 4-hex-digit groups.
-        let ts: Timestamp = Timestamp::from_nanos(1_234_567_000);
+        let ts: Uid = Uid::from_nanos(1_234_567_000);
         let name = Filename::new("test-", ts, ".tcslog").unwrap();
         assert_eq!(name.as_str(), "test-0000_0000_0000_0000_0012_d687.tcslog");
     }

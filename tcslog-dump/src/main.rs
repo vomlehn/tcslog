@@ -2,10 +2,10 @@
 //! reads the entire chain back from the root file, printing each log file's
 //! header and every log message.
 //!
-//! The log file name prefix, suffix, and timestamp are required arguments. The
-//! timestamp is given in the same format used in log file names — six
+//! The log file name prefix, suffix, and Uid are required arguments. The
+//! Uid is given in the same format used in log file names — six
 //! underscore-separated groups of four hex digits (microseconds) — and is used
-//! to seed log creation, so the root file is named with exactly that timestamp.
+//! to seed log creation, so the root file is named with exactly that Uid.
 //!
 //! Run with:
 //!
@@ -19,8 +19,8 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use tcslog::{Header, TcsLog, TcsLogError, Timestamp};
-use tcslog_sample::{create_sample_logs_with, SequentialTimestamper, MAX_MESSAGE_SIZE};
+use tcslog::{Header, TcsLog, TcsLogError, Uid};
+use tcslog_sample::{create_sample_logs_with, SequentialUider, MAX_MESSAGE_SIZE};
 
 /// Number of rollover files to create. With the root file this makes seven
 /// files in total.
@@ -34,14 +34,14 @@ struct Args {
     /// Log file name prefix.
     prefix: String,
 
-    /// Log file name suffix.
-    suffix: String,
-
-    /// Starting timestamp, in log-file name format: six underscore-separated
+    /// Starting Uid, in log-file name format: six underscore-separated
     /// groups of four hex digits, in microseconds
     /// (e.g. 0000_0000_0006_18bd_f941_4276).
-    #[arg(value_parser = parse_timestamp)]
-    timestamp: Timestamp,
+    #[arg(value_parser = parse_Uid)]
+    Uid: Uid,
+
+    /// Log file name suffix.
+    suffix: String,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -53,11 +53,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&dir)?;
     let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");
 
-    // Create the seven-file chain, seeded with the supplied timestamp so the
-    // root file is named with exactly that timestamp.
-    let mut timestamper = SequentialTimestamper::new(args.timestamp);
+    // Create the seven-file chain, seeded with the supplied Uid so the
+    // root file is named with exactly that Uid.
+    let mut Uider = SequentialUider::new(args.Uid);
     let sample =
-        create_sample_logs_with(dir_name, &args.prefix, &args.suffix, ROLLOVERS, &mut timestamper)?;
+        create_sample_logs_with(dir_name, &args.prefix, &args.suffix, ROLLOVERS, &mut Uider)?;
     println!(
         "created {} log file(s) ({} message(s)); root = {}\n",
         sample.file_count, sample.message_count, sample.root_file,
@@ -72,11 +72,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     print_header(&log);
     let mut current_file = log.file_name().to_string();
 
-    let mut timestamp = Timestamp::ZERO;
+    let mut Uid = Uid::ZERO;
     let mut buf = vec![0u8; MAX_MESSAGE_SIZE];
     let mut total = 0u64;
     loop {
-        match log.read(&mut timestamp, &mut buf) {
+        match log.read(&mut Uid, &mut buf) {
             Ok(n) => {
                 // A new file was entered while following the chain.
                 if log.file_name() != current_file {
@@ -88,7 +88,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 let text = String::from_utf8_lossy(&buf[..n]);
                 println!(
                     "    msg {total}: ts={} {:?}",
-                    timestamp.as_nanos(),
+                    Uid.as_nanos(),
                     text.trim_end(),
                 );
             }
@@ -101,11 +101,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-/// Parses a timestamp written in the same format used in log file names: six
+/// Parses a Uid written in the same format used in log file names: six
 /// underscore-separated groups of four lowercase hex digits, giving the
-/// timestamp in microseconds. Returns an error describing the expected format
+/// Uid in microseconds. Returns an error describing the expected format
 /// on bad input.
-fn parse_timestamp(s: &str) -> Result<Timestamp, String> {
+fn parse_Uid(s: &str) -> Result<Uid, String> {
     let groups: Vec<&str> = s.split('_').collect();
     let well_formed = groups.len() == 6
         && groups
@@ -113,21 +113,21 @@ fn parse_timestamp(s: &str) -> Result<Timestamp, String> {
             .all(|g| g.len() == 4 && g.bytes().all(|b| b.is_ascii_hexdigit()));
     if !well_formed {
         return Err(format!(
-            "invalid timestamp {s:?}: expected six underscore-separated groups of four hex \
+            "invalid Uid {s:?}: expected six underscore-separated groups of four hex \
              digits, e.g. 0000_0000_0006_18bd_f941_4276"
         ));
     }
 
     let hex: String = groups.concat();
     let micros =
-        u128::from_str_radix(&hex, 16).map_err(|e| format!("invalid timestamp {s:?}: {e}"))?;
+        u128::from_str_radix(&hex, 16).map_err(|e| format!("invalid Uid {s:?}: {e}"))?;
 
-    // Guard against values too large to represent (Timestamp stores seconds as a u64).
+    // Guard against values too large to represent (Uid stores seconds as a u64).
     if micros / 1_000_000 >= u64::MAX as u128 {
-        return Err(format!("timestamp {s:?} is out of range"));
+        return Err(format!("Uid {s:?} is out of range"));
     }
 
-    Ok(Timestamp::from_micros(micros))
+    Ok(Uid::from_micros(micros))
 }
 
 /// Prints the header of the log file `log` currently refers to.
@@ -136,7 +136,7 @@ fn print_header(log: &TcsLog) {
     println!("=== log file: {} ===", log.file_name());
     println!("    type:         {:?}", String::from_utf8_lossy(&h.file_type));
     println!("    version:      {:?}", String::from_utf8_lossy(&h.version));
-    println!("    timestamp:    {} ns", h.timestamp.as_nanos());
+    println!("    Uid:    {} ns", h.Uid.as_nanos());
     println!("    index_offset: {}", h.index_offset);
     println!("    data_offset:  {}", h.data_offset);
     println!("    chain_count:  {}", h.chain_count);

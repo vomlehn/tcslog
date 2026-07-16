@@ -3,7 +3,7 @@
 use std::io;
 use thiserror::Error;
 
-use crate::TimestampableError;
+use crate::UidableError;
 
 #[derive(Debug, Error)]
 pub enum TcsLogError<'a> {
@@ -23,8 +23,8 @@ pub enum TcsLogError<'a> {
     CorruptedEOF,
     #[error("Log file not found")]
     NotFound,
-    #[error("Invalid timestamp")]
-    InvalidTimestamp,
+    #[error("Invalid Uid")]
+    InvalidUid,
     #[error("Log file already exists")]
     AlreadyExists,
     #[error("Invalid prefix character: {0}")]
@@ -39,8 +39,8 @@ pub enum TcsLogError<'a> {
     IndexCorrupted,
     #[error("Value too large")]
     ValueTooLarge,
-    #[error("Timestamp error: {0}")]
-    TimestampableError(TimestampableError),
+    #[error("Uid error: {0}")]
+    UidableError(UidableError),
     #[error("Log does not have an EOF marker at the end")]
     MissingEOF,
 }
@@ -51,8 +51,8 @@ impl From<std::io::Error> for TcsLogError<'_> {
     }
 }
 
-impl From<TimestampableError> for TcsLogError<'_> {
-    fn from(value: TimestampableError) -> Self {
-        TcsLogError::TimestampableError(value)
+impl From<UidableError> for TcsLogError<'_> {
+    fn from(value: UidableError) -> Self {
+        TcsLogError::UidableError(value)
     }
 }

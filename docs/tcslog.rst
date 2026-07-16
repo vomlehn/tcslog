@@ -15,7 +15,7 @@ TcsLog is an outgrowth of Tcspecial for logging telemetry information. It featur
 
 * Self-identified log files (the name is in the header)
 
-* Indexed by automatically supplied timestamps with nanosecond resolution (if supported
+* Indexed by automatically supplied Uids with nanosecond resolution (if supported
   by host operating system).
 
 * Metadata all in little-endian form.
@@ -105,19 +105,19 @@ Note that the TCSLOG_NULL and TCSLOG_REC offset values are chosen to point
 to the file header.  This is neither an index nor data block and so the offsets
 won't be mistake for such blocks.
 
-Adding Logging Facility-Supplied Timestamps
+Adding Logging Facility-Supplied Uids
 -------------------------------------------
-The next addition is a logging facility-supplied timestamp. This is added
+The next addition is a logging facility-supplied Uid. This is added
 after the data record length. Note that individual devices and software
-may provide their own timestamp, which can generally be expected to differ
+may provide their own Uid, which can generally be expected to differ
 from the one supplied by the logging facility. In many cases, after locating
 a logging record with a given time, it may be necessary to back up some
 file blocks to find a device or software logging record with a corresponding
 timestap.
 
-Timestamps are a 96-bit little-endian unigned value as follows:
+Uids are a 96-bit little-endian unigned value as follows:
 
-**Timestamp Values**
+**Uid Values**
 
 +-------------------------------+--------+------------------------+------------+
 | Upper 88 bits                 | Lower  | Description            | Name       |
@@ -151,11 +151,11 @@ offset
     The offset of a file block within the file. This will be FILE_NULL if
     the structure does not refer to any file block. If pointing to a data
     block, the data block starts with the beginning of a log record
-    with a logging facilitated timestamp greater or equal to the timestamp
+    with a logging facilitated Uid greater or equal to the Uid
     in this index structure. If pointing to an index block, points to the
-    beginning of a index block with the timestamp in this index structure.
+    beginning of a index block with the Uid in this index structure.
 
-timestamp
+Uid
     Nanosecond resolution value relative to the UNIX beginning of epoch.
 
 Computing Index Sizes
@@ -188,14 +188,14 @@ The number of index blocks must be minimized.
 
 Log File Names
 --------------
-Log file names are kept unique by including the timestamp in the 52-character
+Log file names are kept unique by including the Uid in the 52-character
 name. They consist
 of an arbirary string of up to 32 characters, followed by a hyphen, followed by the
-lowercase hexadecimal timestamp of the file creation with underlines as separators
+lowercase hexadecimal Uid of the file creation with underlines as separators
 every 4 hexadecimal characters.
 
 In the case that a log file can't be created, the logging facility will wait
-100 microseconds to allow the timestamp to advance, then try again. Other
+100 microseconds to allow the Uid to advance, then try again. Other
 failures will cause a 1 second pause before trying again.
 
 Log File Header Block
@@ -209,7 +209,7 @@ Version
     A eight-byte string with a two-digit major release number, a period, a two-digit
     minor release number, a period, and a two digit patch number.
 
-Timestamp
+Uid
     A little-endian u64 time value in nanoseconds since the UNIX epoch. Note that the host
     operating system may support less resolution but the maximum available
     resolution should be used.
@@ -254,7 +254,7 @@ Creates a new TcsLog, using the given prefix.
 
 If successful, returns a TcsLog. Otherwise, returns Err(TcsLogError).
 
-pub fn tcslog_open(prefix: &str, timestamp: Timestamp) -> Result<TcsLog, TcsLogError>;
+pub fn tcslog_open(prefix: &str, Uid: Uid) -> Result<TcsLog, TcsLogError>;
 --------------------------------------------------------------------------------------
 Opens an existing TcsLog so that the telemetry records it contains
 may be read.
@@ -269,20 +269,20 @@ write more data than will fit in a newly create log file.
 
 Returns () if the data was written, otherwise Err(TcsLogError).
 
-pub fn tcslog_read(&self, timestamp: &mut Timestamp, data: &mut [u8]) -> Result<u8, TcsLogError>;
+pub fn tcslog_read(&self, Uid: &mut Uid, data: &mut [u8]) -> Result<u8, TcsLogError>;
 -------------------------------------------------------------------------------------------------
 Reads the next telemetry record from the TcsLog, stopping with an error
-if there are no more records to be read. The timestamp is placed in
-Timestamp.
+if there are no more records to be read. The Uid is placed in
+Uid.
 
 Returns the number of bytes placed in data on success, Err(TcsLogError)
 otherwise.
 
-pub fn tcslog_timestamp_offset(&self, timestamp: Time) -> Result<u64, TcsLogError>;
+pub fn tcslog_Uid_offset(&self, Uid: Time) -> Result<u64, TcsLogError>;
 -----------------------------------------------------------------------------------
 
-Given a timestamp, determines the offset in the log file
+Given a Uid, determines the offset in the log file
 of the first data block containing
-a header with that timestamp or greater.
+a header with that Uid or greater.
 
 If no error occured, returns the offset. Otherwise, returns Err(TcsLogError) value.
