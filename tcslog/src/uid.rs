@@ -4,114 +4,72 @@
 
 use std::cmp::Ordering;
 use std::fmt;
+use std::intrinsics::atomic_and;
 use std::num::ParseIntError;
 //use std::time::{SystemTime, UNIX_EPOCH};
 use std::mem::size_of;
 
+#include!("config.rs")
 //pub const PACKLEN: usize = Uid::packlen();
 
-/// Uid type (nanoseconds since UNIX epoch).
+/// UID Type  Each log file consist of a chain of files, with a chain ID running from
+///  zero to 255. Each chain has segments, with a segmenent ID running from zero to 255.
+/// Each time tcslog::new() is invoked, it will find the next unused chain ID, then
+/// create segments from there. The segment size is that given when the TcsLog is created.
+/// Thus, each log file can be up to segment size times 255.
+/// 
+/// Since logging will stop when 
 #[derive(Debug, Clone, Copy, Default)]
 #[repr(C)]
 pub struct Uid {
-    nanos: u32, // Must be 0 <= and < 1_000_000_000
-    secs: u64,
+    seg_id:  SerialId;
+    chain_id:   ChainId;
 }
 
 impl Uid {
-    pub const ZERO: Uid = Self::from_nanos_raw(Self::Uid_OFFSET as u128);
-    // The largest representable Uid: maximum seconds with the maximum
-    // valid nanoseconds (which must be < 1_000_000_000). This equals
-    // `Uid::new(u64::MAX, 999_999_998)` once the +1 offset is applied.
-    pub const MAX: Uid = Self::new_raw(0xffffffffffffffff, 999_999_999);
-    // The continuation marker: an all-zero-bits Uid. Real Uids are
-    // produced through `from_nanos`, which adds `Uid_OFFSET`, so they can
-    // never be all zero — making this value safe as a sentinel that ends a file
-    // and points at the next file in the chain.
-    pub const CONT: Uid = Self::new_raw(0, 0);
-    pub const PACKLEN: usize = size_of::<u32>() + size_of::<u64>();
+
+    pub const PACKLEN: usize = size_of::<ChainId>() + size_of::<SerialId>();
 
     // Number of nanoseconds to add so that continuation can be all zeros without
     // interfering with the rest of the range. The range becomes smaller
     // by this many nanoseconds, but this is tiny.
     const Uid_OFFSET: u8 = 1;
 
-    pub const fn new(mut secs: u64, nanos: u32) -> Uid {
-        let mut nanos = nanos as u64 + Self::Uid_OFFSET as u64;
-        if nanos >= 1_000_000_000 {
-            nanos -= 1_000_000_000;
-            secs += 1;
+    pub const fn new() -> Uid {
+        Uid {0, 0}
+    }
+
+
+    /*
+     * Increment to the next log segment
+     */
+    pub fn next_segment(&self) -> {
+        if self.seg_id == UID::MAX {
+            return TcsLogError::TooManySegments
         }
-        Uid {
-            nanos: nanos as u32,
-            secs,
-        }
     }
-
-    const fn new_raw(secs: u64, nanos: u32) -> Uid {
-        Uid { nanos, secs }
-    }
-
-    // Length when packed
-    pub const fn packlen(&self) -> usize {
-        size_of_val(&self.nanos) + size_of_val(&self.secs)
-    }
-
-    pub fn from_nanos(mut nanos_arg: u128) -> Uid {
-        nanos_arg += Self::Uid_OFFSET as u128;
-        let nanos = (nanos_arg % 1_000_000_000) as u32;
-        let secs = (nanos_arg / 1_000_000_000).try_into().unwrap();
-
-        Uid { nanos, secs }
-    }
-
-    const fn from_nanos_raw(nanos_arg: u128) -> Uid {
-        let nanos = (nanos_arg % 1_000_000_000) as u32;
-        let secs = ((nanos_arg / 1_000_000_000) & 0xffff_ffff_ffff_ffff) as u64;
-
-        Uid { nanos, secs }
-    }
-
-    pub const fn as_nanos(&self) -> u128 {
-        self.as_nanos_raw() - Self::Uid_OFFSET as u128
-    }
-
-    const fn as_nanos_raw(&self) -> u128 {
-        self.secs as u128 * 1_000_000_000 + self.nanos as u128
-    }
-
-    /// The Uid in microseconds, truncating any sub-microsecond part.
-    pub const fn as_micros(&self) -> u128 {
-        self.as_nanos() / 1_000
-    }
-
-    /// Builds a Uid from a microsecond count.
-    pub fn from_micros(micros: u128) -> Uid {
-        Uid::from_nanos(micros * 1_000)
-    }
-
     pub fn to_le_bytes(&self) -> [u8; Self::PACKLEN] {
-        let a_nanos = self.nanos.to_le_bytes();
-        let a_secs = self.secs.to_le_bytes();
+        let a_seg_id = self.seg_id.to_le_bytes();
+        let a_chain_id = self.chain_id.to_le_bytes();
 
         let mut Uid = [0; Self::PACKLEN];
-        Uid[..4].copy_from_slice(&a_nanos);
-        Uid[4..].copy_from_slice(&a_secs);
+        Uid[..4].copy_from_slice(&a_seg_id);
+        Uid[4..].copy_from_slice(&a_chain_id);
 
         Uid
     }
 
     pub fn from_le_bytes(buf: [u8; Self::PACKLEN]) -> Uid {
-        let mut a_secs: [u8; 8] = [0; 8];
-        let mut a_nanos: [u8; 4] = [0; 4];
+        let mut a_chain_id: [u8; 8] = [0; 8];
+        let mut a_seg_id: [u8; 4] = [0; 4];
 
-        a_nanos.copy_from_slice(&buf[..4]);
-        a_secs.copy_from_slice(&buf[4..]);
+        a_seg_id.copy_from_slice(&buf[..4]);
+        a_chain_id.copy_from_slice(&buf[4..]);
 
-        let nanos = u32::from_le_bytes(a_nanos);
-        let secs = u64::from_le_bytes(a_secs);
+        let seg_id = u32::from_le_bytes(a_seg_id);
+        let chain_id = u64::from_le_bytes(a_chain_id);
 
-        Uid { nanos, secs }
+        Uid { seg_id, chain_id }
     }
 
     pub fn from_str_radix(src: &str, radix: u32) -> Result<Uid, ParseIntError> {
@@ -146,9 +104,12 @@ impl PartialOrd for Uid {
     }
 }
 
+/*
+ * Convert the UID into a contiguous string of hex digits of a constant length
+ */
 impl fmt::LowerHex for Uid {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-        write!(f, "{:08x}{:04x}", self.secs, self.nanos)
+        write!(f, "{:02x}{:02x}", self.chain_id, self.seg_id)
     }
 }
 
