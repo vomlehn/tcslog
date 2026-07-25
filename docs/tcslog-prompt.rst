@@ -34,6 +34,10 @@ the data header is the record data, which has up to
 max_seg - LogHeader::PACKED_LEN bytes. The data from a call to write_str() or
 write_bytes() may span multiple segment files.
 
+Writing Data
+````````````
+Create a new LogFileWrite object.
+
 The writing of data is a loop through the size of the passed data. Before
 entering the loop, set i to zero. This is the offset within the data being
 written.
@@ -41,7 +45,8 @@ Let remaining_size be the difference between the offset in the current segment
 file and file\ :sup:`max`. 
 
 If remaining_size is less than or equal to DataHeader::PACKED_LEN, get a new
-name segment name from avail_q and create a new segment file.
+name segment name from avail_q and create a new segment file. Call
+LogFileWrite::seg_completion() with the name of the segment file.
 
 Set to_write to the size of data passed to write_bytes minus i. Set
 avail_size to remaining_size minus DataHeader::PACKED_LEN.
@@ -78,6 +83,9 @@ Go back through the loop until all data is written.
 
 Finally increment LogFileWrite::rec_num.
 
+Reading Data
+````````````
+Create a new LogFileRead object.
 
 Data Structures
 ===============
