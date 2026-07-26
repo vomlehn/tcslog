@@ -34,59 +34,6 @@ the data header is the record data, which has up to
 max_seg - LogHeader::PACKED_LEN bytes. The data from a call to write_str() or
 write_bytes() may span multiple segment files.
 
-Writing Data
-````````````
-Create a new LogFileWrite object.
-
-The writing of data is a loop through the size of the passed data. Before
-entering the loop, set i to zero. This is the offset within the data being
-written.
-Let remaining_size be the difference between the offset in the current segment
-file and file\ :sup:`max`. 
-
-If remaining_size is less than or equal to DataHeader::PACKED_LEN, get a new
-name segment name from avail_q and create a new segment file. Call
-LogFileWrite::seg_completion() with the name of the segment file.
-
-Set to_write to the size of data passed to write_bytes minus i. Set
-avail_size to remaining_size minus DataHeader::PACKED_LEN.
-If avail_size is less than or equal
-to_write:
-
-o   Create a DataHeader with:
-    
-    rec_num
-        Set to LogFileWrite::rec_num
-
-    first
-        Set to true if this is the first write for this call to write_bytes()
-
-    len
-        Set to to_write
-
-o   Otherwise, create a DataHeader with:
-    
-    rec_num
-        Set to LogFileWrite::rec_num
-
-    first
-        Set to true if this is the first write for this call to write_bytes()
-
-    len
-        Set to avail_size.
-
-Write the result of DataHeader::to_le_bytes()
-
-Increment i by the number of bytes written. If this is equal the the number
-of bytes in the data, exit the loop. Otherwise, go to the top of the loop.
-Go back through the loop until all data is written.
-
-Finally increment LogFileWrite::rec_num.
-
-Reading Data
-````````````
-Create a new LogFileRead object.
-
 Data Structures
 ===============
 Filename
@@ -104,7 +51,7 @@ RecNum
 
 SegNum
 ``````
-    Segment number. This is a u8 value.
+    Segment number. This is a wrapping u8 value.
 
 LogFileError
 ````````````
@@ -115,6 +62,13 @@ LogFileWrite
    Interface for writing data to log files whose size is strictly limited
    according the parameters passwed. Each log file is comprised of
    multiple segments
+
+Constants
+~~~~~~~~~
+    MIN_DATA_SECTION
+        Minumum number of bytes in the data section of a segment file after
+        the LogFileHeader and DataHeader have been written. In this version
+        of tcslog, this has the value one.
 
 Elements
 ~~~~~~~~
@@ -157,6 +111,9 @@ Functions
 
       max_seg
         Maximum size of each segment file.
+
+   fn clear(&self) -> Result<(), LogFileError>;
+        Remove all segments of the current log file.
 
    fn write_str(msg: &str) -> LogFileError;
       Writes the msg to the log file. It does this by passing msg to
@@ -335,25 +292,101 @@ Functions
 
 Logic
 =====
-Initialization
-``````````````
-Use two FIFOs, each containing a reference to 
-Create an array to hold information on all log file segments. It then goes
-through all segments, reading the log file creation timestamp if the file
-exist. 
+LogFileWrite Initialization
+````````````````````````````
 
-Start a thread that will be responsible for calling TcsLogWrite::seg_complete().
+Threads and FIFOs
+~~~~~~~~~~~~~~~~~
+There are two threads used. The main thread does the bulk of the processing,
+whereas the secondary thread is used to process segment files once they
+have been completed.
+
+The FIFO LogFileWrite::completed contains references to Mutex<Lock<SegFile>>
+objects. It is read by the secondary thread, whose purpose is to call
+LogFile::completed() and, when done, enqueue the reference from the FIFO
+to LogFileWrite::available.
+
+LogFile::available is read by the main thread in order to get the name of
+the next segment file to use. When the segment file is completed, the
+reference is added to the LogFile::completed FIFO. Before dequeuing the next
+element from LogFileWrite::available, the main thread checks to see if any
+elements are available. If not, it call LogFileWrite::need_segment_file().
+That function must either wait until it can dequeue an element from
+LogFileWrite::available or return an error.
+
+Scanning For Existing Segment Files
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+The new() function for LogFileWrite iterates through segment file names,
+staring with a segment number of zero and going up to seg_num\ :sub`max`.
+For each segment file, it gets the timestamp from the SegFileHeader.
+segment file name. It then goes through this list
+
+If there is an existing segment file, find the oldest segment file. Let i be
+the segment number for that segment file. Let n
+be the number of existing segment files. Verify that there are n existing
+segment files with segment numbers from i to i + n - 1. Also, verify that
+there are no segment files with segment numbers from i + n to i - 1. If
+the verification fails, returns LogFile::CorruptedLogFile. The user can use
+the LogFile::clean() function to correct this error.
+
+Next, add names for all existing segment files to the
+LogFileWrite::completed FIFO.
+
+Once any names of existing segment files have been added to
+LogFileWrite::completed, add names for segment files that do not exist
+to LogFileWrite::avail.
+
+Then, start the secondary thread. It will call LogFileWrite::completed to
+allow any previously existing segment files to be processed.
+
+Next, get the name of a segment file from LogFileWrite::available, checking
+to see one is available, as described above. If one cannot be obtained,
+return the error from LogFileWrite::need_segment_file(). Otherwise,
+create the file and a corresponding SegFile object.
+
+Create and return a LogFileWrite object.
+
+Writing Data
+````````````
+Create a new LogFileWrite object.
+
+The writing of data is a loop through the size of the passed data. Before
+entering the loop, set i to zero. This is the amount of data written, which
+is incremented in the loop described in the following steps.
+
+o   If there is enough room in the segment file to write a data header and
+    all of the remaining data in the data section, write both items and exit
+    the loop.
+
+o   If there is sufficient room in the segment file to write a data header
+    and at least one byte, write a data header and as much data as will will
+    fit in the data section. Then start a new segment file, which will become
+    the current segment file.
+
+o   Otherwise, there is not enough room to write even one byte of data, so
+    start a new segment file, which becomes the segment file.
+
+The data header written in the above loop should have its timestamp set to
+the current time and its rec_num set to the rec_num from the LogFileWrite.
+The first time data is written to the loop, first should be set to true and
+to false for subsequent writes. The actual data written should the the
+value returns from DataHeader::to_le_bytes().
+
+At the end of the loop, increment LogFileWrite rec_num.
+
+Reading Data
+````````````
+Create a new LogFileRead object.
 
 Restrictions
 ============
 o   The only function in LogFileWrite that can call memory allocation functions
     is new().
 
-o   It is an error (LogFileError::SegTooSmall) if the sum of
-    LogFileWrite::PACKED_LEN, DataHeader::PACKED_LEN, and 128 is greater
-    than the value of max_seg passed to LogFileWrite::new() or
-    LogFileRead::new().
-
+o   The value of max_seg minus the sum of LogFileWrite::PACKED_LEN and
+    DataHeader::PACKED_LEN must be at least equal to
+    LogFileWrite::MIN_DATA_SECTION. If this is not true, the error
+    LogFileError::SegSizeTooSmall is returned.
 
 o   The value of max_seg passed to LogFileRead::new() or LogFileWrite::new()
     is less than twice the value of max_file passed to LogFileRead::new()
