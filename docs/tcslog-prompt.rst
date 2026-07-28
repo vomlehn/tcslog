@@ -7,7 +7,28 @@ TcsLog Prompt
 
 Introduction
 ============
-Create a Rust library named tcslog for logging data. Each logical log file is
+Create a Rust library named tcslog for logging telemetry data. The log
+is comprised by a collection of segment files, each of which holds data
+for a contiguous time period. Segment files are limited in length, a
+value known as size\ :sub:`max`, and there up to n\ :sub:`seg` of them.
+These two parameters are specified when the tcslog interface is created.
+
+In addition to size\ :sub:`max` and n\ :sub:`seg`, two more parameters are
+specified when creating the tcslog interface: prefix and suffix. These are
+strings used in determining the names of the segment files. Segment file
+names start with prefix, followed by a segment ID of type SegNum, followed
+by the suffix. The segment ID is a zero-filled hexadecimal string,
+using lower case
+values, with a dash ('-') between each group of four hexadecimal characters.
+Thus, if the segment number is given by the value 0x1234abcd, the segment
+ID will be "1234-abcd". Segment numbers may be 8, 16, or 32 bits and are
+wrapping values..
+
+Tcslog offers two interfaces: LogWrite and LogRead.
+
+
+***************************************************************************
+Each logical log file is
 stricty limited according a user specified size. The logical log file is
 comprised of multiple physical files, each of which contains a segment of
 the logical file. This approach has several advantages:
