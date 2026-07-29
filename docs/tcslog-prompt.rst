@@ -24,8 +24,127 @@ Thus, if the segment number is given by the value 0x1234abcd, the segment
 ID will be "1234-abcd". Segment numbers may be 8, 16, or 32 bits and are
 wrapping values..
 
-Tcslog offers two interfaces: LogWrite and LogRead.
+File Format
+-----------
+All segment files start with a header, followed by a data section. The
+header is fixed length, where as there may be some variation in the size
+of the data section. In any case, the total length of a segment file must
+be less than or equal to size\ :sub:`max`. The header contains the following:
 
+type
+    This is an ASCII string that identifies this as a TcsLog file. It has the
+    value "tcslogsg". This must be the first data in the file.
+
+version
+    This is a four-character ASCII string. All characters must be in the range
+    from '0' to '9'. The first two characters are the major version number, the
+    next character is the minor version number, and the last character is the
+    patch number. The file format is compatible if the major and minor
+    verson numbers match. This must follow the type field.
+
+timestamp
+    Time at which the segment file was created. The value written is that
+    returned by the to_le_bytes() function in Timestamp and it is read as
+    a byte array and converted to a Timestamp value with its from_le_bytes()
+    function. This is written as an i64, which is a nanosecond offset from the
+    UNIX epoch.
+
+The data for this is stored in a SegHeader object.
+
+The data section consists of alternating data headers and telemetry data. The
+data header has the following fields:
+
+first
+    Indicates whether this is the first data header.
+
+timestamp
+    The time this telemetry data was written. If the telemetry data is split
+    across multiple segment files, this field will be the same for all
+    data headers.
+
+n
+    Number of bytes for this telemetry record that are stored in this
+    segment file.
+
+
+The data header data is stored in a DataHeader object.
+
+Operations
+---------
+Initialization for Writing
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Set up to walk the list of segment files that match the prefix and suffix.
+
+Walk the list of segment files, enqueing the name of each one into the
+send FIFO.
+
+Create a new segment file, with a segment number on greater than the
+largest segment number from the files that were read.
+
+Writing Telemetry Data
+~~~~~~~~~~~~~~~~~~~~~~
+Telemetry data may span multiple segment files.
+
+When given telemetry data, the amount of space remaining in the segment
+file is computed. If there is not enough space to write the data header
+and at least one byte, a new segment file will be created, which will become
+the current segment file. Otherwise, the data header will be written,
+along with as much telemetry data will fit. If this is the last of the
+telemetry data, the write function will return. Otherwise, the count of
+outstanding telemetry data bytes is reduced by the amount of telemetry
+data written and a new segment file will be created.
+
+When a new segment file is to be created, a check is made to see whether
+there are currently at least n\ :sub:`max` waiting to be processed. If so,
+the function force() is called. This function must reduce the number of files
+waiting to be transmitted by at least one. The user may implement various
+options, incuding:
+
+o   Dequeuing the oldest item in the send FIFO and deleting the file.
+
+o   Waiting until the next file is downlinked.
+
+o   Etc.
+
+Reading Telemetry Data
+~~~~~~~~~~~~~~~~~~~~~~
+Each time a new segment file is opened, the segment header is read. It does
+the following checks:
+
+o   The type is "tcslogsg".
+
+o   The version is "0010".
+
+It can then start reading data records.
+
+To read a data record, first try to read a data header. If an end of file
+is encountered, close the segment file and open the one with the next
+segment number, do the file header verification, and try to read the
+next data header. If we can't open the segment file, and we found more
+segment files, skip this one and open the next.
+
+Initialization for Reading
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+Set up to walk the list of segment files that match the prefix and suffix.
+
+Open the segment file with the lowest segment number.
+
+Data Structures
+---------------
+
+Restrictions
+------------
+Values written to segment files are packed, that is, there are no padding
+values. All numerical values are written in little-endian format, so
+all objects whose values are read and written to and from the file must
+have to_le_bytes() and from_le_bytes() functions.
+
+It is an error if size\ :sub:`max` is less than or equal to the number of
+bytes in the file used for the segment header and the number of bytes
+used for one data header.
+
+No memory allocations may be done after the call to LogRead::new() and
+LogWrite::new().
 
 ***************************************************************************
 Each logical log file is
