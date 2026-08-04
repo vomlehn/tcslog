@@ -20,9 +20,8 @@ names start with prefix, followed by a segment ID of type SegNum, followed
 by the suffix. The segment ID is a zero-filled hexadecimal string,
 using lower case
 values, with a dash ('-') between each group of four hexadecimal characters.
-Thus, if the segment number is given by the value 0x1234abcd, the segment
-ID will be "1234-abcd". Segment numbers may be 8, 16, or 32 bits and are
-wrapping values..
+Thus, if the segment number is given by the value 0x1234abcd5678efab, the segment
+ID will be "1234-abcd-5678-efab". Segment numbers are 64-bit values.
 
 File Format
 -----------
@@ -49,37 +48,95 @@ timestamp
     function. This is written as an i64, which is a nanosecond offset from the
     UNIX epoch.
 
-The data for this is stored in a SegHeader object.
+format
+    Several formats are supported for storing data, which vary by storage
+    efficiency, allowable telemetry data length, and whether timestamps are
+    automatically generated. Records can generally be split across segment
+    file boundaries, so that completed segment files are generally much the
+    same length,
 
-The data section consists of alternating data headers and telemetry data. The
-data header has the following fields:
+    Supported formats are:
 
-first
-    Indicates whether this is the first data header.
+    FIXED(n)
+        All records must have n bytes.
+        The value of n must be at least one and less than or equal to
+        u32.MAX. This is the most compact storage format, at the price of
+        having to use fixed-length telemetry data records.
 
-timestamp
-    The time this telemetry data was written. If the telemetry data is split
-    across multiple segment files, this field will be the same for all
-    data headers.
+    VARIABLE_SIMPLE
+        Records may have from zero to u32.MAX bytes. This will generally
+        used when the telemetry data being stored already contains a
+        timestamp.
 
-n
-    Number of bytes for this telemetry record that are stored in this
-    segment file.
+    VARIABLE_TIMESTAMP
+        Records may have from zero to u32.MAX bytes.
+        Each data record will be accompanied by a timestamp, which is a
+        nanosecond-resolution, 64-bit offset from the UNIX epoch. This
+        value will be returned when data is read.
 
+Because the FIXED(n) format requires extra space in the segment file
+header to hold the u32 telemetry
+data length, the segment file header size may vary depending on the chosen
+format. This is an implementation-dependent aspect.
 
-The data header data is stored in a DataHeader object.
+The data section consists of alternating data headers and telemetry data. There
+are multiple types of data header, depending on the format specified in the
+segment file header:
+
+    FIXED(n)
+        The data header is zero length, i,e. each telemetry data record is
+        logical continguous with the preceeding telemetry data record.
+
+    VARIABLE_SIMPLE
+        Field in the data header for this format are:
+
+        first
+            Boolean value indicating that the telemetry data that follows is
+            the beginning of the telemetry data record being written. If false,
+            this is a continuation of a telemetry data record in another
+            segment file from where this first data was written.
+
+        n
+            Number of bytes from the telemetry data record that follow the
+            data header. If the field first is true, this will be the total
+            number of bytes in the telemetry data record. Otherwise, it will
+            be the number of bytes in the data telemetry record following the
+            bytes written to previous segment files.
+
+    VARIABLE_TIMESTAMP
+        The data header type has the same initial fields as the VARABLE_SIMPLE
+        format, plus the following field
+
+        timestamp
+            Offset from the UNIX epoch with nanosecond resolution, represented
+            as a u64 value.
 
 Operations
 ---------
 Initialization for Writing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-Set up to walk the list of segment files that match the prefix and suffix.
-
-Walk the list of segment files, enqueing the name of each one into the
-send FIFO.
+Create a list of existing segment files, sorted by name. Enqueue each one
+into the send FIFO.
 
 Create a new segment file, with a segment number on greater than the
-largest segment number from the files that were read.
+largest segment number from the files that were read. If the segment number
+is already u32.MAX, the user function log_full() will be called. Log_full()
+can call the clear() function to reset the segment number to zero.
+
+Creating a new segment file involves calling the check_overflow() user function.
+It returns only when there are fewer than n\ :sub:`seg` segment files. It
+is up to the check_overflow() function how to ensure this. It might, for
+example, do one of the following:
+
+o   Delete on of the files named in the send FIFO.
+
+o   Wait until the first file named in the send FIFO has been sent.
+
+o   Compress and copy some number of files in the send FIFO to some form
+    of secondary storage.
+
+When check_overflow() returns, a segment file is created using the current
+segment number. The segment number is then incremented.
 
 Writing Telemetry Data
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -94,9 +151,22 @@ telemetry data, the write function will return. Otherwise, the count of
 outstanding telemetry data bytes is reduced by the amount of telemetry
 data written and a new segment file will be created.
 
+When a segment file is full, i.e. there is not enough room for even one bytes
+the packed size of the record header, the LogWrite::send() function is called
+with the name of the segment file..
+From the standpoint of tcslog, when send() returns there must be not file
+with that name. This can mean:
+
+o   The file was downlinked and deleted.
+
+o   The file was renamed for later downlinking
+
+o   Etc.
+
 When a new segment file is to be created, a check is made to see whether
 there are currently at least n\ :sub:`max` waiting to be processed. If so,
-the function force() is called. This function must reduce the number of files
+the function LogWrite::force() is called.
+This function must reduce the number of files
 waiting to be transmitted by at least one. The user may implement various
 options, incuding:
 
@@ -105,6 +175,8 @@ o   Dequeuing the oldest item in the send FIFO and deleting the file.
 o   Waiting until the next file is downlinked.
 
 o   Etc.
+
+Logwrite::clear() can be called to delete all segment files.
 
 Reading Telemetry Data
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -120,7 +192,16 @@ It can then start reading data records.
 To read a data record, first try to read a data header. If an end of file
 is encountered, close the segment file and open the one with the next
 segment number, do the file header verification, and try to read the
-next data header. If we can't open the segment file, and we found more
+a data header again. Keep doing this until no more segment files are
+available.
+
+
+Once we read a data header, read the number of bytes specified by n.
+Copy as many as will fit into the user's buffer. If the buffer is too
+small, set a flag indicating this so we can return an overflow status.
+Keep
+
+If we can't open the segment file, and we found more
 segment files, skip this one and open the next.
 
 Initialization for Reading
@@ -143,8 +224,8 @@ It is an error if size\ :sub:`max` is less than or equal to the number of
 bytes in the file used for the segment header and the number of bytes
 used for one data header.
 
-No memory allocations may be done after the call to LogRead::new() and
-LogWrite::new().
+No memory allocations may be done after calls to LogRead::new() and
+LogWrite::new() until those objects are dropped.
 
 ***************************************************************************
 Each logical log file is
