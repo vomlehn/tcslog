@@ -9,7 +9,7 @@ SRC_DIR := src
 DOCS_DIR := docs
 PROMPTS_DIR := prompts
 
-TCSLOG=$(DOCS_DIR)/tcslog.rst
+TCSLOG_PROMPT=$(DOCS_DIR)/tcslog-prompt.rst
 TCSPECIAL = .
 RUST = .
 
@@ -18,7 +18,7 @@ TCSLOG_TEST =
 TCSLOG_RUST = 
 TCSLOG_TAR = $(TCSLOG_RUST).tar.gz
 TCSLOG_OUTPUT = compressed tar file $(TCSLOG_TAR)
-PROMPT = Generate Rust code ($(TCSLOG_CODE)) and create $(TCSLOG_OUTPUT) from $(TCSLOG)
+PROMPT = Generate Rust code ($(TCSLOG_CODE)) and create $(TCSLOG_OUTPUT) from $(TCSLOG_PROMPT)
 
 TCSLOG_CRATES = tcslib tcslibgs g tcsmoc tcssim tcspayload.json
 
@@ -69,12 +69,12 @@ setup:
 	@echo "✓ Directories created"
 
 # Generate project using Claude Code
-generate: $(TCSLOG)
+generate: $(TCSLOG_PROMPT)
 	( \
 		set -eu; \
 		echo "Generating project with Claude Code..."; \
-		if [ ! -f "$(TCSLOG)" ]; then \
-			echo "Error: $(TCSLOG) not found"; \
+		if [ ! -f "$(TCSLOG_PROMPT)" ]; then \
+			echo "Error: $(TCSLOG_PROMPT) not found"; \
 			exit 1; \
 		fi \
 	) 2>&1 | tee generate.out
