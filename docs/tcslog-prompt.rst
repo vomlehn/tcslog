@@ -1,3 +1,12 @@
+**offset = (k · S) mod L**
+
+Reasoning: byte 0 of `seg(k)` sits at absolute byte address `k·S`, since segments are contiguous and start at 0. Messages are also contiguous from 0, so `msg(i)` covers absolute bytes `[i·L, (i+1)·L − 1]`.
+
+That gives you both quantities:
+- `l = ⌊(k·S) / L⌋` — which message it lands in
+- `offset = k·S − l·L = (k·S) mod L` — where inside that message
+
+Quick sanity check with L = 100, S = 30, k = 7: absolute address is 210, so `l = 2` (msg(2) spans 200–299) and the offset is 10. And if S is a multiple of L, the offset is always 0, which is what you'd expect.
 =============
 TcsLog Prompt
 =============
@@ -48,14 +57,19 @@ timestamp
     function. This is written as an i64, which is a nanosecond offset from the
     UNIX epoch.
 
-format
+synced
+    Boolean value indicating that the first byte in the data section is the
+    start of the data header for a data record. If the data format is FIXED(n),
+    the length of this header is zero bytes.
+
+data format
     Several formats are supported for storing data, which vary by storage
     efficiency, allowable telemetry data length, and whether timestamps are
     automatically generated. Records can generally be split across segment
     file boundaries, so that completed segment files are generally much the
     same length,
 
-    Supported formats are:
+    Supported data formats are:
 
     FIXED(n)
         All records must have n bytes.
@@ -63,6 +77,24 @@ format
         u32.MAX. This is the most compact storage format, at the price of
         having to use fixed-length telemetry data records.
 
+        There is no data header for this data format, one consequence of
+        which is that all data sections are the same length.
+        For this format, and a segment file of size S, the data section
+        size will be:
+       
+            D = S - length of segment file header
+        
+        Then, for a data record that includes the first byte in a data section
+        of segment file with segment number s has the following number of
+        bytes in the previous segment file:
+
+            offset = (s * D) mod n
+
+`       If this is zero, the data record is aligned with the data section.
+        The number of bytes remaining in the record are:
+
+            remaining = n - offset
+        
     VARIABLE_SIMPLE
         Records may have from zero to u32.MAX bytes. This will generally
         used when the telemetry data being stored already contains a
