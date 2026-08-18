@@ -69,6 +69,11 @@ version
     patch number. The file format is compatible if the major and minor
     verson numbers match. This must follow the type field.
 
+segment number
+    Segment number for this segment file. This will be checked to verify that
+    it matches the segment number that comprises part of the segment file
+    name.
+
 timestamp
     Time at which the segment file was created. The value written is that
     returned by the to_le_bytes() function in Timestamp and it is read as
@@ -310,6 +315,8 @@ the following checks:
 o   The type is "tcslogsg".
 
 o   The version string is "0010", corresponding to version 0.1.0.
+
+o   The segment number matches the segment part of the segment file name
 
 It can then start reading data records.
 
