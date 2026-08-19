@@ -177,6 +177,28 @@ the segment file header:
 
 Operations
 ---------
+
+Finding the Start of the Log
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+To find the start of the log, first construct a list of all existing
+segment files matching the given prefix and suffix, in order from oldest
+to newest. Then, starting with the oldest segment file, read the segment
+file headers. There are three cases:
+
+o   The remaining field value is greater than the size of the data section:
+    continue to the next segment file.
+
+o   The remaining field value is less than the size of the data section:
+    The log starts at an offset of remaining into the data section.
+
+o   The remaining field value and size of the data section are equal:
+    If this is the last segment file, there is no data available in the
+    log. Otherwise, the log starts at the first byte of the next segment
+    file.
+
+Finding the End of the Log
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
 Initialization for Writing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 Create a list of existing segment files, sorted by name. 
