@@ -1,6 +1,9 @@
 Building the project...
-error: no bin target named `tcspecial` in default-run packages
-help: available bin targets:
-    tcslog-dump
-    tcslog-sample
-    tcslogtest
+error: failed to load manifest for workspace member `/home/vomlehn/working/tcslog/tcslog`
+referenced by workspace at `/home/vomlehn/working/tcslog/Cargo.toml`
+
+Caused by:
+  failed to read `/home/vomlehn/working/tcslog/tcslog/Cargo.toml`
+
+Caused by:
+  No such file or directory (os error 2)
