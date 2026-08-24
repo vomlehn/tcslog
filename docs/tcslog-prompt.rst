@@ -32,25 +32,33 @@ These two parameters are specified when the tcslog interface is created.
     generally required for file metadata, which may depend on file name
     size, segment file size, etc.
 
+Tcslog will inform user code that a segment file is complete.
+It is up to that code to manage the storage used after that point, so
+it compress or delete the segment file after that point.
+
 There are several log formats, trading storage efficiency for automatic
 recording of meta data.
 
 In addition to size\ :sub:`max` and n\ :sub:`seg`, two more parameters are
 specified when creating the tcslog interface: prefix and suffix. These are
 strings used in determining the names of the segment files. Segment file
-names start with a prefix, followed by a segment ID of type SegNum, followed
+names start with a prefix, followed by a segment ID of type SegId, followed
 by the suffix. The segment ID is a zero-filled hexadecimal string,
 using lower case
 values, with a dash ('-') between each group of four hexadecimal characters.
-Thus, if SegNo is of type u64, the segment number is given by the value
+Thus, if SegNo is of type u64, the segment ID is given by the value
 0x1234abcd5678efabu64, the segment
 ID will be the string "1234-abcd-5678-efab". 
 
-In version 1.0.0, SegNum values are u64 objects.
+In version 1.0.0, SegId values are u64 objects.
 
 File Format
 ===========
-All segment files start with a header, followed by a data section. The
+All segment files start with a header, followed by a data section.
+
+Segment Header Format
+---------------------
+The
 header is fixed length. The total length of a segment file must
 be less than or equal to size\ :sub:`max`. 
 
@@ -67,17 +75,17 @@ version
     patch number. The file format is compatible if the major and minor
     verson numbers match. This must follow the type field.
 
-segment number
-    Segment number for this segment file. This will be checked to verify that
-    it matches the segment number that comprises part of the segment file
-    name.
+segment ID
+    Segment ID for this segment file. This will be checked to verify that
+    it matches the segment ID that comprises part of the segment file
+    name. This is an i64 value.
 
-timestamp
-    Time at which the segment file was created. The value written is that
-    returned by the to_le_bytes() function in Timestamp and it is read as
-    a byte array and converted to a Timestamp value with its from_le_bytes()
-    function. This is written as an i64, which is a nanosecond offset from the
-    UNIX epoch.
+session ID
+    A session starts when the LogWrite::new() function is called and ends
+    when the object implementing the LogWrite interface is dropped. This
+    may be explict, implicit, or when the process ends. The segment ID of
+    the first segment file created in a session is stored as the session ID
+    for all segment file in that session.
 
 remaining
     This is the number of bytes remaining in the record that starts at the
@@ -102,7 +110,7 @@ data format
 
         The data header for this format is of zero size. A record with a byte
         in the first byte of the data section for a segment file with
-        segment number n will have 0 or more bytes in preceeding segment
+        segment ID n will have 0 or more bytes in preceeding segment
         files. Thus, the offset of that byte in the record is:
         
             offset = (s * size of data section) mod n
@@ -129,6 +137,8 @@ data format
 The segment file header size must be the same for all data formats even
 if some bytes are not used for some data formats.
 
+Data Header Format
+------------------
 The data section consists of alternating data headers and telemetry data, which
 are written sequentially to the data section of segment files. The size of the
 data section, in bytes, is:
@@ -160,6 +170,25 @@ the segment file header:
             The record number is one for the first record in the log and
             increments by one for each record writen. It is of type RecNum,
             which is expected to be a RecNum object.
+
+Segment IDs
+-----------
+The segment ID is the time since the UNIX epoch, with nanosecond resolution.
+When a segment file is created, the current time is read and the prefix and
+suffix added to produce the name of a segment file. Tcslog attempts to create
+a new segment file with name. If the file already exists, it sleeps, then
+gets a new current time and tries to create the file again.
+Each time it fails, it increases the sleep interval and tries again.
+This ensures that it
+will quickly find an unused segment ID.
+
+The initial sleep time is one microsecond. The next sleep interval is the
+previous sleep interval times four.
+
+Using an i64 value as the segment ID assures that a huge number of segment
+files can be created. Only positive values are supported, so the theoretical
+number of segment files is 2\ :sup:`63` or 9,223,372,036,854,775,808.
+Alternatively, there could be enough segment files for over two centuries.
 
 Operations
 ==========
@@ -200,7 +229,7 @@ Create a list of existing segment files, sorted by name.
 
 If the segment file format is VARIABLE_TSRN, the record number to use for
 writing the next record must be determined. To do this,
-open in each segment file the order of the segment number.
+open in each segment file the order of the segment ID.
 If a segment
 file could not be opened, call the user defined function bad_file() with the
 name of the segment file. The default definition of bad_file() attempts to
@@ -226,12 +255,12 @@ If there are no existing segment files, create a new one. Otherwise,
 open enqueue all but the last segment file onto the send FIFO,
 open the last segment file, and seek to the end of that segment file.
 
-When creating a new segment file, use a segment number of 0 if there were
-no other segment files. Otherwise, use a segment number one greater than
-largest the segment number of the opened number.
-If the segment number of the largest opened segment file's segment number
-is already SegNum.MAX, the user function log_full() will be called. Log_full()
-can call the clear() function to reset the segment number to zero.
+When creating a new segment file, use a segment ID of 0 if there were
+no other segment files. Otherwise, use a segment ID one greater than
+largest the segment ID of the opened number.
+If the segment ID of the largest opened segment file's segment ID
+is already SegId.MAX, the user function log_full() will be called. Log_full()
+can call the clear() function to reset the segment ID to zero.
 
 Creating a new segment file involves calling the check_overflow() user function.
 It returns only when there are fewer than n\ :sub:`seg` segment files. It
@@ -246,7 +275,7 @@ o   Compress and copy some number of files in the send FIFO to some form
     of secondary storage.
 
 When check_overflow() returns, a segment file is created using the current
-segment number. The segment number is then incremented.
+segment ID. The segment ID is then incremented.
 
 Writing Telemetry Data
 ----------------------
@@ -284,8 +313,8 @@ o   The file was renamed for later downlinking
 
 o   Etc.
 
-Before a new segment file is created, the segment number is checked to
-verify it is not SegNum\ :sub:`max`. If it is, a TcslogError value is returned
+Before a new segment file is created, the segment ID is checked to
+verify it is not SegId\ :sub:`max`. If it is, a TcslogError value is returned
 indicating that the log is full.
 
 When a new segment file is to be created, a check is made to see whether
@@ -313,16 +342,16 @@ Error Handling
 ^^^^^^^^^^^^^^
 When a segment file is created, a TcslogError value specific to the create
 operation is returned, containing the Error 
-code returned by the that operation. Unless the segment number is already
-SegNum\ :sub:`max`, the segment number is incremented.
+code returned by the that operation. Unless the segment ID is already
+SegId\ :sub:`max`, the segment ID is incremented.
 
 If an operation related to the contents of a segment file, such as getting
 the length (though this should normally be maintained internally by Tcslog),
 write, seek, etc. a TcslogError value identifying that operation and
 containing the error returned by that function, should be returned. The file
 is closed and the
-file name is placed on the send FIFO. The segment number is incremented
-unless it is already SegNum\ :sub:`max`.
+file name is placed on the send FIFO. The segment ID is incremented
+unless it is already SegId\ :sub:`max`.
 
 Reading Telemetry Data
 ----------------------
@@ -333,13 +362,13 @@ o   The type is "tcslogsg".
 
 o   The version string is "0010", corresponding to version 0.1.0.
 
-o   The segment number matches the segment part of the segment file name
+o   The segment ID matches the segment part of the segment file name
 
 It can then start reading data records.
 
 To read a data record, first try to read a data header. If an end of file
 is encountered, close the segment file and open the one with the next
-segment number, do the file header verification, and try to read the
+segment ID, do the file header verification, and try to read the
 a data header again. Keep doing this until no more segment files are
 available.
 
@@ -356,7 +385,7 @@ Initialization for Reading
 --------------------------
 Given prefix and suffix strings, create a list of matching segment file
 names in a specific directory. This list should be sorted from the smallest
-segment number to the largest segment numbers. Some segment numbers between
+segment ID to the largest segment IDs. Some segment IDs between
 the smallest and largest may not have corresponding segment filesl
 
 It is an error if no matching segmennt file names are found.
@@ -364,11 +393,11 @@ It is an error if no matching segmennt file names are found.
 Reading a Record
 ----------------
 If there is no current segment file, remove the segment file name with the
-smallest segment number from the list of matching segment file names
+smallest segment ID from the list of matching segment file names
 and attempt to open it. If the open fails and the match segment file name
 list is now empty, we have reached to end of the log and return an
-approprite status. Otherwise, extract the segment number from the segment
-file name as a SegNum value.
+approprite status. Otherwise, extract the segment ID from the segment
+file name as a SegId value.
 
 Read the segment file header. If
 
