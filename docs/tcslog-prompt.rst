@@ -192,15 +192,18 @@ When a segment file is created, the current time is read and the prefix and
 suffix added to produce the name of a segment file. Tcslog attempts to create
 a new segment file with name. If the file already exists, it sleeps, then
 gets a new current time and tries to create the file again.
-Each time it fails, it increases the sleep interval and tries again.
 This ensures that it
 will quickly find an unused segment ID.
 
-The initial sleep time is the system-dependent time resolution, named
+The sleep time is twice the system-dependent time resolution, named
 TIMER_RESOLUTION. This is specified in nanoseconds and is a u64 value.
+By sleeping for this amount of time, the next time the system time is
+read, it must be greater than the previous value. Since the system
+time increases monotonically, it must be greater than any previous
+time and so is unique.
+
 TIMER_RESOLUTION is defined in the cargo build command by using
-the --features. Subsequent sleep intervals are the previous sleep interval
-times two.
+the --features.
 
 Using an u64 value as the segment ID assures that a huge number of segment
 files can be created. Only positive values are supported, so the theoretical
