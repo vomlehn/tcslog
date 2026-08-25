@@ -58,7 +58,7 @@ All segment files start with a header, followed by a data section.
 
 Segment Header Format
 ---------------------
-The
+The segment file
 header is fixed length. The total length of a segment file must
 be less than or equal to size\ :sub:`max`. 
 
@@ -87,9 +87,12 @@ session ID
     the first segment file created in a session is stored as the session ID
     for all segment file in that session.
 
+max size
+    The maximum size, in bytes, of a segment file.
+
 remaining
-    This is the number of bytes remaining in the record that starts at the
-    beginning of the data section. This value may be longer than the length
+    This is the number of bytes remaining in the record that contains the
+    This value may be longer than the length
     of the data section, in which case the record is continued in the following
     one or more segment files.
 
@@ -192,39 +195,13 @@ Alternatively, there could be enough segment files for over two centuries.
 
 Operations
 ==========
+Tcslog supports two broad categorie of operations: reading and writing.
 
-Find the First Data Record Start
---------------------------------
-There may be missing segment files at the beginning of a log. To skip
-any missing or corrupted segment files and find the start of the
-first data record, begin by constructing a list of all existing
-segment files matching the given prefix and suffix, in order from oldest
-to newest. Then, starting with the oldest segment file, read the segment
-file headers. There are three cases:
-
-o   The remaining field value is greater than the size of the data section:
-    continue to the next segment file.
-
-o   The remaining field value is less than the size of the data section:
-    The log starts at an offset of remaining into the data section.
-
-o   The remaining field value and size of the data section are equal:
-    If this is the last segment file, there is no data available in the
-    log. Otherwise, the log starts at the first byte of the next segment
-    file.
-
-If a segment file cannot be opened or the header cannot be read, the
-search for the start of the log advances to the next segment file.
-
-Finding the End of the Log
---------------------------
-To find the end of the log, i.e. the location at which additional data
-should be added, start by constructing a list of all existing segment
-files matching the given prefix and suffix, in order from oldest to newest.
-Starting with the newest segment file, read the segment file header.
+Write-Related Operations
+------------------------
 
 Initialization for Writing
---------------------------
+~~~~~~~~~~~~~~~~~~~~~~~~~~
 Create a list of existing segment files, sorted by name. 
 
 If the segment file format is VARIABLE_TSRN, the record number to use for
@@ -278,7 +255,7 @@ When check_overflow() returns, a segment file is created using the current
 segment ID. The segment ID is then incremented.
 
 Writing Telemetry Data
-----------------------
+~~~~~~~~~~~~~~~~~~~~~~
 Each time a user calls the write function with telemetry data, a data
 record is written which consists of a data header
 which may be of zero size, followed by the telemetry data. The length of
@@ -299,7 +276,7 @@ Writing of the data record continues until all bytes have been written,
 creating new segment files as required.
 
 Segment File Creation
----------------------
+~~~~~~~~~~~~~~~~~~~~~
 When there current segment file fills, i.e. its length is size :sub:`max`,
 the file is closed and the LogWrite::send() function is called with the
 name of the file.
@@ -353,8 +330,36 @@ is closed and the
 file name is placed on the send FIFO. The segment ID is incremented
 unless it is already SegId\ :sub:`max`.
 
+Read-Related Operations
+-----------------------
+
+Find the First Data Record Start
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+There may be missing segment files at the beginning of a log. To skip
+any missing or corrupted segment files and find the start of the
+first data record, begin by constructing a list of all existing
+segment files matching the given prefix and suffix, in order from oldest
+to newest. Then, starting with the oldest segment file, read the segment
+file headers. There are three cases:
+
+o   The remaining field value is greater than the size of the data section:
+    continue to the next segment file.
+
+o   The remaining field value is less than the size of the data section:
+    The log starts at an offset of remaining into the data section.
+
+o   The remaining field value and size of the data section are equal:
+    If this is the last segment file, there is no data available in the
+    log. Otherwise, the log starts at the first byte of the next segment
+    file.
+
+If a segment file cannot be opened or the header cannot be read, the
+search for the start of the log advances to the next segment file.
+
+It is an error if no matching segment file names are found.
+
 Reading Telemetry Data
-----------------------
+~~~~~~~~~~~~~~~~~~~~~~
 Each time a new segment file is opened, the segment header is read. It does
 the following checks:
 
@@ -381,17 +386,8 @@ Keep
 If we can't open the segment file, and we found more
 segment files, skip this one and open the next.
 
-Initialization for Reading
---------------------------
-Given prefix and suffix strings, create a list of matching segment file
-names in a specific directory. This list should be sorted from the smallest
-segment ID to the largest segment IDs. Some segment IDs between
-the smallest and largest may not have corresponding segment filesl
-
-It is an error if no matching segmennt file names are found.
-
 Reading a Record
-----------------
+~~~~~~~~~~~~~~~~
 If there is no current segment file, remove the segment file name with the
 smallest segment ID from the list of matching segment file names
 and attempt to open it. If the open fails and the match segment file name
@@ -399,11 +395,77 @@ list is now empty, we have reached to end of the log and return an
 approprite status. Otherwise, extract the segment ID from the segment
 file name as a SegId value.
 
-Read the segment file header. If
-
 Data Structures
 ===============
+Tcslog provides several data structures for reading and writing log messages.
+Some are interfaces, which requires that the user create structures to
+implement log operations.
 
+LogWrite
+--------
+This interface is used for writing to logs. Amoung its members are:
+
+pub fn new(dir: &str, prefix: &str, suffix: &str, size_max: u32, n_seg: u32, format: Format) -> Result(LogWrite, LogError);
+
+    Create or extend a log file.
+
+pub fn write_str(&self, msg: &str) -> Result(u32, LogError);
+
+    Write a string to the log file. This invokes write().
+
+pub fn write(&self, msg: &[byte]) -> Result(u32, LogError);
+
+    Write a byte array to the log file.
+
+LogRead
+-------
+The LogRead interface is used for reading from logs. Its members include:
+
+pub fn new(dir: &str, prefix: &str, suffix: &str) -> Result(LogRead, LogError);
+
+    Open an existing log file.
+
+pub fn read_str(&self, msg: &str, result: TCSResult) -> Result(u32, LogError);
+
+    Read up to the msg.len() characters from the log. Returns Ok(u32) to
+    indicate the number of bytes read.
+
+pub fn read(&self, msg: &str, result: TCSResult) -> Result(u32, LogError);
+
+    Read up to msg.len() bytes from the log. Return Ok(u32) to indicate the
+    number of bytes read.
+
+LogError
+--------
+    Enum used to return error values. It includes the following:
+
+    ReadOverflow(u32)
+
+        There was too much telemetry data in the data record to fit in
+        the supplied buffer. The value indicates the actual number
+        of bytes or characters available.
+
+    IoError(io::Error)
+
+        An error occurred from an I/O operation.
+
+TcsResult
+---------
+    Enum specifying a Format-dependent result from a read:
+
+    FIXED
+
+        The log file uses fixed-length records.
+
+    VARIABLE
+
+        The record uses a variable length record with no additional metadata
+
+    VARIABLE_TSRC(Timestamp, RecNum)
+
+        This record uses a variable length record with a timestamp
+        and record number.
+        
 Restrictions
 ============
 Values written to segment files are packed, that is, there are no padding
@@ -420,3 +482,12 @@ LogWrite::new() until those objects are dropped.
 
 o   Prefix and suffix values must not contain the path delimiters. If they
     do, the return value must be LogError::PathDelimiterNotAllowed
+
+o   LogError values must be returned instead of panicing.
+
+o   All functions must be preceeded by documentation specifying the
+    purpose of the function, the usage of parameters, and return values.
+
+Code Generation Restrictions
+============================
+o   Request guidance in case of ambiguous input
