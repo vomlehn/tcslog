@@ -32,7 +32,8 @@ These two parameters are specified when the tcslog interface is created.
     generally required for file metadata, which may depend on file name
     size, segment file size, etc.
 
-Tcslog will inform user code that a segment file is complete.
+Tcslog will inform user code that a segment file has reached the maximum
+size.
 It is up to that code to manage the storage used after that point, so
 it compress or delete the segment file after that point.
 
@@ -46,27 +47,32 @@ names start with a prefix, followed by a segment ID of type SegId, followed
 by the suffix. The segment ID is a zero-filled hexadecimal string,
 using lower case
 values, with a dash ('-') between each group of four hexadecimal characters.
-Thus, if SegNo is of type u64, the segment ID is given by the value
-0x1234abcd5678efabu64, the segment
-ID will be the string "1234-abcd-5678-efab". 
-
-In version 1.0.0, SegId values are u64 objects.
+If the segment ID is 0x1234abcd5678efabu64, the segment file name will
+be the prefix, followed by the string "1234-abcd-5678-efab", ending with
+the suffix.
 
 File Format
 ===========
-All segment files start with a header, followed by a data section.
+All segment files start with a header, followed by a data section. The 
+data section consists of data records, which may be broken across the
+data sections of two or more segment files.
+
+Data records consist of a data header, possibly of zero length, followed
+by some number of bytes of telemetry data. Some segment files formats
+permit the number of bytes of telemetry data in a data record to be zero,
+some do not.
 
 Segment Header Format
 ---------------------
-The segment file
-header is fixed length. The total length of a segment file must
+The segment file header length is the same for all formats.
+The total length of a segment file must
 be less than or equal to size\ :sub:`max`. 
 
 The segment file header contains the following:
 
 type
     This is an ASCII string that identifies this as a TcsLog file. It has the
-    value "tcslogsg". This must be the first data in the file.
+    value "tcslogsf". This must be the first data in the file.
 
 version
     This is a four-character ASCII string. All characters must be in the range
@@ -76,32 +82,40 @@ version
     verson numbers match. This must follow the type field.
 
 segment ID
-    Segment ID for this segment file. This will be checked to verify that
-    it matches the segment ID that comprises part of the segment file
-    name. This is an i64 value.
+    Segment ID for this segment file. This must match the segment ID portion
+    of the segment file name. This is an u64 value.
 
 session ID
-    A session starts when the LogWrite::new() function is called and ends
-    when the object implementing the LogWrite interface is dropped. This
-    may be explict, implicit, or when the process ends. The segment ID of
-    the first segment file created in a session is stored as the session ID
-    for all segment file in that session.
+    The session ID is the segment ID of the first segment file created for
+    a session. The segment ID of the first segment file appears in the
+    session ID field of all segment files for that session. This allows
+    detection of the beginning of a new session because the new session will
+    have a different segment ID.
 
 max size
-    The maximum size, in bytes, of a segment file.
+    The maximum size, in bytes, of a segment file. This is size\ :sub:`max`.
 
 remaining
-    This is the number of bytes remaining in the record that contains the
+    This is the number of bytes remaining in the data record that contains the
+    first byte in the data section.
     This value may be longer than the length
     of the data section, in which case the record is continued in the following
     one or more segment files.
 
 data format
-    Several formats are supported for storing data, which vary by storage
-    efficiency, allowable telemetry data length, and whether timestamps are
-    automatically generated. Records can generally be split across segment
-    file boundaries, so that completed segment files are generally much the
-    same length.
+    Several formats are supported for storing data, which have different 
+    tradeoffs for
+    
+    o   storage efficiency
+    
+    o   allowable telemetry data length
+
+    o   support for automatically supplied metadata
+
+    All formats allow data records to be split across the data section of
+    multiple segment files, so completed segment files will generally contain
+    size\ :sub:`max` bytes. However, system failures or resources limitations
+    may cause shorter segment files to be produced.
 
     Supported data formats are:
 
@@ -137,23 +151,20 @@ data format
         nanosecond-resolution, 64-bit offset from the UNIX epoch. This
         value will be returned when data is read.
 
-The segment file header size must be the same for all data formats even
-if some bytes are not used for some data formats.
-
 Data Header Format
 ------------------
 The data section consists of alternating data headers and telemetry data, which
-are written sequentially to the data section of segment files. The size of the
+are written sequentially to the data sections of segment files. The size of the
 data section, in bytes, is:
 
     size\ :sub:`max` - size of segment header
 
-There are multiple types of data header, depending on the format specified in
+There are multiple types of data headers, depending on the format specified in
 the segment file header:
 
     FIXED(n)
         The data header is zero length, i,e. each telemetry data record is
-        logical continguous with the preceeding telemetry data record.
+        logically continguous with the preceeding telemetry data record.
 
     VARIABLE_SIMPLE
         Field in the data header for this format are:
@@ -185,12 +196,15 @@ Each time it fails, it increases the sleep interval and tries again.
 This ensures that it
 will quickly find an unused segment ID.
 
-The initial sleep time is one microsecond. The next sleep interval is the
-previous sleep interval times four.
+The initial sleep time is the system-dependent time resolution, named
+TIMER_RESOLUTION. This is specified in nanoseconds and is a u64 value.
+TIMER_RESOLUTION is defined in the cargo build command by using
+the --features. Subsequent sleep intervals are the previous sleep interval
+times two.
 
-Using an i64 value as the segment ID assures that a huge number of segment
+Using an u64 value as the segment ID assures that a huge number of segment
 files can be created. Only positive values are supported, so the theoretical
-number of segment files is 2\ :sup:`63` or 9,223,372,036,854,775,808.
+number of segment files is 2\ :sup:`63` or 1.8e19.
 Alternatively, there could be enough segment files for over two centuries.
 
 Operations
@@ -202,42 +216,9 @@ Write-Related Operations
 
 Initialization for Writing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-Create a list of existing segment files, sorted by name. 
-
-If the segment file format is VARIABLE_TSRN, the record number to use for
-writing the next record must be determined. To do this,
-open in each segment file the order of the segment ID.
-If a segment
-file could not be opened, call the user defined function bad_file() with the
-name of the segment file. The default definition of bad_file() attempts to
-delete a file with that name. If a segment file could be opened, read
-all record headers to find the largest record number in that segment file.
-If no record numbers could be read, use the value one for the current
-record number. Otherwise, use the largest record number plus one.
-
-Consistency checks:
-o   Record numbers must be monotomically increasing.
-
-o   The type must be as specified
-
-o   The version must be valid
-
-o   If the format is FORMAT(n), remaining must be <= n.
-
-o   The format must be valid.
-
-o   The segment file size must be < size :sub:`max`
-
 If there are no existing segment files, create a new one. Otherwise,
 open enqueue all but the last segment file onto the send FIFO,
 open the last segment file, and seek to the end of that segment file.
-
-When creating a new segment file, use a segment ID of 0 if there were
-no other segment files. Otherwise, use a segment ID one greater than
-largest the segment ID of the opened number.
-If the segment ID of the largest opened segment file's segment ID
-is already SegId.MAX, the user function log_full() will be called. Log_full()
-can call the clear() function to reset the segment ID to zero.
 
 Creating a new segment file involves calling the check_overflow() user function.
 It returns only when there are fewer than n\ :sub:`seg` segment files. It
@@ -282,13 +263,11 @@ the file is closed and the LogWrite::send() function is called with the
 name of the file.
 
 When send() returns there must not be a file
-with the name it was passed. This can mean:
+with the name it was passed. This can mean, among other things:
 
 o   The file was downlinked and deleted.
 
 o   The file was renamed for later downlinking
-
-o   Etc.
 
 Before a new segment file is created, the segment ID is checked to
 verify it is not SegId\ :sub:`max`. If it is, a TcslogError value is returned
@@ -363,7 +342,7 @@ Reading Telemetry Data
 Each time a new segment file is opened, the segment header is read. It does
 the following checks:
 
-o   The type is "tcslogsg".
+o   The type is "tcslogsf".
 
 o   The version string is "0010", corresponding to version 0.1.0.
 
@@ -409,13 +388,37 @@ pub fn new(dir: &str, prefix: &str, suffix: &str, size_max: u32, n_seg: u32, for
 
     Create or extend a log file.
 
+    dir         Name of the directory in which the log file is to be created.
+
+    prefix      String that that is the first part of the the segment file
+                names that make up the log file. Must not contain a filesystem
+                delimiter.
+
+    suffix      String used as the end of the segment file name. Must not
+                contain a filesystem delimiter.
+
+    size_max    Maximum number of bytes in a segment file
+
+    n_seg       Maximum number of segment files allowed in the directory
+                for this log file
+
+    format      Format for segment files
+
 pub fn write_str(&self, msg: &str) -> Result(u32, LogError);
 
     Write a string to the log file. This invokes write().
 
+    self        Reference to LogWrite
+
+    msg         Reference to string to write
+
 pub fn write(&self, msg: &[byte]) -> Result(u32, LogError);
 
     Write a byte array to the log file.
+
+    self        Reference to LogWrite
+
+    msg         Reference to array of bytes to write
 
 LogRead
 -------
@@ -424,6 +427,15 @@ The LogRead interface is used for reading from logs. Its members include:
 pub fn new(dir: &str, prefix: &str, suffix: &str) -> Result(LogRead, LogError);
 
     Open an existing log file.
+
+    dir         Name of the directory in which the log file is to be created.
+
+    prefix      String that that is the first part of the the segment file
+                names that make up the log file. Must not contain a filesystem
+                delimiter.
+
+    suffix      String used as the end of the segment file name. Must not
+                contain a filesystem delimiter.
 
 pub fn read_str(&self, msg: &str, result: TCSResult) -> Result(u32, LogError);
 
@@ -449,15 +461,33 @@ LogError
 
         An error occurred from an I/O operation.
 
-TcsResult
----------
+    HasDelimiter
+
+        A prefix or suffix in a new() call has a filesystem delimiter.
+
+ReadResult
+----------
+    Structure returning the result of a read operation. It has the following
+    elements:
+
+    n
+
+        Number of bytes stored in the buffer. This may be less than or
+        equal to the buffer size.
+
+    meta
+
+        Object of type Meta containing format-specific data.
+
+Meta
+----
     Enum specifying a Format-dependent result from a read:
 
     FIXED
 
         The log file uses fixed-length records.
 
-    VARIABLE
+    VARIABLE_SIMPLE
 
         The record uses a variable length record with no additional metadata
 
@@ -465,6 +495,11 @@ TcsResult
 
         This record uses a variable length record with a timestamp
         and record number.
+
+RecSize
+-------
+    This is the type used to contain the size of telemetry portion of
+    a data record. For version 1.0.0, this is defined to be u32.
         
 Restrictions
 ============
@@ -488,6 +523,11 @@ o   LogError values must be returned instead of panicing.
 o   All functions must be preceeded by documentation specifying the
     purpose of the function, the usage of parameters, and return values.
 
+o   Avoid operating-specific constructs, i.e. generate code that will work on
+    Linux, Windows, VxWorks, FreeRT.
+
+o   Check for spelling
+
 Code Generation Restrictions
 ============================
-o   Request guidance in case of ambiguous input
+o   Request guidance in case of ambiguous or contradictory input
