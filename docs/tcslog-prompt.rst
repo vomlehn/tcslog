@@ -257,13 +257,8 @@ read, it must be greater than the previous value. Since the system
 time increases monotonically, it must be greater than any previous
 time and so is unique.
 
-TIMER_RESOLUTION is defined in the cargo build command by using
-the --features option. It is a u64 value.
-
-Using an u64 value as the segment ID assures that a huge number of segment
-files can be created. Only positive values are supported, so the theoretical
-number of segment files is 2\ :sup:`63` or 1.8e19.
-Alternatively, there could be enough segment files for over two centuries.
+TIMER_RESOLUTION must not be defined in the code proper but should be definable
+via command line or a build.rs file.
 
 Operations
 ==========
@@ -464,6 +459,12 @@ pub fn write(&self, msg: &[byte]) -> Result(u32, LogError);
     have been written. This may flush data is data integrity is the priority,
     otherwise this may do nothing if performance is the priority.
 
+pub fn flush(&self) -> Result((), LogError);
+
+    self            Reference to LogWrite
+
+    Flush all pending data to mass storage.
+
 pub fn send(name: &str) -> Result((), Error);
 
     Process a completed segment file.
@@ -510,6 +511,8 @@ pub fn read(&self, msg: &str) -> Result(LogResult, LogError);
 
     msg             Bytes to write
 
+An Iterator must be implemented for LogRead.
+
 LogError
 --------
     Enum used to return error values. It includes the following:
@@ -518,7 +521,7 @@ LogError
 
         There was too much telemetry data in the data record to fit in
         the supplied buffer. The value indicates the actual number
-        of bytes or characters available.
+        of bytes or characters placed in the buffer.
 
     IoError(io::Error)
 
@@ -567,7 +570,8 @@ RecSize
 WriteCallback
 -------------
     This structure contains various callback functions used during
-    log writing operations:
+    log writing operations. These members should be defined in a way that
+    avoids use of heal allocaton and dyn dispatch.:
 
     fn record_complete(file: File) -> Result((), Error);
 
@@ -598,6 +602,34 @@ WriteCallback
         be helpful to flush data to the file in order to reduce the chance
         of corruption due to a system restart.
 
+SegId
+-----
+This is the data structure that holds the segment file ID. Segment file IDs
+are based on u64 values.
+
+Using an u64 value as the segment ID assures that a huge number of segment
+files can be created. Only positive values are supported, so the theoretical
+number of segment files is 2\ :sup:`63` or 1.8e19.
+Alternatively, there could be enough segment files for over two centuries.
+
+Converting this value into a string yields something of fixed length, with
+a value known as SegId::STR_LEN.
+
+Testing
+=======
+Make sure to do the following:
+
+o   Test Format::Fixed records that do not span multiple segment files and
+    those that do, including spanning of both one segment file and more
+    than one segment file.
+
+o   Verify zero length Variable and VariableTsRc records, records that don't
+    span segment files, and very long records that span multiple segment
+    files
+
+o   Make sure corrupt header skipping is tested in code that opens the next
+    segment
+
 User Documentation
 ==================
 
@@ -612,7 +644,7 @@ Functions
 Documentation for user-accessible functions should have a description of
 what the function does, a description of each parameter, and the
 return value.
-        
+
 Restrictions
 ============
 Values written to segment files are packed, that is, there are no padding
@@ -624,7 +656,7 @@ It is an error if seg_size\ :sub:`max` is less than or equal to the number of
 bytes in the file used for the segment header and the number of bytes
 used for one data header.
 
-No memory allocations may be done after calls to LogRead::new() and
+No dynamic memory allocations may be done after calls to LogRead::new() and
 LogWrite::new() until those objects are dropped.
 
 o   Prefix and suffix values must not contain the path delimiters. If they
@@ -640,6 +672,9 @@ o   Avoid operating-specific constructs, i.e. generate code that will work on
 
 o   Check for spelling
 
+Ideally, no dynamic memory allocation would be done at all, if it can be
+avoided.
+
 Code Generation Restrictions
 ============================
 o   Request guidance in case of ambiguous, incomplete, or contradictory input
@@ -647,9 +682,14 @@ o   Request guidance in case of ambiguous, incomplete, or contradictory input
 o   Violations of Rust coding style conventions are to be identified and
     an marked as an error.
 
+o   Do not allow dead code.
+
 Use of AI
 =========
 This file was used as the AI prompt file. The
 file spells out the algorithms used, so AI didn't do this, but the actual
 code generation was done with Claude Code. Claude Code is also completely
 responsible for generating the user interface documentation.
+
+In addition, Claude Code was used to review the code and documentation it
+produced and suggestions incorporated into this file.
