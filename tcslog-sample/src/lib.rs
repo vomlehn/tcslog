@@ -12,7 +12,7 @@ pub const SEG_SIZE_MAX: u32 = 100;
 pub const N_SEG: u32 = 3;
 
 /// Upper bound on the size of a single log message.
-pub const MAX_MESSAGE_SIZE: usize = 20;
+pub const MAX_MESSAGE_SIZE: usize = 40;
 
 /// Minimum number of messages to write
 pub const MAX_MESSAGES: u64 = 5;
