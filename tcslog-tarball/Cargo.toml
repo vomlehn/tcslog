@@ -1,0 +1,10 @@
+[package]
+name = "tcslog-tarball"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+tar = "0.4"
+flate2 = "1"
