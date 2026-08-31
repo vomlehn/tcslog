@@ -24,6 +24,9 @@ const MAX_MESSAGE_SIZE: usize = 256;
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
+    /// Directory in which the log file lives
+    dirname: String,
+
     /// Segment file name prefix.
     prefix: String,
 
@@ -34,18 +37,7 @@ struct Args {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    let dir: PathBuf = std::env::temp_dir().join("tcslog-dump");
-    let _ = fs::remove_dir_all(&dir);
-    fs::create_dir_all(&dir)?;
-    let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");
-
-    let sample = create_sample_logs(dir_name, &args.prefix, &args.suffix)?;
-    println!(
-        "created ({} message(s)); root = {}\n",
-        sample.message_count, sample.root_file,
-    );
-
-    let mut log = LogRead::new(dir_name, &args.prefix, &args.suffix)?;
+    let mut log = LogRead::new(&args.dirname, &args.prefix, &args.suffix)?;
     let mut current_seg = None;
     let mut files_seen = 0u32;
     let mut total = 0u64;
