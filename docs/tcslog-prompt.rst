@@ -77,6 +77,12 @@ No dynamic memory allocation is done once a LogWrite::new() or LogRead::new()
 function is called, making this well suited for embedded systems with
 limited memory.
 
+Telemetry Storage Format
+------------------------
+There are several formats in which telemetry can be started, ranging from
+a highly efficient fixed record size, to a variable record size including
+timestamps and record counts.
+
 Customization
 -------------
 Callbacks are provided that allow for handling segment file as they fill
@@ -427,9 +433,6 @@ pub fn new(dir: &str, prefix: &str, suffix: &str, seg_size_max: u32, format: For
                     contain a filesystem delimiter.
 
     seg_size_max    Maximum number of bytes in a segment file
-
-    n_seg           Maximum number of segment files allowed in the directory
-                    for this log file
 
     format          Format for segment files
 
