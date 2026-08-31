@@ -18,7 +18,8 @@ TCSLOG_TEST =
 TCSLOG_RUST = 
 TCSLOG_TAR = $(TCSLOG_RUST).tar.gz
 TCSLOG_OUTPUT = compressed tar file $(TCSLOG_TAR)
-PROMPT = Generate Rust code ($(TCSLOG_CODE)) and create $(TCSLOG_OUTPUT) from $(TCSLOG_PROMPT)
+TCSLOG_DOC = $(DOCS_DIR)/tcslog.rst
+PROMPT = Generate Rust code ($(TCSLOG_CODE)), create $(TCSLOG_OUTPUT) from $(TCSLOG_PROMPT), and write a user guide to $(TCSLOG_DOC) in RST format.
 
 TCSLOG_CRATES = tcslib tcslibgs g tcsmoc tcssim tcspayload.json
 
@@ -46,7 +47,7 @@ FIXUP_TEST =
 FIXUP_SIM =
 
 # Default target
-all: build test
+all: generate build test
 
 # Display help
 help:
@@ -89,6 +90,7 @@ generate: $(TCSLOG_PROMPT)
 		print-elapsed $$start_time; \
 		echo "✓ Project files generated" \
 	) 2>&1 | tee -a generate.out
+	echo "File created after project code is generated" >generate
 
 # Alternative: Use echo to pipe commands
 generate-alt:
@@ -107,7 +109,7 @@ build:
 		set -eu; \
 		$(FIXUP) \
 		echo "Building the project..."; \
-		cd $(RUST) && cargo build $(RELEASE) --bin tcspecial; \
+		cd $(RUST) && cargo build $(RELEASE) -p tcslog; \
 		echo "✓ Build complete" \
 	) 2>&1 | tee build.out
 
@@ -158,6 +160,8 @@ clean:
 # Clean everything including generated source
 distclean: clean
 	@echo "Removing all generated files..."
+	rm -f generate
+	rm -f docs/tcslog.rst
 	rm -f Cargo.lock Cargo.toml
 	rm -rf $(TCSLOG_CRATES)
 	rm -rf target
