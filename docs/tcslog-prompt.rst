@@ -64,6 +64,12 @@ being used as there is no way for Tcslog to determine that records have
 been lost and, thus, it is up to user code to determine how to handle
 this.
 
+Dynamic Memory Allocation
+-------------------------
+No dynamic memory allocation is done once a LogWrite::new() or LogRead::new()
+function is called, making this well suited for embedded systems with
+limited memory.
+
 Customization
 -------------
 Callbacks are provided that allow for handling segment file as they fill
