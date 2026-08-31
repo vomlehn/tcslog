@@ -646,3 +646,10 @@ o   Request guidance in case of ambiguous, incomplete, or contradictory input
 
 o   Violations of Rust coding style conventions are to be identified and
     an marked as an error.
+
+Use of AI
+=========
+This file was used as the AI prompt file. The
+file spells out the algorithms used, so AI didn't do this, but the actual
+code generation was done with Claude Code. Claude Code is also completely
+responsible for generating the user interface documentation.
