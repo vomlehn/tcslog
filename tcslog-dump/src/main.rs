@@ -1,16 +1,11 @@
-//! Creates a chain of seven log files with the `tcslog_sample` helper, then
-//! reads the entire chain back from the root file, printing each log file's
-//! header and every log message.
-//!
-//! The log file name prefix, suffix, and Uid are required arguments. The
-//! Uid is given in the same format used in log file names — six
-//! underscore-separated groups of four hex digits (microseconds) — and is used
-//! to seed log creation, so the root file is named with exactly that Uid.
+//! Creates a chain of sample segment files with the `tcslog_sample` helper,
+//! then reads the entire chain back, printing each segment file's header and
+//! every log message.
 //!
 //! Run with:
 //!
 //! ```text
-//! cargo run -p tcslog-dump -- sample- .tcslog 0000_0000_0006_18bd_f941_4276
+//! cargo run -p tcslog-dump -- sample- .tcslog
 //! ```
 
 use std::error::Error;
@@ -19,125 +14,79 @@ use std::path::PathBuf;
 
 use clap::Parser;
 
-use tcslog::{Header, TcsLog, TcsLogError, Uid};
-use tcslog_sample::{create_sample_logs_with, SequentialUider, MAX_MESSAGE_SIZE};
+use tcslog::{LogError, LogRead, Meta, SegmentHeader};
+use tcslog_sample::{create_sample_logs, MAX_MESSAGE_SIZE};
 
-/// Number of rollover files to create. With the root file this makes seven
-/// files in total.
-const ROLLOVERS: u32 = 6;
-
-/// Create a chain of log files, then read the whole chain back, printing each
-/// file's header and every log message.
+/// Create a chain of segment files, then read the whole chain back and print
+/// every header and message.
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
-    /// Log file name prefix.
+    /// Segment file name prefix.
     prefix: String,
 
-    /// Starting Uid, in log-file name format: six underscore-separated
-    /// groups of four hex digits, in microseconds
-    /// (e.g. 0000_0000_0006_18bd_f941_4276).
-    #[arg(value_parser = parse_Uid)]
-    Uid: Uid,
-
-    /// Log file name suffix.
+    /// Segment file name suffix.
     suffix: String,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    // Use an OS-independent directory, cleared first so a re-run is repeatable.
     let dir: PathBuf = std::env::temp_dir().join("tcslog-dump");
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir)?;
     let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");
 
-    // Create the seven-file chain, seeded with the supplied Uid so the
-    // root file is named with exactly that Uid.
-    let mut Uider = SequentialUider::new(args.Uid);
-    let sample =
-        create_sample_logs_with(dir_name, &args.prefix, &args.suffix, ROLLOVERS, &mut Uider)?;
+    let sample = create_sample_logs(dir_name, &args.prefix, &args.suffix, args.rollovers)?;
     println!(
-        "created {} log file(s) ({} message(s)); root = {}\n",
+        "created {} segment file(s) ({} message(s)); root = {}\n",
         sample.file_count, sample.message_count, sample.root_file,
     );
 
-    // Open the root file and walk the whole chain. `read` follows the chain into
-    // each successor file automatically, so a change in `file_name()` tells us
-    // when we have entered a new file.
-    let root_path = dir.join(&sample.root_file);
-    let mut log = TcsLog::open_path(&root_path)?;
-
-    print_header(&log);
-    let mut current_file = log.file_name().to_string();
-
-    let mut Uid = Uid::ZERO;
-    let mut buf = vec![0u8; MAX_MESSAGE_SIZE];
+    let mut log = LogRead::new(dir_name, &args.prefix, &args.suffix)?;
+    let mut current_seg = None;
+    let mut files_seen = 0u32;
     let mut total = 0u64;
+    let mut buf = vec![0u8; MAX_MESSAGE_SIZE];
+
     loop {
-        match log.read(&mut Uid, &mut buf) {
-            Ok(n) => {
-                // A new file was entered while following the chain.
-                if log.file_name() != current_file {
-                    current_file = log.file_name().to_string();
-                    println!();
-                    print_header(&log);
+        match log.read(&mut buf) {
+            Ok(res) => {
+                if let Some(h) = log.current_header() {
+                    if current_seg != Some(h.segment_id) {
+                        if current_seg.is_some() {
+                            println!();
+                        }
+                        current_seg = Some(h.segment_id);
+                        files_seen += 1;
+                        print_header(&args.prefix, &args.suffix, h);
+                    }
                 }
                 total += 1;
-                let text = String::from_utf8_lossy(&buf[..n]);
-                println!(
-                    "    msg {total}: ts={} {:?}",
-                    Uid.as_nanos(),
-                    text.trim_end(),
-                );
+                let text = String::from_utf8_lossy(&buf[..res.n as usize]);
+                match res.meta {
+                    Meta::VariableTsrn(ts, rn) => {
+                        println!("    msg {rn}: ts={ts} {:?}", text.trim_end());
+                    }
+                    Meta::VariableSimple | Meta::Fixed => {
+                        println!("    msg {total}: {:?}", text.trim_end());
+                    }
+                }
             }
-            Err(TcsLogError::EOF) => break,
+            Err(LogError::Eof) => break,
             Err(e) => return Err(e.into()),
         }
     }
 
-    println!("\nread {total} message(s) across {} file(s)", sample.file_count);
+    println!("\nread {total} message(s) across {} file(s)", files_seen);
     Ok(())
 }
 
-/// Parses a Uid written in the same format used in log file names: six
-/// underscore-separated groups of four lowercase hex digits, giving the
-/// Uid in microseconds. Returns an error describing the expected format
-/// on bad input.
-fn parse_Uid(s: &str) -> Result<Uid, String> {
-    let groups: Vec<&str> = s.split('_').collect();
-    let well_formed = groups.len() == 6
-        && groups
-            .iter()
-            .all(|g| g.len() == 4 && g.bytes().all(|b| b.is_ascii_hexdigit()));
-    if !well_formed {
-        return Err(format!(
-            "invalid Uid {s:?}: expected six underscore-separated groups of four hex \
-             digits, e.g. 0000_0000_0006_18bd_f941_4276"
-        ));
-    }
-
-    let hex: String = groups.concat();
-    let micros =
-        u128::from_str_radix(&hex, 16).map_err(|e| format!("invalid Uid {s:?}: {e}"))?;
-
-    // Guard against values too large to represent (Uid stores seconds as a u64).
-    if micros / 1_000_000 >= u64::MAX as u128 {
-        return Err(format!("Uid {s:?} is out of range"));
-    }
-
-    Ok(Uid::from_micros(micros))
-}
-
-/// Prints the header of the log file `log` currently refers to.
-fn print_header(log: &TcsLog) {
-    let h: &Header = log.header();
-    println!("=== log file: {} ===", log.file_name());
-    println!("    type:         {:?}", String::from_utf8_lossy(&h.file_type));
-    println!("    version:      {:?}", String::from_utf8_lossy(&h.version));
-    println!("    Uid:    {} ns", h.Uid.as_nanos());
-    println!("    index_offset: {}", h.index_offset);
-    println!("    data_offset:  {}", h.data_offset);
-    println!("    chain_count:  {}", h.chain_count);
+fn print_header(prefix: &str, suffix: &str, h: &SegmentHeader) {
+    println!("=== segment file: {}{}{} ===", prefix, h.segment_id, suffix);
+    println!("    segment_id: {}", h.segment_id);
+    println!("    session_id: {}", h.session_id);
+    println!("    max_size:   {}", h.max_size);
+    println!("    remaining:  {}", h.remaining);
+    println!("    format:     {:?}", h.format);
 }
