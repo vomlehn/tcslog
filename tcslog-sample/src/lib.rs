@@ -1,103 +1,80 @@
-//! Helper library shared by the `tcslog-sample` binary and `tcslog-dump`:
-//! creates a chain of sample log files filled with small ASCII messages.
+//! Helper library for the `tcslog-sample` binary: creates a chain of sample
+//! segment files filled with small ASCII messages.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tcslog::{TcsLog, TcsLogError, Uid, Uidable, UidableError, Uider};
+use tcslog::{Format, LogError, LogWrite};
 
-/// Each log file is limited to this many bytes.
-pub const MAX_SIZE: u64 = 10_240;
+/// Maximum size in bytes of any single segment file.
+pub const SEG_SIZE_MAX: u32 = 100;
+
+/// Maximum number of segment files kept on disk at once.
+pub const N_SEG: u32 = 3;
 
 /// Upper bound on the size of a single log message.
-pub const MAX_MESSAGE_SIZE: usize = 1025;
+pub const MAX_MESSAGE_SIZE: usize = 20;
 
-/// Minimum number of messages to write, so the root file is populated even when
-/// no rollover files are requested.
-pub const MIN_MESSAGES: u64 = 5;
-
-/// A deterministic Uider that starts at a given Uid and advances by
-/// one microsecond per call. Useful for creating logs with predictable, known
-/// file names. It steps by a microsecond (not a nanosecond) because log file
-/// names have microsecond resolution, so distinct calls must map to distinct
-/// file names to avoid collisions between successive files.
-pub struct SequentialUider {
-    next: Uid,
-}
-
-impl SequentialUider {
-    /// Creates a Uider whose first Uid is `start`.
-    pub fn new(start: Uid) -> Self {
-        SequentialUider { next: start }
-    }
-}
-
-impl Uidable for SequentialUider {
-    fn Uid(&mut self) -> Result<Uid, UidableError> {
-        let current = self.next;
-        self.next = Uid::from_nanos(self.next.as_nanos() + 1_000);
-        Ok(current)
-    }
-}
+/// Minimum number of messages to write
+pub const MAX_MESSAGES: u64 = 5;
 
 /// Summary of a created sample log chain.
 pub struct SampleLogs {
-    /// Name of the root (head) log file.
+    /// Base name of the first (root) segment file in the chain.
     pub root_file: String,
     /// Total number of messages written across the chain.
     pub message_count: u64,
-    /// Total number of log files in the chain.
+    /// Total number of segment files in the chain.
     pub file_count: u32,
 }
 
-/// Creates a sample log chain in `dir_name`, using the given file-name `prefix`
-/// and `suffix` and the system clock for Uids: a root file plus
-/// `rollovers` successor files filled with small ASCII messages.
-///
-/// Returns a summary including the name of the root file (the head of the
-/// chain), which can be opened to read the whole chain back.
+/// Creates a sample log chain in `dir_name` using the given file-name
+/// `prefix` and `suffix`: a root segment file plus `rollovers` successor
+/// segment files, filled with small ASCII messages.
 pub fn create_sample_logs(
     dir_name: &str,
     prefix: &str,
     suffix: &str,
-    rollovers: u32,
-) -> Result<SampleLogs, TcsLogError<'static>> {
-    let mut Uider = Uider::new();
-    create_sample_logs_with(dir_name, prefix, suffix, rollovers, &mut Uider)
-}
+) -> Result<SampleLogs, LogError> {
+    let mut log = LogWrite::new(
+        dir_name,
+        prefix,
+        suffix,
+        SEG_SIZE_MAX,
+        N_SEG,
+        Format::VariableTsRn,
+    )?;
 
-/// Like [`create_sample_logs`], but uses the supplied `Uider` instead of
-/// the system clock. Passing a [`SequentialUider`] makes the file names
-/// deterministic, so the root file's Uid is known in advance.
-pub fn create_sample_logs_with(
-    dir_name: &str,
-    prefix: &str,
-    suffix: &str,
-    rollovers: u32,
-    Uider: &mut dyn Uidable,
-) -> Result<SampleLogs, TcsLogError<'static>> {
-    // Create the root log file and remember its name before any rollover.
-    let mut log = TcsLog::new_with_Uid(dir_name, prefix, Uider, suffix, MAX_SIZE)?;
-    let root_file = log.file_name().to_string();
+    let session_id = log.session_id();
+    let root_file = format!("{prefix}{session_id}{suffix}");
 
-    // Append messages until the requested number of rollover files exist (and
-    // at least MIN_MESSAGES have been written, so the root file is populated).
-    while log.message_count() < MIN_MESSAGES || log.chain_count() < rollovers {
-        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default();
+    let mut message_count: u64 = 0;
+    loop {
+        let dur = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock is before 1970");
+
+        let secs = dur.as_secs();          // u64, whole seconds
+        let nanos = dur.subsec_nanos();    // u32, 0..1_000_000_000
+
         let content = format!(
-            "time={}.{:09}s files={} message={}",
-            now.as_secs(),
-            now.subsec_nanos(),
-            log.chain_count(),
-            log.message_count() + 1,
+            "time={}.{:09}s message={}",
+            secs,
+            nanos,
+            message_count + 1,
         );
         let data = &content.as_bytes()[..content.len().min(MAX_MESSAGE_SIZE)];
-        log.write(Uider, data)?;
+        log.write(data)?;
+        message_count += 1;
+        if message_count >= MAX_MESSAGES {
+            break;
+        }
     }
-    log.flush()?;
+
+    let file_count = (log.current_segment_id().as_u64() - session_id.as_u64() + 1) as u32;
 
     Ok(SampleLogs {
         root_file,
-        message_count: log.message_count(),
-        file_count: log.chain_count() + 1,
+        message_count,
+        file_count,
     })
 }

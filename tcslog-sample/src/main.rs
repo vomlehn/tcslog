@@ -1,14 +1,13 @@
 //! Sample binary: create a chain of log files using the `tcslog_sample` helper.
 //!
 //! Each log file is capped at 10 KiB and filled with small ASCII messages, so
-//! many messages fit per file and the log rolls over into successor files as
+//! many messages fit per file and the log rolls over into segment files as
 //! they fill.
 //!
 //! Run with:
 //!
 //! ```text
 //! cargo run -p tcslog-sample -- sample- .tcslog        # just the root file
-//! cargo run -p tcslog-sample -- sample- .tcslog 2      # root + 2 rollover files
 //! ```
 
 use std::error::Error;
@@ -28,10 +27,6 @@ struct Args {
 
     /// Log file name suffix.
     suffix: String,
-
-    /// Number of rollover (successor) files to create.
-    #[arg(default_value_t = 0)]
-    rollovers: u32,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -44,7 +39,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&dir)?;
     let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");
 
-    let result = create_sample_logs(dir_name, &args.prefix, &args.suffix, args.rollovers)?;
+    let result = create_sample_logs(dir_name, &args.prefix, &args.suffix)?;
 
     println!(
         "wrote {} message(s) across {} file(s) in {} (root: {})",
