@@ -7,7 +7,10 @@ TcsLog Prompt
 
 Introduction
 ============
-Create a Rust library named Tcslog for onboard logging of telemetry data.
+Create a Rust library named Tcslog for onboard logging of telemetry data
+for systems such as as spacecraft and autonomous underwater vehicles that
+must store telemetry onboard until opportunies arise for transmission.
+
 It can be used in conjunction with live transmission of telemetry data
 to ensure data from corrupted live transmission can be recovered. It
 divides log storage into segment files to allow downlinking in small
@@ -32,6 +35,10 @@ user-defined code.
     for segment files and data records. A small amount of extra space is
     generally required for file metadata, which may depend on file name
     size, segment file size, etc.
+
+The Tcslog approach differs from approaches using the Linux logrotate
+utility as logrotate is not strictly tied to the actual storage used,
+relying instead of periodic checking.
 
 There are several log formats, trading storage efficiency for automatic
 recording of meta data.
