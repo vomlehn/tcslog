@@ -15,7 +15,9 @@ use std::path::PathBuf;
 use clap::Parser;
 
 use tcslog::{LogError, LogRead, Meta, SegmentHeader};
-use tcslog_sample::{create_sample_logs, MAX_MESSAGE_SIZE};
+use tcslog_sample::{create_sample_logs};
+
+const MAX_MESSAGE_SIZE: usize = 256;
 
 /// Create a chain of segment files, then read the whole chain back and print
 /// every header and message.
@@ -37,10 +39,10 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&dir)?;
     let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");
 
-    let sample = create_sample_logs(dir_name, &args.prefix, &args.suffix, args.rollovers)?;
+    let sample = create_sample_logs(dir_name, &args.prefix, &args.suffix)?;
     println!(
-        "created {} segment file(s) ({} message(s)); root = {}\n",
-        sample.file_count, sample.message_count, sample.root_file,
+        "created ({} message(s)); root = {}\n",
+        sample.message_count, sample.root_file,
     );
 
     let mut log = LogRead::new(dir_name, &args.prefix, &args.suffix)?;
@@ -65,7 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 total += 1;
                 let text = String::from_utf8_lossy(&buf[..res.n as usize]);
                 match res.meta {
-                    Meta::VariableTsrn(ts, rn) => {
+                    Meta::VariableTsRc(ts, rn) => {
                         println!("    msg {rn}: ts={ts} {:?}", text.trim_end());
                     }
                     Meta::VariableSimple | Meta::Fixed => {
