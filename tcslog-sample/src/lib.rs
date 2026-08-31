@@ -3,19 +3,13 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tcslog::{Format, LogError, LogWrite};
+use tcslog::{Format, LogError, LogWrite, WriteCallbacks};
 
 /// Maximum size in bytes of any single segment file.
 pub const SEG_SIZE_MAX: u32 = 100;
 
-/// Maximum number of segment files kept on disk at once.
-pub const N_SEG: u32 = 3;
-
-/// Upper bound on the size of a single log message.
-pub const MAX_MESSAGE_SIZE: usize = 40;
-
 /// Minimum number of messages to write
-pub const MAX_MESSAGES: u64 = 5;
+pub const MAX_MESSAGES: u64 = 20;
 
 /// Summary of a created sample log chain.
 pub struct SampleLogs {
@@ -23,8 +17,6 @@ pub struct SampleLogs {
     pub root_file: String,
     /// Total number of messages written across the chain.
     pub message_count: u64,
-    /// Total number of segment files in the chain.
-    pub file_count: u32,
 }
 
 /// Creates a sample log chain in `dir_name` using the given file-name
@@ -40,8 +32,8 @@ pub fn create_sample_logs(
         prefix,
         suffix,
         SEG_SIZE_MAX,
-        N_SEG,
-        Format::VariableTsRn,
+        Format::VariableTsRc,
+        WriteCallbacks::default(),
     )?;
 
     let session_id = log.session_id();
@@ -62,19 +54,16 @@ pub fn create_sample_logs(
             nanos,
             message_count + 1,
         );
-        let data = &content.as_bytes()[..content.len().min(MAX_MESSAGE_SIZE)];
-        log.write(data)?;
+        log.write(content.as_bytes())?;
         message_count += 1;
         if message_count >= MAX_MESSAGES {
             break;
         }
     }
 
-    let file_count = (log.current_segment_id().as_u64() - session_id.as_u64() + 1) as u32;
 
     Ok(SampleLogs {
         root_file,
         message_count,
-        file_count,
     })
 }

@@ -42,9 +42,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let result = create_sample_logs(dir_name, &args.prefix, &args.suffix)?;
 
     println!(
-        "wrote {} message(s) across {} file(s) in {} (root: {})",
+        "wrote {} message(s) in {} (root: {})",
         result.message_count,
-        result.file_count,
         dir.display(),
         result.root_file,
     );
