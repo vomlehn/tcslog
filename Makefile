@@ -15,11 +15,11 @@ RUST = .
 
 TCSLOG_CODE = tcslog
 TCSLOG_TEST = 
-TCSLOG_RUST = 
+TCSLOG_RUST = tcslog
 TCSLOG_TAR = $(TCSLOG_RUST).tar.gz
 TCSLOG_OUTPUT = compressed tar file $(TCSLOG_TAR)
 TCSLOG_DOC = $(DOCS_DIR)/tcslog.rst
-PROMPT = Generate Rust code ($(TCSLOG_CODE)), create $(TCSLOG_OUTPUT) from $(TCSLOG_PROMPT), and write a user guide to $(TCSLOG_DOC) in RST format.
+PROMPT = Generate Rust code ($(TCSLOG_CODE)), auditing and patching against the code if it exists and creating it if not, and write a full user guide to $(TCSLOG_DOC) in RST format.
 
 TCSLOG_CRATES = tcslib tcslibgs g tcsmoc tcssim tcspayload.json
 
@@ -70,7 +70,9 @@ setup:
 	@echo "✓ Directories created"
 
 # Generate project using Claude Code
-generate: $(TCSLOG_PROMPT)
+generate: .generate
+
+.generate: $(TCSLOG_PROMPT)
 	( \
 		set -eu; \
 		echo "Generating project with Claude Code..."; \
@@ -90,7 +92,7 @@ generate: $(TCSLOG_PROMPT)
 		print-elapsed $$start_time; \
 		echo "✓ Project files generated" \
 	) 2>&1 | tee -a generate.out
-	echo "File created after project code is generated" >generate
+	echo "File created after project code is generated" >.generate
 
 # Alternative: Use echo to pipe commands
 generate-alt:
@@ -160,9 +162,9 @@ clean:
 # Clean everything including generated source
 distclean: clean
 	@echo "Removing all generated files..."
-	rm -f generate
+	rm -f .generate
 	rm -f docs/tcslog.rst
-	rm -f Cargo.lock Cargo.toml
+	rm -f Cargo.lock
 	rm -rf $(TCSLOG_CRATES)
 	rm -rf target
 	@echo "✓ Project reset"
