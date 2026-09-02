@@ -524,12 +524,6 @@ LogError
 --------
     Enum used to return error values. It includes the following:
 
-    ReadOverflow(u32)
-
-        There was too much telemetry data in the data record to fit in
-        the supplied buffer. The value indicates the actual number
-        of bytes or characters placed in the buffer.
-
     IoError(io::Error)
 
         An error occurred from an I/O operation.
@@ -543,10 +537,23 @@ LogError
         The combination of prefix, suffix, and segment file ID does not
         form a valid file name.
 
+    ReadOverflow(u32)
+
+        There was too much telemetry data in the data record to fit in
+        the supplied buffer. The value indicates the actual number
+        of bytes or characters placed in the buffer.
+
     SegSizeTooSmall
 
         Indicates that the specified size of a segment file is less than
         or equal to LogWrite::SEGMENT_FILE_HEADER_LEN.
+
+    SessionEnd
+
+        All records from a previous session have been read and a segment
+        file header has been read with a different session ID. The next
+        read operation will return the first record of the next session,
+        if there is one.
 
 ReadResult
 ----------
@@ -646,6 +653,9 @@ o   Verify zero length Variable and VariableTsRc records, records that don't
 
 o   Make sure corrupt header skipping is tested in code that opens the next
     segment
+
+o   Check that sessions are correctly detected and that errors preceeding and
+    following yield the expected number of data records.
 
 User Documentation
 ==================
