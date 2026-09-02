@@ -546,7 +546,8 @@ LogError
     SegSizeTooSmall
 
         Indicates that the specified size of a segment file is less than
-        or equal to LogWrite::SEGMENT_FILE_HEADER_LEN.
+        or equal to LogWrite::SEGMENT_FILE_HEADER_LEN. This must not
+        take any argument.
 
     SessionEnd
 
@@ -710,6 +711,8 @@ o   Violations of Rust coding style conventions are to be identified and
     an marked as an error.
 
 o   Do not allow dead code.
+
+o   Do not create a tar file.
 
 Use of AI
 =========
