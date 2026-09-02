@@ -9,13 +9,10 @@
 //! ```
 
 use std::error::Error;
-use std::fs;
-use std::path::PathBuf;
 
 use clap::Parser;
 
 use tcslog::{LogError, LogRead, Meta, SegmentHeader};
-use tcslog_sample::{create_sample_logs};
 
 const MAX_MESSAGE_SIZE: usize = 256;
 
