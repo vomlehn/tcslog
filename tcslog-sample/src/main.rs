@@ -48,14 +48,5 @@ fn main() -> Result<(), Box<dyn Error>> {
         result.root_file,
     );
 
-    let mut names: Vec<String> = fs::read_dir(&dir)?
-        .filter_map(|e| e.ok())
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    names.sort();
-    for name in names {
-        println!("  {name}");
-    }
-
     Ok(())
 }
