@@ -5,7 +5,6 @@ members = [
     "tcslog",
     "tcslog-sample",
     "tcslog-dump",
-    "tcslog-tarball",
 ]
 
 [workspace.package]
