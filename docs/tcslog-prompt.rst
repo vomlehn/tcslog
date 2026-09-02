@@ -40,6 +40,9 @@ The Tcslog approach differs from approaches using the Linux logrotate
 utility as logrotate is not strictly tied to the actual storage used,
 relying instead of periodic checking.
 
+Since error recovery is done on a segment file basis, the smaller the
+segment file, the less telemetry data will be lost.
+
 There are several log formats, trading storage efficiency for automatic
 recording of meta data.
 
@@ -437,6 +440,10 @@ pub fn new(dir: &str, prefix: &str, suffix: &str, seg_size_max: u32, format: For
     The value of seg_size_max must be greater than the number of bytes
     in the segment file header.
 
+pub const SEGMENT_FILE_HEADER_LEN: u32
+
+    This is the length of the segment file header, in bytes.
+
 pub fn write_str(&self, msg: &str) -> Result(u32, LogError);
 
     Write a string to the log file. This invokes write().
@@ -527,9 +534,19 @@ LogError
 
         An error occurred from an I/O operation.
 
-    HasDelimiter
+    InvalidPathname
 
-        A prefix or suffix in a new() call has a filesystem delimiter.
+        The prefix and suffix cannot be combined with a segment file ID
+        and a directory name to form a valid path name.
+
+    InvalidFileName
+        The combination of prefix, suffix, and segment file ID does not
+        form a valid file name.
+
+    SegSizeTooSmall
+
+        Indicates that the specified size of a segment file is less than
+        or equal to LogWrite::SEGMENT_FILE_HEADER_LEN.
 
 ReadResult
 ----------
