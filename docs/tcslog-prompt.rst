@@ -104,6 +104,9 @@ by some number of bytes of telemetry data. Some segment files formats
 permit the number of bytes of telemetry data in a data record to be zero,
 some do not.
 
+Data records may be broken across sequential segment files to allow all
+segment files to have a uniform size of seg_size\ :sub:`max` bytes.
+
 Segment Header Format
 ---------------------
 The segment file header length is the same for all formats.
@@ -273,7 +276,7 @@ Write-Related Operations
 Initialization for Writing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
 Call the user function send() for all existing segment files. Then
-create a new segment file.
+create a new segment file, called the current segment file.
 
 Writing Telemetry Data
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -282,10 +285,10 @@ telemetry data is logically appended to the data header to form a logical data
 record. The data header
 depends on the format and may be zero length.
 
-If writing the remaining bytes in the data record would cause the segment
+If writing the remaining bytes in the logical data record would cause the segment
 file to grow longer than
 seg_size\ :sub:`max`
-only add enough bytes from the data record to grow the segment file to
+write enough bytes from the logical data record to grow the segment file to
 seg_size\ :sub:`max`
 bytes. Then, close the current segment file, call the LogFile::send() function, 
 and create a new segment file.
@@ -295,7 +298,8 @@ the segment file larger than
 seg_size\ :sub:`max`
 bytes, append all remaining bytes from the logical data record to the
 segment file.
-and return to the caller.
+and return to the caller. Do not close the current segment file, call
+LogFile::send(), or create a new segment file.
 
 Error Handling
 ^^^^^^^^^^^^^^
