@@ -1,105 +1,119 @@
-//! On-disk segment file header.
-//!
-//! Every segment file begins with a fixed-size header whose layout is:
-//!
-//! | offset | size | field                                       |
-//! |-------:|-----:|---------------------------------------------|
-//! |      0 |    8 | ASCII magic: `tcslogsf`                     |
-//! |      8 |    4 | ASCII version: e.g. `0010` for `0.1.0`      |
-//! |     12 |    8 | `segment_id` (u64, little-endian)           |
-//! |     20 |    8 | `session_id` (u64, little-endian)           |
-//! |     28 |    4 | `max_size`   (u32, little-endian)           |
-//! |     32 |    4 | `remaining`  (u32, little-endian)           |
-//! |     36 |    1 | format tag: 0=Fixed, 1=VariableSimple, 2=VariableTsRc |
-//! |     37 |    4 | `Fixed(n)` payload size (u32, LE); zero otherwise |
-//!
-//! All integers are packed little-endian; there is no padding.
+//! On-disk segment file header layout.
 
 use std::io::{Read, Write};
 
+use crate::error::LogError;
 use crate::format::Format;
 use crate::segid::SegId;
-use crate::LogError;
 
-/// Number of bytes occupied by a segment file header.
-pub const SEGMENT_HEADER_SIZE: usize = 41;
+/// ASCII magic tag stored at the start of every segment file.
+pub const FILE_TYPE: &[u8; 8] = b"tcslogsf";
 
-/// ASCII magic that must appear at offset 0 of every segment file.
-pub const MAGIC: &[u8; 8] = b"tcslogsf";
-
-/// ASCII version string written into the segment header. `0010` corresponds
-/// to semver `0.1.0`.
+/// Segment-file format version corresponding to tcslog `0.1.0`.
+/// The four ASCII digits encode `MMmp`: two-digit major, one-digit
+/// minor, one-digit patch.
 pub const VERSION: &[u8; 4] = b"0010";
 
-/// Decoded segment file header.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Major version number of the on-disk format understood by this crate.
+pub const VERSION_MAJOR: u8 = 0;
+/// Minor version number of the on-disk format understood by this crate.
+pub const VERSION_MINOR: u8 = 1;
+
+/// Number of bytes the segment file header consumes on disk.
+///
+/// Layout (little-endian, tightly packed):
+///
+/// | offset | length | field       |
+/// |-------:|-------:|:------------|
+/// |      0 |      8 | file type   |
+/// |      8 |      4 | version     |
+/// |     12 |      8 | segment_id  |
+/// |     20 |      8 | session_id  |
+/// |     28 |      4 | max_size    |
+/// |     32 |      8 | remaining   |
+/// |     40 |      1 | format tag  |
+/// |     41 |      4 | format arg  |
+pub const SEGMENT_FILE_HEADER_LEN: u32 = 45;
+
+/// In-memory representation of a segment file header.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SegmentHeader {
-    /// Unique identifier of this segment file. Matches the ID encoded in the
-    /// file name.
+    /// Identifier of this segment file. Matches the segment portion of
+    /// the file name.
     pub segment_id: SegId,
-    /// Identifier of the first segment file created for the writing session
-    /// that produced this segment. Constant across every segment of the
-    /// session, so readers can detect session boundaries.
+    /// Segment identifier of the first segment file created for the
+    /// session this file belongs to.
     pub session_id: SegId,
-    /// Maximum size in bytes that this segment file may grow to. Used by
-    /// the reader to know the intended data-section length.
+    /// Maximum size in bytes that a segment file in this log may reach.
     pub max_size: u32,
-    /// Number of bytes at the start of this segment's data section that are
-    /// the continuation of a data record started in a previous segment.
-    /// Zero when this segment begins cleanly at a record boundary.
-    pub remaining: u32,
-    /// Data format used by every record in this segment.
+    /// Number of bytes remaining in the data record whose first byte is
+    /// the first byte of this segment file's data section. May exceed
+    /// this segment's data section, in which case that record is
+    /// continued in later segment files.
+    pub remaining: u64,
+    /// Layout used for records in the data section.
     pub format: Format,
 }
 
 impl SegmentHeader {
-    /// Serialize this header into `w`.
-    pub(crate) fn write_to<W: Write>(&self, mut w: W) -> Result<(), LogError> {
-        let mut buf = [0u8; SEGMENT_HEADER_SIZE];
-        let mut off = 0usize;
-
-        buf[off..off + 8].copy_from_slice(MAGIC);
-        off += 8;
-        buf[off..off + 4].copy_from_slice(VERSION);
-        off += 4;
-        buf[off..off + 8].copy_from_slice(&self.segment_id.as_u64().to_le_bytes());
-        off += 8;
-        buf[off..off + 8].copy_from_slice(&self.session_id.as_u64().to_le_bytes());
-        off += 8;
-        buf[off..off + 4].copy_from_slice(&self.max_size.to_le_bytes());
-        off += 4;
-        buf[off..off + 4].copy_from_slice(&self.remaining.to_le_bytes());
-        off += 4;
-        buf[off] = self.format.tag();
-        off += 1;
-        buf[off..off + 4].copy_from_slice(&self.format.fixed_n().to_le_bytes());
-
-        w.write_all(&buf)?;
-        Ok(())
+    /// Number of bytes usable for the data section of a segment file
+    /// that is at most `max_size` bytes long.
+    pub fn data_section_len(max_size: u32) -> u32 {
+        max_size.saturating_sub(SEGMENT_FILE_HEADER_LEN)
     }
 
-    /// Deserialize a header from `r`, validating the magic and version.
-    pub(crate) fn read_from<R: Read>(mut r: R) -> Result<Self, LogError> {
-        let mut buf = [0u8; SEGMENT_HEADER_SIZE];
-        r.read_exact(&mut buf)?;
+    /// Number of bytes available for records in this segment's data
+    /// section.
+    pub fn data_capacity(&self) -> u32 {
+        Self::data_section_len(self.max_size)
+    }
 
-        if &buf[0..8] != MAGIC {
-            return Err(LogError::BadMagic);
-        }
-        let ver: [u8; 4] = buf[8..12].try_into().unwrap();
-        if &ver != VERSION {
-            return Err(LogError::IncompatibleVersion(ver));
-        }
+    /// Serializes the header into `SEGMENT_FILE_HEADER_LEN` bytes.
+    pub fn to_bytes(&self) -> [u8; SEGMENT_FILE_HEADER_LEN as usize] {
+        let mut buf = [0u8; SEGMENT_FILE_HEADER_LEN as usize];
+        buf[0..8].copy_from_slice(FILE_TYPE);
+        buf[8..12].copy_from_slice(VERSION);
+        buf[12..20].copy_from_slice(&self.segment_id.to_le_bytes());
+        buf[20..28].copy_from_slice(&self.session_id.to_le_bytes());
+        buf[28..32].copy_from_slice(&self.max_size.to_le_bytes());
+        buf[32..40].copy_from_slice(&self.remaining.to_le_bytes());
+        buf[40] = self.format.tag();
+        buf[41..45].copy_from_slice(&self.format.fixed_len().to_le_bytes());
+        buf
+    }
 
-        let segment_id = SegId::new(u64::from_le_bytes(buf[12..20].try_into().unwrap()));
-        let session_id = SegId::new(u64::from_le_bytes(buf[20..28].try_into().unwrap()));
+    /// Writes the header to `w` in on-disk form.
+    pub fn write_to<W: Write>(&self, w: &mut W) -> Result<(), LogError> {
+        let buf = self.to_bytes();
+        w.write_all(&buf).map_err(LogError::IoError)
+    }
+
+    /// Deserializes a header from its on-disk byte encoding.
+    pub fn from_bytes(buf: &[u8; SEGMENT_FILE_HEADER_LEN as usize]) -> Result<Self, LogError> {
+        if &buf[0..8] != FILE_TYPE {
+            return Err(LogError::InvalidHeader);
+        }
+        let version: [u8; 4] = buf[8..12].try_into().unwrap();
+        if !version_is_compatible(&version) {
+            return Err(LogError::VersionMismatch);
+        }
+        let segment_id = SegId::from_le_bytes(buf[12..20].try_into().unwrap());
+        let session_id = SegId::from_le_bytes(buf[20..28].try_into().unwrap());
         let max_size = u32::from_le_bytes(buf[28..32].try_into().unwrap());
-        let remaining = u32::from_le_bytes(buf[32..36].try_into().unwrap());
-        let tag = buf[36];
-        let n = u32::from_le_bytes(buf[37..41].try_into().unwrap());
-        let format = Format::from_tag_and_n(tag, n)
-            .ok_or(LogError::InconsistentHeader("unknown format tag"))?;
-
+        let remaining = u64::from_le_bytes(buf[32..40].try_into().unwrap());
+        let tag = buf[40];
+        let arg = u32::from_le_bytes(buf[41..45].try_into().unwrap());
+        let format = match tag {
+            0 => {
+                if arg == 0 {
+                    return Err(LogError::InvalidHeader);
+                }
+                Format::Fixed(arg)
+            }
+            1 => Format::VariableSimple,
+            2 => Format::VariableTsRc,
+            _ => return Err(LogError::InvalidHeader),
+        };
         Ok(SegmentHeader {
             segment_id,
             session_id,
@@ -108,64 +122,99 @@ impl SegmentHeader {
             format,
         })
     }
+
+    /// Reads a header from `r`.
+    pub fn read_from<R: Read>(r: &mut R) -> Result<Self, LogError> {
+        let mut buf = [0u8; SEGMENT_FILE_HEADER_LEN as usize];
+        r.read_exact(&mut buf).map_err(LogError::IoError)?;
+        Self::from_bytes(&buf)
+    }
+}
+
+/// Returns `true` if a segment file with the given four-byte version
+/// string can be read by this build of tcslog. The rule is: major must
+/// match exactly; the file's minor must be less than or equal to the
+/// crate's minor.
+fn version_is_compatible(v: &[u8; 4]) -> bool {
+    fn hex(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            b'a'..=b'f' => Some(b - b'a' + 10),
+            _ => None,
+        }
+    }
+    let (Some(h), Some(t), Some(m), Some(_p)) =
+        (hex(v[0]), hex(v[1]), hex(v[2]), hex(v[3]))
+    else {
+        return false;
+    };
+    let major = (h << 4) | t;
+    let minor = m;
+    major == VERSION_MAJOR && minor <= VERSION_MINOR
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::format::Format;
-    use std::io::Cursor;
+
+    #[test]
+    fn roundtrip_variable_ts_rc() {
+        let h = SegmentHeader {
+            segment_id: SegId::from_u64(0x1111_2222_3333_4444),
+            session_id: SegId::from_u64(0x1111_2222_3333_4444),
+            max_size: 4096,
+            remaining: 0,
+            format: Format::VariableTsRc,
+        };
+        let bytes = h.to_bytes();
+        let back = SegmentHeader::from_bytes(&bytes).unwrap();
+        assert_eq!(h, back);
+    }
 
     #[test]
     fn roundtrip_fixed() {
         let h = SegmentHeader {
-            segment_id: SegId::new(0x1234_5678_9abc_def0),
-            session_id: SegId::new(0x1234_5678_9abc_de00),
-            max_size: 4096,
+            segment_id: SegId::from_u64(1),
+            session_id: SegId::from_u64(1),
+            max_size: 256,
             remaining: 17,
-            format: Format::Fixed(42),
+            format: Format::Fixed(64),
         };
-        let mut buf = Vec::new();
-        h.write_to(&mut buf).unwrap();
-        assert_eq!(buf.len(), SEGMENT_HEADER_SIZE);
-
-        let mut cur = Cursor::new(buf);
-        let got = SegmentHeader::read_from(&mut cur).unwrap();
-        assert_eq!(got, h);
-    }
-
-    #[test]
-    fn roundtrip_variable() {
-        for fmt in [Format::VariableSimple, Format::VariableTsRc] {
-            let h = SegmentHeader {
-                segment_id: SegId::new(1),
-                session_id: SegId::new(1),
-                max_size: 128,
-                remaining: 0,
-                format: fmt,
-            };
-            let mut buf = Vec::new();
-            h.write_to(&mut buf).unwrap();
-            let got = SegmentHeader::read_from(Cursor::new(buf)).unwrap();
-            assert_eq!(got, h);
-        }
+        let bytes = h.to_bytes();
+        let back = SegmentHeader::from_bytes(&bytes).unwrap();
+        assert_eq!(h, back);
     }
 
     #[test]
     fn rejects_bad_magic() {
-        let mut buf = vec![0u8; SEGMENT_HEADER_SIZE];
-        buf[0..8].copy_from_slice(b"badmagic");
-        buf[8..12].copy_from_slice(VERSION);
-        let err = SegmentHeader::read_from(Cursor::new(buf)).unwrap_err();
-        assert!(matches!(err, LogError::BadMagic));
+        let mut bytes = SegmentHeader {
+            segment_id: SegId::from_u64(1),
+            session_id: SegId::from_u64(1),
+            max_size: 256,
+            remaining: 0,
+            format: Format::VariableSimple,
+        }
+        .to_bytes();
+        bytes[0] = b'X';
+        assert!(matches!(
+            SegmentHeader::from_bytes(&bytes),
+            Err(LogError::InvalidHeader)
+        ));
     }
 
     #[test]
-    fn rejects_bad_version() {
-        let mut buf = vec![0u8; SEGMENT_HEADER_SIZE];
-        buf[0..8].copy_from_slice(MAGIC);
-        buf[8..12].copy_from_slice(b"9999");
-        let err = SegmentHeader::read_from(Cursor::new(buf)).unwrap_err();
-        assert!(matches!(err, LogError::IncompatibleVersion(_)));
+    fn accepts_minor_zero() {
+        assert!(version_is_compatible(b"0000"));
+        assert!(version_is_compatible(b"0010"));
+    }
+
+    #[test]
+    fn rejects_higher_minor() {
+        assert!(!version_is_compatible(b"0020"));
+    }
+
+    #[test]
+    fn rejects_higher_major() {
+        assert!(!version_is_compatible(b"0100"));
     }
 }

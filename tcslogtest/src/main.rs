@@ -2,9 +2,7 @@ use std::path::PathBuf;
 //use std::fs::OpenOptions;
 //use std::io::Read;
 
-use tcslog::{
-    BLOCK_HEADER_SIZE, CONT_SIZE, TcsLog, TcsLogError, Uid, Uidable, UidableError, BLOCK_SIZE, MAX_RECORD_SIZE, RECORD_METADATA_SIZE
-};
+use tcslog::{Format, LogWrite};
 
 /*
  * Define a type that returns the Uid. The Uid advances by one
@@ -133,32 +131,32 @@ fn testit<'a>() {
 
 // Test reading from a log file with no information
 #[allow(dead_code)] // kept as a ready-to-enable test (see the commented block in testit)
-fn test_empty<'a>() -> Result<(), TcsLogError<'a>> {
+fn test_empty<'a>() -> Result<(), LogError<'a>> {
     test_write_read(0, 0)
 }
 
 // Test writing/reading a record that will fit entirely in the first
 // data block
 #[allow(dead_code)] // kept as a ready-to-enable test (see the commented block in testit)
-fn test_one_small<'a>() -> Result<(), TcsLogError<'a>> {
+fn test_one_small<'a>() -> Result<(), LogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 2, 1)
 }
 
 // Test writing/reading records that will fit entirely in the first
 // data block
 #[allow(dead_code)] // kept as a ready-to-enable test (see the commented block in testit)
-fn test_multiple_small<'a>() -> Result<(), TcsLogError<'a>> {
+fn test_multiple_small<'a>() -> Result<(), LogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 12, 10)
 }
 
 // Test writing/reading records that will require many data blocks
 #[allow(dead_code)] // kept as a ready-to-enable test (see the commented block in testit)
-fn test_many_small<'a>() -> Result<(), TcsLogError<'a>> {
+fn test_many_small<'a>() -> Result<(), LogError<'a>> {
     test_write_read(MAX_RECORD_SIZE / 4, 5)
 }
 
 // Test writing/reading records that will require many data blocks
-fn test_many_many_small<'a>() -> Result<(), TcsLogError<'a>> {
+fn test_many_many_small<'a>() -> Result<(), LogError<'a>> {
 //    test_write_read(MAX_RECORD_SIZE / 12, 100)
     test_write_read(MAX_RECORD_SIZE / 12, 11)
 }
@@ -168,7 +166,7 @@ fn test_many_many_small<'a>() -> Result<(), TcsLogError<'a>> {
  * chained files (three files in total), then read every file in the chain
  * and verify that their chain counts are 0, 1, and 2.
  */
-fn test_chain_count<'a>() -> Result<(), TcsLogError<'a>> {
+fn test_chain_count<'a>() -> Result<(), LogError<'a>> {
     // A self-cleaning, OS-independent temporary directory. It and the log files
     // created inside it are removed automatically when `dir` is dropped, so the
     // deterministic file names produced by the test Uider never collide
@@ -187,7 +185,7 @@ fn test_chain_count<'a>() -> Result<(), TcsLogError<'a>> {
 
     // The first file in the chain has a chain count of zero.
     if tcs_log.chain_count() != 0 {
-        return Err(TcsLogError::TestError("first file chain count is not zero"));
+        return Err(LogError::TestError("first file chain count is not zero"));
     }
 
     // Keep writing until two successor files have been created. At that point
@@ -216,19 +214,19 @@ fn test_chain_count<'a>() -> Result<(), TcsLogError<'a>> {
     counts.sort();
     if counts != [0, 1, 2] {
         println!("test_chain_count: expected chain counts [0, 1, 2], got {:?}", counts);
-        return Err(TcsLogError::TestError("unexpected chain counts"));
+        return Err(LogError::TestError("unexpected chain counts"));
     }
 
     // Read every record back through the first file. The reader must follow the
     // chain transparently across all three files and then report EOF.
-    let first_file = first_file.ok_or(TcsLogError::TestError("no file with chain count 0"))?;
+    let first_file = first_file.ok_or(LogError::TestError("no file with chain count 0"))?;
     let mut reader = TcsLog::open_path(first_file)?;
     read_recs_eof(&mut reader, rec_size, n_recs)?;
 
     Ok(())
 }
 
-fn test_write_read<'a>(rec_size: usize, n: usize) -> Result<(), TcsLogError<'a>> {
+fn test_write_read<'a>(rec_size: usize, n: usize) -> Result<(), LogError<'a>> {
     // A self-cleaning, OS-independent temporary directory. It (and every log
     // file created inside it) is removed automatically when `dir` is dropped at
     // the end of this function.
@@ -278,14 +276,14 @@ fn write_recs<'a>(
     teststamper: &mut Teststamper,
     rec_size: usize,
     n_recs: usize,
-) -> Result<Uid, TcsLogError<'a>> {
+) -> Result<Uid, LogError<'a>> {
     for i in 0..n_recs {
         let rec = create_record(rec_size, i);
         tcs_log.write(teststamper, &rec)?;
     }
 
     match teststamper.Uid() {
-        Err(e) => Err(TcsLogError::UidableError(e)),
+        Err(e) => Err(LogError::UidableError(e)),
         Ok(Uid) => Ok(Uid),
     }
 }
@@ -314,7 +312,7 @@ fn read_recs_eof<'a>(
     tcs_log: &mut TcsLog,
     rec_size: usize,
     n_recs: usize,
-) -> Result<(), TcsLogError<'a>> {
+) -> Result<(), LogError<'a>> {
     read_recs(tcs_log, rec_size, n_recs)?;
 
     let mut Uid = Uid::new(0, 0);
@@ -324,7 +322,7 @@ fn read_recs_eof<'a>(
     // Read one more record to verify EOF
     let eof = tcs_log.read(&mut Uid, &mut buf);
     match eof {
-        Err(TcsLogError::EOF) => Ok(()),
+        Err(LogError::EOF) => Ok(()),
         Err(e) => Err(e),
         Ok(_) => Ok(()),
     }
@@ -334,7 +332,7 @@ fn read_recs<'a>(
     tcs_log: &mut TcsLog,
     rec_size: usize,
     n_recs: usize,
-) -> Result<(), TcsLogError<'a>> {
+) -> Result<(), LogError<'a>> {
     let mut Uid = Uid::new(0, 0);
     let mut buf = vec![0u8; rec_size];
 
@@ -345,7 +343,7 @@ fn read_recs<'a>(
         let rec = create_record(rec_size, i);
         if buf[..n] != rec {
             println!("Failed reading record {i}");
-            return Err(TcsLogError::TestError("record mismatch"));
+            return Err(LogError::TestError("record mismatch"));
         }
     }
 
@@ -379,7 +377,7 @@ rec_size
  * Write one record, returning the Uid used to create the log file or
  * an error.
  */
-fn test_write_one(over_four: usize) -> Result<Uid, TcsLogError> {
+fn test_write_one(over_four: usize) -> Result<Uid, LogError> {
 
     let mut teststamper = Teststamper::new();
 println!("Creating TcsLog");
@@ -392,7 +390,7 @@ println!("Creating TcsLog");
 /**
  * Read one record, verifying that the EOF is present
  */
-fn test_read_one(Uid: Uid, over_four: usize) -> Result<(), TcsLogError> {
+fn test_read_one(Uid: Uid, over_four: usize) -> Result<(), LogError> {
     let prefix = "testlog";
     let file_name = TcsLog::generate_file_name(prefix, Uid)?;
 println!("test_read_one: file_name {}", file_name);
@@ -411,7 +409,7 @@ println!("test_read_one: path is open");
 /**
  * Test overflowing from one log file to another one
  */
-fn test_fill_one<'a>() -> Result<Uid, TcsLogError> {
+fn test_fill_one<'a>() -> Result<Uid, LogError> {
     let over_four = MAX_RECORD_SIZE / 4;
     let mut teststamper = Teststamper::new();
 
@@ -443,7 +441,7 @@ println!("Version okay");
 
 let t = Ok(teststamper.first());
     match teststamper.first() {
-        Err(e) => Err(TcsLogError::UidableError(e)),
+        Err(e) => Err(LogError::UidableError(e)),
         Ok(Uid) => Ok(Uid),
     }
 ;
@@ -457,7 +455,7 @@ t
     let header = Header::new(Uid, &file_name, index_offset, data_offset);
 */
 /*
-fn test_read_one(Uid: Uid, over_four: usize) -> Result<(), TcsLogError> {
+fn test_read_one(Uid: Uid, over_four: usize) -> Result<(), LogError> {
     let mut testtamper = Teststamper::new_init(Uid);
     let Uid = testtamper.first();
     let _tcs_log = TcsLog::open("/tmp", "testlog", Uid)?;

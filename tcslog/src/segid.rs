@@ -1,99 +1,81 @@
-//! Segment identifier: an unsigned 64-bit value formatted as
-//! `xxxx-xxxx-xxxx-xxxx` (16 lowercase hex characters, dashes every four).
+//! Segment file identifiers and their fixed-width string encoding.
 
 use std::fmt;
-use std::str::FromStr;
 
-/// Identifier of a segment file.
-///
-/// A `SegId` is a `u64`, but its `Display` and `FromStr` implementations use
-/// the on-disk canonical form: sixteen lowercase hexadecimal characters with
-/// a `-` separator every four characters, e.g. `1234-abcd-5678-efab`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Identifier of a segment file. A `SegId` is a 64-bit value that is
+/// rendered on disk as four groups of four lowercase hex digits separated
+/// by dashes (for example, `1234-abcd-5678-efab`).
+#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SegId(u64);
 
-/// Number of characters in a formatted segment ID (16 hex + 3 dashes).
-pub const SEG_ID_STR_LEN: usize = 19;
-
 impl SegId {
-    /// The maximum representable segment ID (u64::MAX).
+    /// The number of ASCII characters produced by the [`SegId`] string
+    /// form. Sixteen hexadecimal digits plus three dashes.
+    pub const STR_LEN: usize = 19;
+
+    /// The largest representable [`SegId`] value.
     pub const MAX: SegId = SegId(u64::MAX);
 
-    /// The zero segment ID; useful as a sentinel in tests.
-    pub const ZERO: SegId = SegId(0);
-
-    /// Create a segment ID from its raw `u64` value.
-    pub const fn new(value: u64) -> Self {
-        Self(value)
-    }
-
-    /// Return the raw `u64` value.
-    pub const fn as_u64(&self) -> u64 {
-        self.0
-    }
-}
-
-impl From<u64> for SegId {
-    fn from(v: u64) -> Self {
+    /// Wraps a raw `u64` value as a [`SegId`].
+    pub const fn from_u64(v: u64) -> SegId {
         SegId(v)
     }
-}
 
-impl From<SegId> for u64 {
-    fn from(v: SegId) -> Self {
-        v.0
+    /// Returns the underlying `u64`.
+    pub const fn as_u64(self) -> u64 {
+        self.0
+    }
+
+    /// Parses a segment identifier from its dashed hex string form.
+    ///
+    /// The input must be exactly [`STR_LEN`](Self::STR_LEN) bytes long and
+    /// match the pattern `xxxx-xxxx-xxxx-xxxx` where each `x` is a
+    /// lowercase hexadecimal digit.
+    pub fn parse(s: &str) -> Option<SegId> {
+        let bytes = s.as_bytes();
+        if bytes.len() != Self::STR_LEN {
+            return None;
+        }
+        if bytes[4] != b'-' || bytes[9] != b'-' || bytes[14] != b'-' {
+            return None;
+        }
+        let mut v: u64 = 0;
+        for &b in bytes.iter() {
+            if b == b'-' {
+                continue;
+            }
+            let digit = match b {
+                b'0'..=b'9' => (b - b'0') as u64,
+                b'a'..=b'f' => (b - b'a' + 10) as u64,
+                _ => return None,
+            };
+            v = (v << 4) | digit;
+        }
+        Some(SegId(v))
+    }
+
+    /// Little-endian byte encoding of the underlying `u64`.
+    pub fn to_le_bytes(self) -> [u8; 8] {
+        self.0.to_le_bytes()
+    }
+
+    /// Constructs a [`SegId`] from its little-endian byte encoding.
+    pub fn from_le_bytes(bytes: [u8; 8]) -> SegId {
+        SegId(u64::from_le_bytes(bytes))
     }
 }
 
 impl fmt::Display for SegId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let hex = format!("{:016x}", self.0);
+        let v = self.0;
         write!(
             f,
-            "{}-{}-{}-{}",
-            &hex[0..4],
-            &hex[4..8],
-            &hex[8..12],
-            &hex[12..16],
+            "{:04x}-{:04x}-{:04x}-{:04x}",
+            ((v >> 48) & 0xFFFF) as u16,
+            ((v >> 32) & 0xFFFF) as u16,
+            ((v >> 16) & 0xFFFF) as u16,
+            (v & 0xFFFF) as u16,
         )
-    }
-}
-
-/// Error returned by `SegId::from_str` for malformed input.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct ParseSegIdError;
-
-impl fmt::Display for ParseSegIdError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("invalid segment id: expected xxxx-xxxx-xxxx-xxxx")
-    }
-}
-
-impl std::error::Error for ParseSegIdError {}
-
-impl FromStr for SegId {
-    type Err = ParseSegIdError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.len() != SEG_ID_STR_LEN {
-            return Err(ParseSegIdError);
-        }
-        let bytes = s.as_bytes();
-        if bytes[4] != b'-' || bytes[9] != b'-' || bytes[14] != b'-' {
-            return Err(ParseSegIdError);
-        }
-        let mut hex = String::with_capacity(16);
-        for chunk in [&s[0..4], &s[5..9], &s[10..14], &s[15..19]] {
-            for c in chunk.chars() {
-                if !matches!(c, '0'..='9' | 'a'..='f') {
-                    return Err(ParseSegIdError);
-                }
-                hex.push(c);
-            }
-        }
-        u64::from_str_radix(&hex, 16)
-            .map(SegId)
-            .map_err(|_| ParseSegIdError)
     }
 }
 
@@ -102,40 +84,32 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_zero() {
-        assert_eq!(SegId::new(0).to_string(), "0000-0000-0000-0000");
+    fn display_roundtrip() {
+        let id = SegId::from_u64(0x1234_abcd_5678_efabu64);
+        let s = format!("{id}");
+        assert_eq!(s, "1234-abcd-5678-efab");
+        assert_eq!(s.len(), SegId::STR_LEN);
+        assert_eq!(SegId::parse(&s), Some(id));
     }
 
     #[test]
-    fn display_example() {
-        assert_eq!(
-            SegId::new(0x1234_abcd_5678_efab).to_string(),
-            "1234-abcd-5678-efab",
-        );
+    fn parse_rejects_uppercase() {
+        assert!(SegId::parse("1234-ABCD-5678-EFAB").is_none());
     }
 
     #[test]
-    fn roundtrip() {
-        let s = "1234-abcd-5678-efab";
-        let id: SegId = s.parse().unwrap();
-        assert_eq!(id.as_u64(), 0x1234_abcd_5678_efab);
-        assert_eq!(id.to_string(), s);
+    fn parse_rejects_bad_length() {
+        assert!(SegId::parse("1234-abcd-5678").is_none());
+        assert!(SegId::parse("1234-abcd-5678-efab-0000").is_none());
     }
 
     #[test]
-    fn reject_wrong_length() {
-        assert!("1234-abcd-5678-efa".parse::<SegId>().is_err());
-        assert!("1234-abcd-5678-efabc".parse::<SegId>().is_err());
+    fn parse_rejects_missing_dashes() {
+        assert!(SegId::parse("1234_abcd_5678_efab").is_none());
     }
 
     #[test]
-    fn reject_bad_dashes() {
-        assert!("1234abcd-5678-efab-1111".parse::<SegId>().is_err());
-    }
-
-    #[test]
-    fn reject_non_hex() {
-        assert!("1234-abcd-5678-efaG".parse::<SegId>().is_err());
-        assert!("1234-abcd-5678-EFAB".parse::<SegId>().is_err());
+    fn zero() {
+        assert_eq!(format!("{}", SegId::from_u64(0)), "0000-0000-0000-0000");
     }
 }
