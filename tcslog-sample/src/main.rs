@@ -35,7 +35,6 @@ fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
     let dir = PathBuf::from(args.dir);
-    let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir)?;
     let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");
 
