@@ -22,6 +22,8 @@ use tcslog_sample::create_sample_logs;
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
+    dir:    String,
+
     /// Log file name prefix.
     prefix: String,
 
@@ -32,9 +34,7 @@ struct Args {
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::parse();
 
-    // Choose an OS-independent directory to hold the log files. Start fresh so a
-    // re-run does not collide with files left by a previous run.
-    let dir: PathBuf = std::env::temp_dir().join("tcslog-sample");
+    let dir = PathBuf::from(args.dir);
     let _ = fs::remove_dir_all(&dir);
     fs::create_dir_all(&dir)?;
     let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");

@@ -12,7 +12,7 @@ use tcslog::{Format, LogError, LogWrite, SEGMENT_FILE_HEADER_LEN,
 pub const SEG_SIZE_MAX: u32 = SEGMENT_FILE_HEADER_LEN + 36;
 
 /// Minimum number of messages to write
-pub const MAX_MESSAGES: u64 = 10;
+pub const MAX_MESSAGES: u64 = 3;
 
 /// Summary of a created sample log chain.
 pub struct SampleLogs {
