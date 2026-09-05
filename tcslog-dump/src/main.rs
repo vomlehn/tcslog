@@ -65,6 +65,11 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
             }
             Err(LogError::Eof) => break,
+            Err(LogError::SessionEnd) => {
+                println!();
+                println!("--- End of Session---");
+                continue;
+            },
             Err(e) => return Err(e.into()),
         }
     }
