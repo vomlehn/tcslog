@@ -272,29 +272,37 @@ Write-Related Operations
 
 Initialization for Writing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-Call the user function send() for all existing segment files.
+Call the user function send() for all existing segment files. Then
+create a new segment file.
 
 Writing Telemetry Data
 ~~~~~~~~~~~~~~~~~~~~~~
-Each time a user calls the write function with telemetry data, a data
-record is written which consists of a data header
-which may be of zero size, followed by the telemetry data. The length of
-the telemetry data portion is controlled by the format.
-The data record write starts at the current location in the data section of
-a segment file and must write as many bytes as it can without growing the
-segment file to more than seg_size\ :sub:`max` bytes.
+When the user calls an appropriate write function with telemetry data, the
+telemetry data is logically appended to the data header to form a logical data
+record. The data header
+depends on the format and may be zero length.
 
-If the segment file is shorter than seg_size\ :sub:`max` bytes when the entire
-data record is written, the write is complete and the function returns to the
-user.
+If writing the remaining bytes in the data record would cause the segment
+file to grow longer than
+seg_size\ :sub:`max`
+only add enough bytes from the data record to grow the segment file to
+seg_size\ :sub:`max`
+bytes. Then, close the current segment file, call the LogFile::send() function, 
+and create a new segment file.
 
-If the segment file size reaches seg_size\ :sub:`max` bytes during the write
-operation,
-the current segment file is closed, the segment file number is
-increased, and a new segment file is created.
+If there are too few bytes remaining in the logical data record to grow
+the segment file larger than 
+seg_size\ :sub:`max`
+bytes, append all remaining bytes from the logical data record to the
+segment file.
+and return to the caller.
 
-Writing of the data record continues until all bytes have been written,
-creating new segment files as required.
+Error Handling
+^^^^^^^^^^^^^^
+If an error happens when writing to the current segment file, close the
+segment file, call LogFile::send(), and create a new segment file. Errors
+occuring during creation of a new segment file terminate the write
+operation and propogate to the caller.
 
 Segment File Creation
 ~~~~~~~~~~~~~~~~~~~~~
