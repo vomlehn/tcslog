@@ -264,7 +264,8 @@ time increases monotonically, it must be greater than any previous
 time and so is unique.
 
 TIMER_RESOLUTION must not be defined in the code proper but should be definable
-via command line or a build.rs file.
+via command line or a build.rs file. Unparseable and zero values will result
+either in a compile error or an error from LogWrite::new().
 
 Operations
 ==========
@@ -696,6 +697,8 @@ o   Simulate the correct behavior in the presence for faults:
 
 User Documentation
 ==================
+User documentation is written as an .RST file. It must not have any
+constructs that cause errors when processed with rst2html.
 
 Introduction
 ------------
@@ -714,6 +717,11 @@ Building and Installation
 Include instructions on how to build code using the tcslog crate library and
 how to build, install, and run tcslog-dump. Also, show how to build and
 run tcslog-sample.
+
+Excluded
+--------
+The user documentation omits mention of internal tcslog testing and the on-disk
+format.
 
 Restrictions
 ============
