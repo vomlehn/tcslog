@@ -1,6 +1,17 @@
 # Makefile for automated Rust project creation with Claude Code
 
+SHELL := /bin/sh
+
 .PHONY: all setup build test clean install help
+
+# Portable command abstractions (override per-OS as needed)
+RM      := rm -f
+RMDIR   := rm -rf
+MKDIR   := mkdir -p
+CP      := cp
+CP_R    := cp -R -p
+SED     := sed
+MV      := mv
 
 # Project variables
 PROJECT_NAME := task-manager
@@ -32,16 +43,22 @@ TS_RE = ${TS_RE_SECS}_${TS_RE_MSECS}
 
 # Output directory for tcslog-sample
 # TODO: pass to tcslog-sample as an argument
-TCSLOG_SAMPLE_DIR = /tmp/tcslog-sample
+TMPDIR ?= /tmp
+TCSLOG_SAMPLE_DIR ?= $(TMPDIR)/tcslog-sample
 
-RELEASE = --release
 RELEASE =
 
-FIXUP = set -x; \
-		echo "Project fixup..."; \
-		sed -i 's/into_raw_fd/as_raw_fd/g' g/src/endpoint.rs; \
-		sed -i 's/into_raw_fd/as_raw_fd/g' g/src/dh.rs;
+# To enable FIXUP, set ENABLE_FIXUP=1 on the make command line.
+ENABLE_FIXUP ?=
+ifeq ($(ENABLE_FIXUP),1)
+FIXUP = echo "Project fixup..."; \
+		$(SED) 's/into_raw_fd/as_raw_fd/g' g/src/endpoint.rs > g/src/endpoint.rs.tmp && \
+		$(MV) g/src/endpoint.rs.tmp g/src/endpoint.rs; \
+		$(SED) 's/into_raw_fd/as_raw_fd/g' g/src/dh.rs > g/src/dh.rs.tmp && \
+		$(MV) g/src/dh.rs.tmp g/src/dh.rs;
+else
 FIXUP =
+endif
 
 FIXUP_TEST =
 FIXUP_SIM =
@@ -66,8 +83,8 @@ help:
 # Create necessary directories
 setup:
 	@echo "Setting up project structure..."
-	@mkdir -p $(DOCS_DIR) $(PROMPTS_DIR)
-	@echo "✓ Directories created"
+	@$(MKDIR) $(DOCS_DIR) $(PROMPTS_DIR)
+	@echo "[OK] Directories created"
 
 # Generate project using Claude Code
 generate: .generate
@@ -75,35 +92,28 @@ generate: .generate
 .generate: $(TCSLOG_PROMPT)
 	( \
 		set -eu; \
-		echo "Generating project with Claude Code..."; \
-		if [ ! -f "$(TCSLOG_PROMPT)" ]; then \
-			echo "Error: $(TCSLOG_PROMPT) not found"; \
-			exit 1; \
-		fi \
-	) 2>&1 | tee generate.out
-	( \
-		set -x; \
-		set -eu; \
-		start_time=$$(date +"%s"); \
+		start_time=$$(date +%s); \
 		claude -p \
 		    "$(PROMPT)" \
 		   --allowedTools Read,Write,Edit,MultiEdit \
 		    --verbose; \
 		print-elapsed $$start_time; \
-		echo "✓ Project files generated" \
+		echo "[OK] Project files generated"; \
+		echo "File created after project code is generated" > .generate; \
 	) 2>&1 | tee -a generate.out
-	echo "File created after project code is generated" >.generate
 
 # Alternative: Use echo to pipe commands
 generate-alt:
 	@echo "Generating project with Claude Code (alternative method)..."
-	@echo "Read docs/design.rst and create a complete Rust project with:\n\
-	1. Cargo.toml with dependencies (serde, serde_json, chrono, clap)\n\
-	2. All source files: main.rs, task.rs, storage.rs, cli.rs\n\
-	3. Unit tests in each module\n\
-	4. Integration tests\n\
-	5. README.md and .gitignore\n\
-	Generate all files without confirmation." | claude --model claude-sonnet-4-5-20250929
+	@printf '%s\n' \
+	    "Read docs/design.rst and create a complete Rust project with:" \
+	    "1. Cargo.toml with dependencies (serde, serde_json, chrono, clap)" \
+	    "2. All source files: main.rs, task.rs, storage.rs, cli.rs" \
+	    "3. Unit tests in each module" \
+	    "4. Integration tests" \
+	    "5. README.md and .gitignore" \
+	    "Generate all files without confirmation." \
+	    | claude --model claude-sonnet-4-5-20250929
 
 # Build the project
 build:
@@ -112,7 +122,7 @@ build:
 		$(FIXUP) \
 		echo "Building the project..."; \
 		cd $(RUST) && cargo build $(RELEASE) -p tcslog; \
-		echo "✓ Build complete" \
+		echo "[OK] Build complete"; \
 	) 2>&1 | tee build.out
 
 # Run tests
@@ -122,7 +132,7 @@ test:
 		$(FIXUP_TEST) \
 		echo "Running tests..."; \
 		cd $(RUST) && cargo test; \
-		echo "✓ Tests complete"; \
+		echo "[OK] Tests complete"; \
 	)
 
 # Run the tcspecial application
@@ -154,26 +164,26 @@ tcslog-dump:
 clean:
 	@echo "Cleaning build artifacts..."
 	-cargo clean
-	rm -f generate.out build.out run.out test.out $(TCSLOG_TAR)
-	rm -rf $(TCSLOG_RUST) $(TCSLOG_TAR)
-	@echo "✓ Clean complete"
+	$(RM) generate.out build.out run.out test.out $(TCSLOG_TAR)
+	$(RMDIR) $(TCSLOG_RUST) $(TCSLOG_TAR)
+	@echo "[OK] Clean complete"
 
 
 # Clean everything including generated source
 distclean: clean
 	@echo "Removing all generated files..."
-	rm -f .generate
-	rm -f docs/tcslog.rst
-	rm -f Cargo.lock
-	rm -rf $(TCSLOG_CRATES)
-	rm -rf target
-	@echo "✓ Project reset"
+	$(RM) .generate
+	$(RM) docs/tcslog.rst
+	$(RM) Cargo.lock
+	$(RMDIR) $(TCSLOG_CRATES)
+	$(RMDIR) target
+	@echo "[OK] Project reset"
 
 # Install binary globally
 install: build
 	@echo "Installing $(PROJECT_NAME)..."
 	cd $(RUST) && cargo install --path .
-	@echo "✓ Installed to ~/.cargo/bin/$(PROJECT_NAME)"
+	@echo "[OK] Installed to $$HOME/.cargo/bin/$(PROJECT_NAME)"
 
 # Check code quality
 check:
@@ -190,7 +200,7 @@ format:
 release: test
 	@echo "Creating release build..."
 	cd $(RUST) && cargo build --release
-	@echo "✓ Release binary: target/release/$(PROJECT_NAME)"
+	@echo "[OK] Release binary: target/release/$(PROJECT_NAME)"
 
 # Run with example data
 demo: build
@@ -205,6 +215,6 @@ demo: build
 # Duplicate crates
 .PHONY: dup
 dup:
-	rm -rf dup
-	mkdir dup
-	cp -a $(TCSLOG_CRATES) dup
+	$(RMDIR) dup
+	$(MKDIR) dup
+	$(CP_R) $(TCSLOG_CRATES) dup
