@@ -10,7 +10,7 @@
 
 use std::error::Error;
 
-use clap::Parser;
+use clap::{CommandFactory, Parser};
 
 use tcslog::{LogError, LogRead, Meta, SegmentHeader};
 
@@ -29,10 +29,20 @@ struct Args {
 
     /// Segment file name suffix.
     suffix: String,
+
+    /// Print segment headers, session boundaries, and summary information
+    /// in addition to log messages.
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
+    let args = Args::try_parse().unwrap_or_else(|e| {
+        eprintln!("{e}");
+        let _ = Args::command().print_help();
+        eprintln!();
+        std::process::exit(2);
+    });
 
     let mut log = LogRead::new(&args.dirname, &args.prefix, &args.suffix)?;
     let mut current_seg = None;
@@ -45,12 +55,14 @@ fn main() -> Result<(), Box<dyn Error>> {
             Ok(res) => {
                 if let Some(h) = log.current_header() {
                     if current_seg != Some(h.segment_id) {
-                        if current_seg.is_some() {
+                        if args.verbose && current_seg.is_some() {
                             println!();
                         }
                         current_seg = Some(h.segment_id);
                         files_seen += 1;
-                        print_header(&args.prefix, &args.suffix, h);
+                        if args.verbose {
+                            print_header(&args.prefix, &args.suffix, h);
+                        }
                     }
                 }
                 total += 1;
@@ -66,15 +78,19 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
             Err(LogError::Eof) => break,
             Err(LogError::SessionEnd) => {
-                println!();
-                println!("--- End of Session---");
+                if args.verbose {
+                    println!();
+                    println!("--- End of Session---");
+                }
                 continue;
             },
             Err(e) => return Err(e.into()),
         }
     }
 
-    println!("\nread {total} message(s) across {} file(s)", files_seen);
+    if args.verbose {
+        println!("\nread {total} message(s) across {} file(s)", files_seen);
+    }
     Ok(())
 }
 
