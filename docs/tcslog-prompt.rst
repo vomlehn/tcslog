@@ -709,6 +709,12 @@ Documentation for user-accessible functions should have a description of
 what the function does, a description of each parameter, and the
 return value.
 
+Building and Installation
+-------------------------
+Include instructions on how to build code using the tcslog crate library and
+how to build, install, and run tcslog-dump. Also, show how to build and
+run tcslog-sample.
+
 Restrictions
 ============
 Values written to segment files are packed, that is, there are no padding
