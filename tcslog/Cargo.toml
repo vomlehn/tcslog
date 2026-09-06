@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "Onboard segmented telemetry log library for storage-bounded systems"
+description = "Segmented telemetry log library for storage-bounded systems with error recovery"
 build = "build.rs"
 
 [dependencies]
