@@ -29,7 +29,7 @@ TCSLOG_TEST =
 TCSLOG_RUST = tcslog
 TCSLOG_TAR = $(TCSLOG_RUST).tar.gz
 TCSLOG_OUTPUT = compressed tar file $(TCSLOG_TAR)
-TCSLOG_DOC = $(DOCS_DIR)/tcslog.rst
+BASE_PROMPT_FILE = base-prompt
 PROMPT = Generate Rust code ($(TCSLOG_CODE)), auditing and patching against the code if it exists and creating it if not, and write a full user guide to $(TCSLOG_DOC) in RST format.
 
 TCSLOG_CRATES = tcslib tcslibgs g tcsmoc tcssim tcspayload.json
@@ -91,12 +91,11 @@ generate: .generate
 
 .generate: $(TCSLOG_PROMPT)
 	( \
-		set -eu; \
-		start_time=$$(date +%s); \
-		claude -p \
-		    "$(PROMPT)" \
-		   --allowedTools Read,Write,Edit,MultiEdit \
-		    --verbose; \
+		set -eu; start_time=$$(date +%s); \
+		cat $(BASE_PROMPT_FILE) | \
+			claude \
+				--allowedTools Read,Write,Edit,MultiEdit \
+				--verbose; \
 		print-elapsed $$start_time; \
 		echo "[OK] Project files generated"; \
 		echo "File created after project code is generated" > .generate; \
