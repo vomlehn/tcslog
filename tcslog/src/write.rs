@@ -15,6 +15,12 @@ use crate::util::{
 };
 use crate::TIMER_RESOLUTION_NS;
 
+/// Largest per-record data header any [`Format`] produces. Sized to the
+/// [`Format::VariableTsRc`] layout (`RecSize` + `Timestamp` +
+/// `RecordCount` = 4 + 8 + 8 bytes) so that the record-header build path
+/// can avoid heap allocation.
+const MAX_DATA_HEADER_LEN: usize = 20;
+
 /// User-supplied callbacks invoked while writing.
 ///
 /// Function pointers (not trait objects or closures) are used so that
@@ -108,7 +114,7 @@ impl LogWrite {
             return Err(LogError::SegSizeTooSmall);
         }
         if let Format::Fixed(n) = format {
-            if n == 0 || (n as u64) > (u32::MAX as u64) {
+            if n == 0 {
                 return Err(LogError::FixedLenMismatch);
             }
         }
@@ -189,12 +195,13 @@ impl LogWrite {
             return Err(LogError::PayloadTooLarge);
         }
 
-        let header = self.build_data_header(msg.len() as u32)?;
-        let total = header.len() + msg.len();
+        let mut header_buf = [0u8; MAX_DATA_HEADER_LEN];
+        let header_len = self.build_data_header(msg.len() as u32, &mut header_buf)?;
+        let total = header_len + msg.len();
         self.record_bytes_left = total as u64;
 
-        if !header.is_empty() {
-            self.write_bytes(&header)?;
+        if header_len > 0 {
+            self.write_bytes(&header_buf[..header_len])?;
         }
         self.write_bytes(msg)?;
 
@@ -228,10 +235,19 @@ impl LogWrite {
         Ok(())
     }
 
-    fn build_data_header(&mut self, payload_len: u32) -> Result<Vec<u8>, LogError> {
+    /// Fills the leading bytes of `out` with the per-record header for
+    /// the active format and returns how many bytes were written.
+    fn build_data_header(
+        &mut self,
+        payload_len: u32,
+        out: &mut [u8; MAX_DATA_HEADER_LEN],
+    ) -> Result<usize, LogError> {
         match self.format {
-            Format::Fixed(_) => Ok(Vec::new()),
-            Format::VariableSimple => Ok(payload_len.to_le_bytes().to_vec()),
+            Format::Fixed(_) => Ok(0),
+            Format::VariableSimple => {
+                out[..4].copy_from_slice(&payload_len.to_le_bytes());
+                Ok(4)
+            }
             Format::VariableTsRc => {
                 let ts = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
@@ -239,11 +255,10 @@ impl LogWrite {
                     .as_nanos();
                 let ts = ts.min(u128::from(u64::MAX)) as u64;
                 self.record_count = self.record_count.saturating_add(1);
-                let mut buf = Vec::with_capacity(4 + 8 + 8);
-                buf.extend_from_slice(&payload_len.to_le_bytes());
-                buf.extend_from_slice(&ts.to_le_bytes());
-                buf.extend_from_slice(&self.record_count.to_le_bytes());
-                Ok(buf)
+                out[0..4].copy_from_slice(&payload_len.to_le_bytes());
+                out[4..12].copy_from_slice(&ts.to_le_bytes());
+                out[12..20].copy_from_slice(&self.record_count.to_le_bytes());
+                Ok(20)
             }
         }
     }

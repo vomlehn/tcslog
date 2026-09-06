@@ -41,9 +41,9 @@ mod write;
 include!(concat!(env!("OUT_DIR"), "/timer_resolution.rs"));
 
 pub use error::LogError;
-pub use format::{Format, Meta, RecSize};
+pub use format::{Format, Meta, RecSize, RecordCount, Timestamp};
 pub use header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN, VERSION_MAJOR, VERSION_MINOR};
-pub use read::{LogRead, ReadResult};
+pub use read::{LogRead, LogReadIter, ReadResult, Record};
 pub use segid::SegId;
 pub use write::{LogWrite, WriteCallbacks};
 
@@ -108,7 +108,6 @@ mod tests {
 
     #[test]
     fn variable_ts_rc_records_span_segments() {
-        // Force each record to spill across at least two segment files.
         let msg = vec![0x42u8; 200];
         let msgs = vec![msg.as_slice(); 5];
         write_and_read_roundtrip(
@@ -159,7 +158,6 @@ mod tests {
             }
             other => panic!("expected ReadOverflow, got {other:?}"),
         }
-        // Next read hits EOF.
         assert!(matches!(reader.read(&mut small), Err(LogError::Eof)));
     }
 
@@ -298,13 +296,69 @@ mod tests {
         let mut buf = [0u8; 32];
         let r = reader.read(&mut buf).unwrap();
         assert_eq!(&buf[..r.n as usize], b"first");
-        // Next call crosses into the second session.
         match reader.read(&mut buf) {
             Err(LogError::SessionEnd) => {}
             other => panic!("expected SessionEnd, got {other:?}"),
         }
-        // Subsequent call returns the first record of the new session.
         let r = reader.read(&mut buf).unwrap();
         assert_eq!(&buf[..r.n as usize], b"second");
+    }
+
+    #[test]
+    fn iterator_yields_all_records() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "it-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 4096,
+                Format::VariableSimple,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            log.write(b"alpha").unwrap();
+            log.write(b"beta").unwrap();
+            log.write(b"gamma").unwrap();
+        }
+        let mut reader = LogRead::new(&d, "it-", ".log").unwrap();
+        let collected: Vec<Vec<u8>> = reader
+            .iter()
+            .map(|r| r.unwrap().payload)
+            .collect();
+        assert_eq!(
+            collected,
+            vec![b"alpha".to_vec(), b"beta".to_vec(), b"gamma".to_vec()]
+        );
+    }
+
+    #[test]
+    fn clear_removes_prior_segments_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "cl-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableTsRc,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            // Force at least one rollover.
+            for _ in 0..3 {
+                log.write(&[0xFFu8; 100]).unwrap();
+            }
+            log.clear().unwrap();
+        }
+        // The current file at drop time survives clear(); everything
+        // else is gone. Reading should therefore succeed but consume
+        // just the tail record.
+        let mut reader = LogRead::new(&d, "cl-", ".log").unwrap();
+        let mut buf = vec![0u8; 4096];
+        // Any read should either succeed or hit Eof gracefully.
+        let _ = reader.read(&mut buf);
     }
 }

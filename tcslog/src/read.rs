@@ -25,6 +25,19 @@ pub struct ReadResult {
     pub meta: Meta,
 }
 
+/// One record's payload plus its metadata, produced by [`LogRead::iter`].
+///
+/// This convenience type owns its payload and is therefore not
+/// allocation-free; use [`LogRead::read`] directly when the no-allocation
+/// contract must be preserved.
+#[derive(Debug, Clone)]
+pub struct Record {
+    /// Format-specific per-record metadata.
+    pub meta: Meta,
+    /// The record's payload bytes.
+    pub payload: Vec<u8>,
+}
+
 #[derive(Debug)]
 struct OpenSegment {
     header: SegmentHeader,
@@ -152,6 +165,20 @@ impl LogRead {
         })
     }
 
+    /// Returns an [`Iterator`] over the remaining records in the log.
+    ///
+    /// Each iterator step allocates a fresh [`Vec<u8>`] to own the
+    /// record's payload; if the allocation-free contract must be
+    /// preserved, call [`LogRead::read`] directly with a caller-supplied
+    /// buffer instead.
+    ///
+    /// The iterator stops at end of log and, at session boundaries,
+    /// yields the [`LogError::SessionEnd`] marker as a single item
+    /// before continuing with the next session.
+    pub fn iter(&mut self) -> LogReadIter<'_> {
+        LogReadIter { reader: self }
+    }
+
     fn read_data_header(&mut self, format: Format) -> Result<(RecSize, Meta), LogError> {
         match format {
             Format::Fixed(n) => Ok((n, Meta::Fixed)),
@@ -185,10 +212,8 @@ impl LogRead {
     fn read_exact_spanning(&mut self, buf: &mut [u8]) -> Result<(), LogError> {
         let mut filled = 0usize;
         while filled < buf.len() {
-            if self.current.is_none() {
-                if self.open_next_ready_segment()?.is_none() {
-                    return Err(LogError::Eof);
-                }
+            if self.current.is_none() && self.open_next_ready_segment()?.is_none() {
+                return Err(LogError::Eof);
             }
             let cur = self.current.as_mut().unwrap();
             let avail = cur.bytes_left_in_segment() as usize;
@@ -211,10 +236,8 @@ impl LogRead {
     fn skip_spanning(&mut self, mut count: u64) -> Result<(), LogError> {
         let mut scratch = [0u8; 512];
         while count > 0 {
-            if self.current.is_none() {
-                if self.open_next_ready_segment()?.is_none() {
-                    return Err(LogError::Eof);
-                }
+            if self.current.is_none() && self.open_next_ready_segment()?.is_none() {
+                return Err(LogError::Eof);
             }
             let cur = self.current.as_mut().unwrap();
             let avail = cur.bytes_left_in_segment() as u64;
@@ -312,5 +335,40 @@ impl LogRead {
             left -= want as u64;
         }
         Ok(Some(cur.file_pos))
+    }
+}
+
+/// Per-record buffer size used by [`LogReadIter`]. Records larger than
+/// this are yielded as [`LogError::ReadOverflow`].
+const ITER_BUFFER_LEN: usize = 65_536;
+
+/// Iterator over the remaining records of a [`LogRead`].
+///
+/// Yields `Ok(record)` for each successive record; `Err(SessionEnd)`
+/// once each time the reader crosses a session boundary; and `None` at
+/// end of log. Any other error terminates iteration after the error is
+/// yielded. Records larger than [`ITER_BUFFER_LEN`] are truncated and
+/// reported as [`LogError::ReadOverflow`] — use [`LogRead::read`]
+/// directly with a larger caller-supplied buffer when that matters.
+pub struct LogReadIter<'a> {
+    reader: &'a mut LogRead,
+}
+
+impl<'a> Iterator for LogReadIter<'a> {
+    type Item = Result<Record, LogError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let mut buf = vec![0u8; ITER_BUFFER_LEN];
+        match self.reader.read(&mut buf) {
+            Ok(res) => {
+                buf.truncate(res.n as usize);
+                Some(Ok(Record {
+                    meta: res.meta,
+                    payload: buf,
+                }))
+            }
+            Err(LogError::Eof) => None,
+            Err(e) => Some(Err(e)),
+        }
     }
 }

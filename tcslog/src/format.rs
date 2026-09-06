@@ -4,6 +4,15 @@
 /// a data record.
 pub type RecSize = u32;
 
+/// Nanoseconds since the UNIX epoch, as stored with
+/// [`Format::VariableTsRc`] records.
+pub type Timestamp = u64;
+
+/// Monotonically increasing record identifier stored with
+/// [`Format::VariableTsRc`] records. Starts at one for the first record
+/// of a session.
+pub type RecordCount = u64;
+
 /// Selects how records are laid out in the data section of a segment
 /// file.
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
@@ -17,8 +26,7 @@ pub enum Format {
     /// metadata is written per record.
     VariableSimple,
     /// Like [`Format::VariableSimple`], but each record also carries a
-    /// timestamp (nanoseconds since the UNIX epoch) and a monotonically
-    /// increasing record counter.
+    /// [`Timestamp`] and a [`RecordCount`].
     VariableTsRc,
 }
 
@@ -59,7 +67,7 @@ pub enum Meta {
     /// The segment file uses [`Format::VariableSimple`]; no metadata is
     /// carried with the record.
     VariableSimple,
-    /// The segment file uses [`Format::VariableTsRc`]. The first value is
-    /// the nanosecond UNIX timestamp; the second is the record count.
-    VariableTsRc(u64, u64),
+    /// The segment file uses [`Format::VariableTsRc`]. The first value
+    /// is the [`Timestamp`]; the second is the [`RecordCount`].
+    VariableTsRc(Timestamp, RecordCount),
 }
