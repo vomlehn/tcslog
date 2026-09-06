@@ -478,6 +478,10 @@ pub fn write(&self, msg: &[byte]) -> Result(u32, LogError);
     have been written. This may flush data is data integrity is the priority,
     otherwise this may do nothing if performance is the priority.
 
+    An error is returned if the format is Fixed(n) and the length of msg
+    is zero. It is a distinct error if the format is Fixed(n) and the
+    number of bytes in msg is not n.
+
 pub fn flush(&self) -> Result((), LogError);
 
     self            Reference to LogWrite
@@ -669,6 +673,26 @@ o   Make sure corrupt header skipping is tested in code that opens the next
 
 o   Check that sessions are correctly detected and that errors preceeding and
     following yield the expected number of data records.
+
+o   Where it makes sense, all tests should be tested with each segment file
+    format.
+
+o   Simulate write errors to verify error propogation and that the next call to
+    write() creates a new segment file.
+
+o   Simulate file creation failure to verify error propogation and that the
+    next call to write() creates a new segment file.
+
+o   Simulate the correct behavior in the presence for faults:
+
+    -   Missing and unreadable segment files
+
+    -   Read failures when:
+
+        *   In data records that don't span segment files
+
+        *   In the beginning, middle, and end of data records that span multiple
+            segment files
 
 User Documentation
 ==================
