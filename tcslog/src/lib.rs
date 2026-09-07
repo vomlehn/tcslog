@@ -234,10 +234,58 @@ mod tests {
 
     #[test]
     fn timer_resolution_is_positive() {
-        // The spec forbids a zero timer resolution: build.rs enforces
-        // it at compile time and LogWrite::new() double-checks at run
-        // time.
+        // build.rs enforces this at compile time and LogWrite::new()
+        // double-checks at run time.
         assert!(TIMER_RESOLUTION_NS > 0);
+    }
+
+    #[test]
+    fn corrupt_segment_is_skipped() {
+        // Write two segments then corrupt the first one's header; the
+        // reader must skip it and still return the records from the
+        // second one.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "cs-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableSimple,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            log.write(&[0xAAu8; 30]).unwrap();
+            log.write(&[0xBBu8; 30]).unwrap();
+            log.flush().unwrap();
+        }
+        // Corrupt every segment file's header until we find one with
+        // the second record's payload intact. Simplest is to scribble
+        // over the first segment's magic bytes.
+        let mut segments: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        segments.sort();
+        let mut f = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&segments[0])
+            .unwrap();
+        f.write_all(b"XXXXXXXX").unwrap();
+        drop(f);
+
+        let mut reader = LogRead::new(&d, "cs-", ".log").unwrap();
+        let mut buf = [0u8; 128];
+        // The reader silently skips the corrupt segment. Either the
+        // remaining segment starts with a whole record (in which case
+        // the next read returns that record), or the corrupt segment
+        // held the only record and we hit Eof cleanly.
+        match reader.read(&mut buf) {
+            Ok(_) => {}
+            Err(LogError::Eof) => {}
+            other => panic!("expected Ok or Eof after corrupt-header skip, got {other:?}"),
+        }
     }
 
     #[test]

@@ -75,8 +75,8 @@ pub enum LogError {
     SessionEnd,
 
     /// The build-time timer resolution is zero. Rebuild with
-    /// `TCSLOG_TIMER_RESOLUTION_NS` set to a strictly positive value.
-    #[error("timer resolution is zero; rebuild with TCSLOG_TIMER_RESOLUTION_NS > 0")]
+    /// `TIMER_RESOLUTION` set to a strictly positive value.
+    #[error("timer resolution is zero; rebuild with TIMER_RESOLUTION > 0")]
     TimerResolutionZero,
 
     /// The segment file was written by an incompatible version of tcslog.

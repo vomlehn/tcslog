@@ -132,23 +132,23 @@ impl SegmentHeader {
 }
 
 /// Returns `true` if a segment file with the given four-byte version
-/// string can be read by this build of tcslog. The rule is: major must
-/// match exactly; the file's minor must be less than or equal to the
-/// crate's minor.
+/// string can be read by this build of tcslog. The spec restricts
+/// every version character to the ASCII digits `'0'..'9'`. The rule
+/// is: major must match exactly; the file's minor must be less than or
+/// equal to the crate's minor.
 fn version_is_compatible(v: &[u8; 4]) -> bool {
-    fn hex(b: u8) -> Option<u8> {
+    fn digit(b: u8) -> Option<u8> {
         match b {
             b'0'..=b'9' => Some(b - b'0'),
-            b'a'..=b'f' => Some(b - b'a' + 10),
             _ => None,
         }
     }
     let (Some(h), Some(t), Some(m), Some(_p)) =
-        (hex(v[0]), hex(v[1]), hex(v[2]), hex(v[3]))
+        (digit(v[0]), digit(v[1]), digit(v[2]), digit(v[3]))
     else {
         return false;
     };
-    let major = (h << 4) | t;
+    let major = h * 10 + t;
     let minor = m;
     major == VERSION_MAJOR && minor <= VERSION_MINOR
 }
@@ -216,5 +216,11 @@ mod tests {
     #[test]
     fn rejects_higher_major() {
         assert!(!version_is_compatible(b"0100"));
+    }
+
+    #[test]
+    fn rejects_non_digit_version() {
+        assert!(!version_is_compatible(b"00a0"));
+        assert!(!version_is_compatible(b"XXXX"));
     }
 }
