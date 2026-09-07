@@ -29,23 +29,29 @@ struct Args {
 
     /// Log file name suffix.
     suffix: String,
+
+    /// Print diagnostic information in addition to record data.
+    #[arg(short, long)]
+    verbose: bool,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = Args::parse();
+    let args = Args::try_parse().unwrap_or_else(|e| e.exit());
 
     let dir = PathBuf::from(args.dir);
     fs::create_dir_all(&dir)?;
     let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");
 
-    let result = create_sample_logs(dir_name, &args.prefix, &args.suffix)?;
+    let result = create_sample_logs(dir_name, &args.prefix, &args.suffix, args.verbose)?;
 
-    println!(
-        "wrote {} message(s) in {} (root: {})",
-        result.message_count,
-        dir.display(),
-        result.root_file,
-    );
+    if args.verbose {
+        println!(
+            "wrote {} message(s) in {} (root: {})",
+            result.message_count,
+            dir.display(),
+            result.root_file,
+        );
+    }
 
     Ok(())
 }

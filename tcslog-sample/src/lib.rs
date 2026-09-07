@@ -29,11 +29,14 @@ pub fn create_sample_logs(
     dir_name: &str,
     prefix: &str,
     suffix: &str,
+    verbose: bool,
 ) -> Result<SampleLogs, LogError> {
-    println!("Segment file size: {}", SEG_SIZE_MAX);
-    println!("Segment file header length: {}", SEGMENT_FILE_HEADER_LEN);
-    println!("Data section length: {}", SEG_SIZE_MAX - SEGMENT_FILE_HEADER_LEN);
-    println!();
+    if verbose {
+        println!("Segment file size: {}", SEG_SIZE_MAX);
+        println!("Segment file header length: {}", SEGMENT_FILE_HEADER_LEN);
+        println!("Data section length: {}", SEG_SIZE_MAX - SEGMENT_FILE_HEADER_LEN);
+        println!();
+    }
 
     let mut log = LogWrite::new(
         dir_name,
@@ -47,19 +50,21 @@ pub fn create_sample_logs(
     let session_id = log.session_id();
     let root_file = format!("{prefix}{session_id}{suffix}");
 
-    for i in 0..40 {
-        if (i + 1) % 10 == 0 {
-            print!("{}", (i + 1) / 10);
-        } else {
-            print!("{}", " ");
-        }   
-    }
-    println!();
+    if verbose {
+        for i in 0..40 {
+            if (i + 1) % 10 == 0 {
+                print!("{}", (i + 1) / 10);
+            } else {
+                print!("{}", " ");
+            }
+        }
+        println!();
 
-    for i in 0..40 {
-        print!("{}", (i + 1) % 10);
+        for i in 0..40 {
+            print!("{}", (i + 1) % 10);
+        }
+        println!();
     }
-    println!();
 
     let mut message_count: u64 = 0;
     loop {
@@ -84,7 +89,9 @@ pub fn create_sample_logs(
         }
     }
 
-    println!();
+    if verbose {
+        println!();
+    }
 
     Ok(SampleLogs {
         root_file,
