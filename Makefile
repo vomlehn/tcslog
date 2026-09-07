@@ -123,7 +123,7 @@ build:
 		set -eu; \
 		$(FIXUP) \
 		echo "Building the project..."; \
-		cd $(RUST) && cargo build $(RELEASE) -p tcslog; \
+		cd $(RUST) && $(TCSLOG_CONFIG) cargo build $(RELEASE); \
 		echo "[OK] Build complete"; \
 	) 2>&1 | tee build.out
 
@@ -133,7 +133,7 @@ test:
 		set -eu; \
 		$(FIXUP_TEST) \
 		echo "Running tests..."; \
-		cd $(RUST) && cargo test; \
+		cd $(RUST) && $(TCSLOG_CONFIG) cargo test; \
 		echo "[OK] Tests complete"; \
 	)
 
@@ -148,11 +148,10 @@ run:
 
 .PHONY: tcslog-sample
 tcslog-sample:
-	cd tcslog-sample && cargo run --bin tcslog-sample -- prefix_ _suffix 1
+	cd tcslog-sample && $(TCSLOG_CONFIG) cargo run --bin tcslog-sample -- prefix_ _suffix 1
 
 .PHONY: tcslog-dump
 tcslog-dump:
-	#cd tcslog-dump && cargo run --bin tcslog-dump -- prefix_ _suffix
 	set -eu; \
 		infile="$$(ls $(TCSLOG_SAMPLE_DIR)/ | sed -e '2,$$d')"; \
 		Uid="$$(echo "$$infile" | \
@@ -160,7 +159,7 @@ tcslog-dump:
 		echo infile $$infile; \
 		echo Uid $$Uid; \
 		cd tcslog-dump; \
-		cargo run --bin tcslog-dump -- prefix_ "$$Uid" _suffix
+		$(TCSLOG_CONFIG) cargo run --bin tcslog-dump -- prefix_ "$$Uid" _suffix
 
 # Clean build artifacts
 clean:
