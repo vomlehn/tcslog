@@ -180,11 +180,12 @@ distclean: clean
 	$(RMDIR) target
 	@echo "[OK] Project reset"
 
-# Install binary globally
+# Install binaries to $HOME/bin
 install: build
-	@echo "Installing $(PROJECT_NAME)..."
-	cd $(RUST) && cargo install --path .
-	@echo "[OK] Installed to $$HOME/.cargo/bin/$(PROJECT_NAME)"
+	@echo "Installing tcslog-sample and tcslog-dump..."
+	$(TCSLOG_CONFIG) cargo install --path tcslog-sample --root $$HOME
+	$(TCSLOG_CONFIG) cargo install --path tcslog-dump --root $$HOME
+	@echo "[OK] Installed to $$HOME/bin/"
 
 # Check code quality
 check:
