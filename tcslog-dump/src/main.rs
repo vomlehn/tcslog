@@ -1,11 +1,10 @@
-//! Creates a chain of sample segment files with the `tcslog_sample` helper,
-//! then reads the entire chain back, printing each segment file's header and
-//! every log message.
+//! Reads a chain of segment files back and prints each segment file's
+//! header (with `--verbose`) and every log message.
 //!
 //! Run with:
 //!
 //! ```text
-//! cargo run -p tcslog-dump -- sample- .tcslog
+//! cargo run -p tcslog-dump -- <dir> <prefix> <suffix>
 //! ```
 
 use std::error::Error;

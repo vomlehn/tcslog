@@ -6,6 +6,5 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-tcslog = { path = "../tcslog" }
-tcslog-sample = { path = "../tcslog-sample" }
+tcslog = { path = "../tcslog", default-features = false }
 clap.workspace = true
