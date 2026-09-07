@@ -9,7 +9,9 @@
       "Bash(make -n help)",
       "Bash(make -n clean)",
       "Bash(rst2html:*)",
-      "Bash(sphinx-build:*)"
+      "Bash(sphinx-build:*)",
+      "Bash(unset TIMER_RESOLUTION)",
+      "Bash(TIMER_RESOLUTION=1 cargo test --workspace)"
     ]
   }
 }
