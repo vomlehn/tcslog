@@ -106,6 +106,15 @@ impl LogWrite {
         format: Format,
         callbacks: WriteCallbacks,
     ) -> Result<LogWrite, LogError> {
+        // Runtime belt-and-suspenders: build.rs already refuses a
+        // set-but-zero value, but a caller could still land here with
+        // TIMER_RESOLUTION_NS==0 if the default in build.rs is ever
+        // relaxed. Fail cleanly rather than looping in
+        // create_segment_file.
+        if TIMER_RESOLUTION_NS == 0 {
+            return Err(LogError::TimerResolutionZero);
+        }
+
         check_no_path_delim(prefix)?;
         check_no_path_delim(suffix)?;
 

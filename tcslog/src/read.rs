@@ -348,7 +348,7 @@ const ITER_BUFFER_LEN: usize = 65_536;
 /// once each time the reader crosses a session boundary; and `None` at
 /// end of log. Any other error terminates iteration after the error is
 /// yielded. Records larger than [`ITER_BUFFER_LEN`] are truncated and
-/// reported as [`LogError::ReadOverflow`] — use [`LogRead::read`]
+/// reported as [`LogError::ReadOverflow`] - use [`LogRead::read`]
 /// directly with a larger caller-supplied buffer when that matters.
 pub struct LogReadIter<'a> {
     reader: &'a mut LogRead,

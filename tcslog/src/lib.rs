@@ -199,6 +199,48 @@ mod tests {
     }
 
     #[test]
+    fn fixed_rejects_zero_length_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let err = LogWrite::new(
+            dir.path().to_str().unwrap(),
+            "fz-",
+            ".l",
+            SEGMENT_FILE_HEADER_LEN + 8,
+            Format::Fixed(0),
+            WriteCallbacks::default(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, LogError::FixedLenMismatch));
+    }
+
+    #[test]
+    fn fixed_rejects_wrong_length_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        let mut log = LogWrite::new(
+            &d,
+            "fw-",
+            ".l",
+            SEGMENT_FILE_HEADER_LEN + 16,
+            Format::Fixed(4),
+            WriteCallbacks::default(),
+        )
+        .unwrap();
+        assert!(matches!(log.write(b"abc"), Err(LogError::FixedLenMismatch)));
+        assert!(matches!(log.write(b"abcde"), Err(LogError::FixedLenMismatch)));
+        // Correct length still works.
+        assert!(log.write(b"abcd").is_ok());
+    }
+
+    #[test]
+    fn timer_resolution_is_positive() {
+        // The spec forbids a zero timer resolution: build.rs enforces
+        // it at compile time and LogWrite::new() double-checks at run
+        // time.
+        assert!(TIMER_RESOLUTION_NS > 0);
+    }
+
+    #[test]
     fn callbacks_see_rolled_segments() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static CALLS: AtomicUsize = AtomicUsize::new(0);
