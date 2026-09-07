@@ -1,5 +1,7 @@
 # Makefile for automated Rust project creation with Claude Code
 
+include config.mk
+
 SHELL := /bin/sh
 
 .PHONY: all setup build test clean install help
@@ -93,6 +95,7 @@ generate: .generate
 	( \
 		set -eu; start_time=$$(date +%s); \
 		cat $(BASE_PROMPT_FILE) | \
+			$(TCSLOG_CONFIG) \
 			claude \
 				--allowedTools Read,Write,Edit,MultiEdit \
 				--verbose; \
