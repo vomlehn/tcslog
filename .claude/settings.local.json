@@ -8,7 +8,8 @@
       "Bash(echo \"exit: $?\")",
       "Bash(make -n help)",
       "Bash(make -n clean)",
-      "allow": ["Bash(rst2html:*)", "Bash(sphinx-build:*)"]
+      "Bash(rst2html:*)",
+      "Bash(sphinx-build:*)"
     ]
   }
 }
