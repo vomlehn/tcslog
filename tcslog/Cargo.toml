@@ -7,6 +7,13 @@ license.workspace = true
 description = "Onboard segmented telemetry log library for storage-bounded systems"
 build = "build.rs"
 
+[features]
+default = ["write"]
+# Enables `LogWrite` and its supporting code. When disabled, the crate
+# provides only the reader path and does not require `TIMER_RESOLUTION`
+# to be set at build time.
+write = []
+
 [dependencies]
 thiserror.workspace = true
 

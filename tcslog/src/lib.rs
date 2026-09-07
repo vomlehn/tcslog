@@ -9,9 +9,10 @@
 //! ## Quick start
 //!
 //! ```no_run
+//! # #[cfg(feature = "write")]
+//! # fn demo() -> Result<(), tcslog::LogError> {
 //! use tcslog::{Format, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
 //!
-//! # fn main() -> Result<(), tcslog::LogError> {
 //! let mut log = LogWrite::new(
 //!     "/tmp/telemetry",
 //!     "sample-",
@@ -36,8 +37,10 @@ mod header;
 mod read;
 mod segid;
 mod util;
+#[cfg(feature = "write")]
 mod write;
 
+#[cfg(feature = "write")]
 include!(concat!(env!("OUT_DIR"), "/timer_resolution.rs"));
 
 pub use error::LogError;
@@ -45,9 +48,14 @@ pub use format::{Format, Meta, RecSize, RecordCount, Timestamp};
 pub use header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN, VERSION_MAJOR, VERSION_MINOR};
 pub use read::{LogRead, LogReadIter, ReadResult, Record};
 pub use segid::SegId;
+#[cfg(feature = "write")]
 pub use write::{LogWrite, WriteCallbacks};
 
-#[cfg(test)]
+// The in-crate tests all exercise the write path (either by producing
+// sample logs to read back, or by asserting write-time invariants).
+// Gate the whole module on the `write` feature so the crate still
+// compiles with `--no-default-features --tests`.
+#[cfg(all(test, feature = "write"))]
 mod tests {
     use super::*;
     use std::fs::File;
