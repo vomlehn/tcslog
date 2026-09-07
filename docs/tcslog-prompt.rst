@@ -256,16 +256,20 @@ gets a new current time and tries to create the file again.
 This ensures that it
 will quickly find an unused segment ID.
 
-The sleep time is twice the system-dependent time resolution, named
-TIMER_RESOLUTION. This is specified in nanoseconds.
+The sleep time is twice the system-dependent time resolution, used in the
+Rust thread::sleep() function. This value is named
+TIMER_RESOLUTION and is specified in nanoseconds.
 By sleeping for this amount of time, the next time the system time is
 read, it must be greater than the previous value. Since the system
 time increases monotonically, it must be greater than any previous
 time and so is unique.
 
-TIMER_RESOLUTION must not be defined in the code proper but should be definable
-via command line or a build.rs file. Unparseable and zero values will result
-either in a compile error or an error from LogWrite::new().
+TIMER_RESOLUTION must not be defined in the code proper but
+is defined on the command line via an included makefile named config.mk.
+The tcslog/build.rs file is then used to define it in the code.
+Unparseable and zero values will result
+either in a compile error or an error from LogWrite::new(). There is no
+default value for TIMER_RESOLUTION.
 
 Operations
 ==========
@@ -291,7 +295,7 @@ file to grow longer than
 seg_size\ :sub:`max`
 write enough bytes from the logical data record to grow the segment file to
 seg_size\ :sub:`max`
-bytes. Then, close the current segment file, call the LogFile::send() function, 
+bytes. Then, close the current segment file, call the send() function, 
 and create a new segment file.
 
 If there are too few bytes remaining in the logical data record to grow
@@ -300,19 +304,19 @@ seg_size\ :sub:`max`
 bytes, append all remaining bytes from the logical data record to the
 segment file.
 and return to the caller. Do not close the current segment file, call
-LogFile::send(), or create a new segment file.
+send(), or create a new segment file.
 
 Error Handling
 ^^^^^^^^^^^^^^
 If an error happens when writing to the current segment file, close the
-segment file, call LogFile::send(), and create a new segment file. Errors
+segment file, call send(), and create a new segment file. Errors
 occuring during creation of a new segment file terminate the write
 operation and propogate to the caller.
 
 Segment File Creation
 ~~~~~~~~~~~~~~~~~~~~~
 When there current segment file fills, i.e. its length is seg_size\ :sub:`max`,
-the file is closed and the LogWrite::send() function is called with the
+the file is closed and the send() function is called with the
 name of the file.
 
 When send() returns there must not be a file
