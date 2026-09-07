@@ -35,7 +35,7 @@ FIXUP_TEST =
 FIXUP_SIM =
 
 # Default target
-all: build test
+all: build
 
 # Display help
 help:
