@@ -717,7 +717,8 @@ o   Verify that the user callback function sent() is called when the LogWrite
 User Documentation
 ==================
 User documentation is written as an .RST file. It must not have any
-constructs that cause errors when processed with rst2html.
+constructs that cause errors when processed with rst2html. The title of
+the document should be "Tcslog User Documentation".
 
 Introduction
 ------------
