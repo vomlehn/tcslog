@@ -2,6 +2,8 @@
 //! segment files filled with small ASCII messages.
 
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::fs::File;
+use std::path::Path;
 
 use tcslog::{Format, LogError, LogWrite, SEGMENT_FILE_HEADER_LEN,
     WriteCallbacks};
@@ -21,6 +23,20 @@ pub struct SampleLogs {
     /// Total number of messages written across the chain.
     pub message_count: u64,
 }
+
+fn noop_record_complete(_f: &mut File) -> std::io::Result<()> {
+    Ok(())
+}
+
+fn send(p: &Path) -> std::io::Result<()> {
+    println!("--> Send file {}", p.display());
+    Ok(())
+}
+
+const SAMPLE_WRITE_CALLBACKS: WriteCallbacks = WriteCallbacks {
+    record_complete: noop_record_complete,
+    send: send,
+};
 
 /// Creates a sample log chain in `dir_name` using the given file-name
 /// `prefix` and `suffix`: a root segment file plus `rollovers` successor
@@ -44,7 +60,7 @@ pub fn create_sample_logs(
         suffix,
         SEG_SIZE_MAX,
         Format::VariableTsRc,
-        WriteCallbacks::default(),
+        SAMPLE_WRITE_CALLBACKS,
     )?;
 
     let session_id = log.session_id();
