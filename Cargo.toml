@@ -10,11 +10,20 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
 authors = ["TCSpecial Team"]
 license = "MIT"
+repository = "https://github.com/vomlehn/tcslog"
 
 [workspace.dependencies]
 libc = "0.2"
 thiserror = "1.0"
 tempfile = "3"
 clap = { version = "4", features = ["derive"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+
+[workspace.lints.clippy]
+pedantic = { level = "warn", priority = -1 }

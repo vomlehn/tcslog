@@ -2,10 +2,15 @@
 name = "tcslog"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
 description = "Onboard segmented telemetry log library for storage-bounded systems"
 build = "build.rs"
+
+[lints]
+workspace = true
 
 [features]
 default = ["write"]
