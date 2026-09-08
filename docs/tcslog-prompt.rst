@@ -728,6 +728,20 @@ Include instructions on how to build code using the tcslog crate library and
 how to build, install, and run tcslog-dump. Also, show how to build and
 run tcslog-sample.
 
+Record formats
+--------------
+Per-format documentation on record formats must be presented as a table with
+the following columns:
+
+o   Name of the record format
+
+o   Minimum and maximum record size in bytes
+
+o   Elements, their types and definitions, and the number of bytes in the
+    data header
+
+o   Details on when to use this record format.
+
 Excluded
 --------
 The user documentation omits mention of internal tcslog testing and the on-disk
