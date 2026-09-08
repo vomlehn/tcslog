@@ -228,9 +228,11 @@ impl LogWrite {
         Ok(())
     }
 
-    /// Removes every segment file for this log from `dir`. After this
-    /// call, further writes continue against the current segment file
-    /// (which is not deleted).
+    /// Removes every segment file for this log from `dir` except the
+    /// current one. The current segment is preserved because the file
+    /// handle is still open; on platforms that do not permit deleting
+    /// an open file, removing it would fail and leave the writer in an
+    /// inconsistent state.
     pub fn clear(&mut self) -> Result<(), LogError> {
         let current_name = segment_file_name(&self.prefix, self.segment_id, &self.suffix);
         for id in enumerate_segments(&self.dir, &self.prefix, &self.suffix)? {
@@ -322,8 +324,18 @@ impl LogWrite {
 
 impl Drop for LogWrite {
     fn drop(&mut self) {
+        // When the writer is dropped, the currently open segment file
+        // may still contain data that user code has never received via
+        // `send`. Flush and hand it off. Errors are ignored because
+        // Drop must not panic and there is no meaningful error path
+        // from a destructor.
         if let Some(mut f) = self.file.take() {
             let _ = f.flush();
+            let has_data = self.file_pos > SEGMENT_FILE_HEADER_LEN;
+            drop(f);
+            if has_data {
+                let _ = (self.callbacks.send)(&self.current_path);
+            }
         }
     }
 }
