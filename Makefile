@@ -77,8 +77,11 @@ help:
 	@echo "  make test        - Run all tests"
 	@echo "  make run         - Run the application"
 	@echo "  make clean       - Remove build artifacts"
+	@echo "  make distclean   - Remove build artifacts and all generated files"
 	@echo "  make install     - Install the binary globally"
+	@echo "  make uninstall   - Remove installed binaries"
 	@echo "  make setup       - Initial setup (create directories)"
+	@echo "  make check       - Run cargo check, clippy, and fmt --check"
 
 # Create necessary directories
 setup:
