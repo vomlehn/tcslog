@@ -124,6 +124,7 @@ build:
 		$(FIXUP) \
 		echo "Building the project..."; \
 		cd $(RUST) && $(TCSLOG_CONFIG) cargo build $(RELEASE); \
+		make -C docs; \
 		echo "[OK] Build complete"; \
 	) 2>&1 | tee build.out
 
@@ -167,6 +168,7 @@ clean:
 	-cargo clean
 	$(RM) generate.out build.out run.out test.out $(TCSLOG_TAR)
 	$(RMDIR) $(TCSLOG_RUST) $(TCSLOG_TAR)
+	make -C docs clean
 	@echo "[OK] Clean complete"
 
 
@@ -178,6 +180,7 @@ distclean: clean
 	$(RM) Cargo.lock
 	$(RMDIR) $(TCSLOG_CRATES)
 	$(RMDIR) target
+	make -C docs distclean
 	@echo "[OK] Project reset"
 
 # Install binaries to $HOME/bin
