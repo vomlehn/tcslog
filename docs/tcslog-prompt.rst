@@ -699,6 +699,12 @@ o   Simulate the correct behavior in the presence for faults:
         *   In the beginning, middle, and end of data records that span multiple
             segment files
 
+o   Verify that the callback function send() is called exactly as many times as
+    there are segment files with data in the data section.
+
+o   Ensure the callback function record_complete() is called each time
+    a data record is written and no more times than that.
+
 User Documentation
 ==================
 User documentation is written as an .RST file. It must not have any
