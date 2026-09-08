@@ -1,166 +1,156 @@
-//! Log file header block handling.
+//! On-disk segment file header layout.
 
-use crate::error::TcsLogError;
-use crate::timestamp::Timestamp;
-use crate::{BLOCK_SIZE, FILE_TIMESTAMP_LEN, FILE_TYPE, MAX_PREFIX_LEN, VERSION_00_01_00};
+use std::io::{Read, Write};
 
-/// Size of the file type field in bytes.
-pub const FILE_TYPE_SIZE: usize = 8;
+use crate::error::LogError;
+use crate::format::Format;
+use crate::segid::SegId;
 
-/// Size of the version field in bytes.
-pub const VERSION_SIZE: usize = 8;
+/// ASCII magic tag stored at the start of every segment file.
+pub const FILE_TYPE: &[u8; 8] = b"tcslogsf";
 
-/// Maximum length of the file name (excluding NUL terminator).
-pub const FILE_NAME_MAX_LEN: usize = MAX_PREFIX_LEN + FILE_TIMESTAMP_LEN;
+/// Segment-file format version corresponding to tcslog `0.1.0`.
+/// The four ASCII digits encode `MMmp`: two-digit major, one-digit
+/// minor, one-digit patch.
+pub const VERSION: &[u8; 4] = b"0010";
 
-/// Size of the file name field including NUL terminator.
-pub const FILE_NAME_SIZE: usize = FILE_NAME_MAX_LEN + 1;
+/// Major version number of the on-disk format understood by this crate.
+pub const VERSION_MAJOR: u8 = 0;
+/// Minor version number of the on-disk format understood by this crate.
+pub const VERSION_MINOR: u8 = 1;
 
-/// Size of the index offset field in bytes.
-pub const INDEX_OFFSET_SIZE: usize = 8;
+/// Number of bytes the segment file header consumes on disk.
+///
+/// Layout (little-endian, tightly packed):
+///
+/// | offset | length | field       |
+/// |-------:|-------:|:------------|
+/// |      0 |      8 | file type   |
+/// |      8 |      4 | version     |
+/// |     12 |      8 | segment_id  |
+/// |     20 |      8 | session_id  |
+/// |     28 |      4 | max_size    |
+/// |     32 |      8 | remaining   |
+/// |     40 |      1 | format tag  |
+/// |     41 |      4 | format arg  |
+pub const SEGMENT_FILE_HEADER_LEN: u32 = 45;
 
-/// Size of the data offset field in bytes.
-pub const DATA_OFFSET_SIZE: usize = 8;
-
-/// Header block size (same as BLOCK_SIZE).
-pub const HEADER_SIZE: usize = BLOCK_SIZE;
-
-/// Represents the header block of a log file.
-#[derive(Debug, Clone)]
-pub struct Header {
-    /// File type identifier ("tcslog  ").
-    pub file_type: [u8; FILE_TYPE_SIZE],
-    /// Version string (e.g., "00.01.00").
-    pub version: [u8; VERSION_SIZE],
-    /// Timestamp in nanoseconds since UNIX epoch.
-    pub timestamp: Timestamp,
-    /// Offset to the beginning of the index section.
-    pub index_offset: u64,
-    /// Offset to the beginning of the data section.
-    pub data_offset: u64,
-    /// File name (up to 52 characters plus NUL).
-    pub file_name: [u8; FILE_NAME_SIZE],
+/// In-memory representation of a segment file header.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SegmentHeader {
+    /// Identifier of this segment file. Matches the segment portion of
+    /// the file name.
+    pub segment_id: SegId,
+    /// Segment identifier of the first segment file created for the
+    /// session this file belongs to.
+    pub session_id: SegId,
+    /// Maximum size in bytes that a segment file in this log may reach.
+    pub max_size: u32,
+    /// Number of bytes remaining in the data record whose first byte is
+    /// the first byte of this segment file's data section. May exceed
+    /// this segment's data section, in which case that record is
+    /// continued in later segment files.
+    pub remaining: u64,
+    /// Layout used for records in the data section.
+    pub format: Format,
 }
 
-impl Header {
-    /// Creates a new header with the given parameters.
-    pub fn new(timestamp: Timestamp, index_offset: u64, data_offset: u64, file_name: &str) -> Self {
-        let mut name_bytes = [0u8; FILE_NAME_SIZE];
-        let name_len = file_name.len().min(FILE_NAME_MAX_LEN);
-        name_bytes[..name_len].copy_from_slice(&file_name.as_bytes()[..name_len]);
-
-        Header {
-            file_type: *FILE_TYPE,
-            version: *VERSION_00_01_00,
-            timestamp,
-            index_offset,
-            data_offset,
-            file_name: name_bytes,
-        }
+impl SegmentHeader {
+    /// Number of bytes usable for the data section of a segment file
+    /// that is at most `max_size` bytes long.
+    pub fn data_section_len(max_size: u32) -> u32 {
+        max_size.saturating_sub(SEGMENT_FILE_HEADER_LEN)
     }
 
-    /// Serializes the header to a byte buffer.
-    pub fn to_bytes(&self) -> [u8; HEADER_SIZE] {
-        let mut buffer = [0u8; HEADER_SIZE];
-        let mut offset = 0;
-
-        // File type
-        buffer[offset..offset + FILE_TYPE_SIZE].copy_from_slice(&self.file_type);
-        offset += FILE_TYPE_SIZE;
-
-        // Version
-        buffer[offset..offset + VERSION_SIZE].copy_from_slice(&self.version);
-        offset += VERSION_SIZE;
-
-        // Timestamp (little-endian)
-        buffer[offset..offset + Timestamp::TIMESTAMP_SIZE]
-            .copy_from_slice(&self.timestamp.to_le_bytes());
-        offset += Timestamp::TIMESTAMP_SIZE;
-
-        // Index offset (little-endian)
-        buffer[offset..offset + INDEX_OFFSET_SIZE]
-            .copy_from_slice(&self.index_offset.to_le_bytes());
-        offset += INDEX_OFFSET_SIZE;
-
-        // Data offset (little-endian)
-        buffer[offset..offset + DATA_OFFSET_SIZE].copy_from_slice(&self.data_offset.to_le_bytes());
-        offset += DATA_OFFSET_SIZE;
-
-        // File name
-        buffer[offset..offset + FILE_NAME_SIZE].copy_from_slice(&self.file_name);
-        //        offset += FILE_NAME_SIZE;
-
-        buffer
+    /// Number of bytes available for records in this segment's data
+    /// section.
+    pub fn data_capacity(&self) -> u32 {
+        Self::data_section_len(self.max_size)
     }
 
-    /// Deserializes a header from a byte buffer.
-    pub fn from_bytes(buffer: &[u8; HEADER_SIZE]) -> Result<Self, TcsLogError<'static>> {
-        let mut offset = 0;
+    /// Serializes the header into `SEGMENT_FILE_HEADER_LEN` bytes.
+    pub fn to_bytes(&self) -> [u8; SEGMENT_FILE_HEADER_LEN as usize] {
+        let mut buf = [0u8; SEGMENT_FILE_HEADER_LEN as usize];
+        buf[0..8].copy_from_slice(FILE_TYPE);
+        buf[8..12].copy_from_slice(VERSION);
+        buf[12..20].copy_from_slice(&self.segment_id.to_le_bytes());
+        buf[20..28].copy_from_slice(&self.session_id.to_le_bytes());
+        buf[28..32].copy_from_slice(&self.max_size.to_le_bytes());
+        buf[32..40].copy_from_slice(&self.remaining.to_le_bytes());
+        buf[40] = self.format.tag();
+        buf[41..45].copy_from_slice(&self.format.fixed_len().to_le_bytes());
+        buf
+    }
 
-        // File type
-        let mut file_type = [0u8; FILE_TYPE_SIZE];
-        file_type.copy_from_slice(&buffer[offset..offset + FILE_TYPE_SIZE]);
-        if &file_type != FILE_TYPE {
-            return Err(TcsLogError::InvalidFormat(
-                "Invalid file type identifier".to_string(),
-            ));
+    /// Writes the header to `w` in on-disk form.
+    pub fn write_to<W: Write>(&self, w: &mut W) -> Result<(), LogError> {
+        let buf = self.to_bytes();
+        w.write_all(&buf).map_err(LogError::IoError)
+    }
+
+    /// Deserializes a header from its on-disk byte encoding.
+    pub fn from_bytes(buf: &[u8; SEGMENT_FILE_HEADER_LEN as usize]) -> Result<Self, LogError> {
+        if &buf[0..8] != FILE_TYPE {
+            return Err(LogError::InvalidHeader);
         }
-        offset += FILE_TYPE_SIZE;
-
-        // Version
-        let mut version = [0u8; VERSION_SIZE];
-        version.copy_from_slice(&buffer[offset..offset + VERSION_SIZE]);
-        offset += VERSION_SIZE;
-
-        // Timestamp
-        let timestamp = Timestamp::from_le_bytes(
-            buffer[offset..offset + Timestamp::TIMESTAMP_SIZE]
-                .try_into()
-                .map_err(|_| TcsLogError::InvalidFormat("Invalid timestamp".to_string()))?,
-        );
-        offset += Timestamp::TIMESTAMP_SIZE;
-
-        // Index offset
-        let index_offset = u64::from_le_bytes(
-            buffer[offset..offset + INDEX_OFFSET_SIZE]
-                .try_into()
-                .map_err(|_| TcsLogError::InvalidFormat("Invalid index offset".to_string()))?,
-        );
-        offset += INDEX_OFFSET_SIZE;
-
-        // Data offset
-        let data_offset = u64::from_le_bytes(
-            buffer[offset..offset + DATA_OFFSET_SIZE]
-                .try_into()
-                .map_err(|_| TcsLogError::InvalidFormat("Invalid data offset".to_string()))?,
-        );
-        offset += DATA_OFFSET_SIZE;
-        println!("header::frombytes: index offset {index_offset} data_offset {data_offset}");
-
-        // File name
-        let mut file_name = [0u8; FILE_NAME_SIZE];
-        file_name.copy_from_slice(&buffer[offset..offset + FILE_NAME_SIZE]);
-        //        offset += FILE_NAME_SIZE;
-
-        Ok(Header {
-            file_type,
-            version,
-            timestamp,
-            index_offset,
-            data_offset,
-            file_name,
+        let version: [u8; 4] = buf[8..12].try_into().unwrap();
+        if !version_is_compatible(&version) {
+            return Err(LogError::VersionMismatch);
+        }
+        let segment_id = SegId::from_le_bytes(buf[12..20].try_into().unwrap());
+        let session_id = SegId::from_le_bytes(buf[20..28].try_into().unwrap());
+        let max_size = u32::from_le_bytes(buf[28..32].try_into().unwrap());
+        let remaining = u64::from_le_bytes(buf[32..40].try_into().unwrap());
+        let tag = buf[40];
+        let arg = u32::from_le_bytes(buf[41..45].try_into().unwrap());
+        let format = match tag {
+            0 => {
+                if arg == 0 {
+                    return Err(LogError::InvalidHeader);
+                }
+                Format::Fixed(arg)
+            }
+            1 => Format::VariableSimple,
+            2 => Format::VariableTsRc,
+            _ => return Err(LogError::InvalidHeader),
+        };
+        Ok(SegmentHeader {
+            segment_id,
+            session_id,
+            max_size,
+            remaining,
+            format,
         })
     }
 
-    /// Returns the file name as a string.
-    pub fn file_name_str(&self) -> &str {
-        let nul_pos = self
-            .file_name
-            .iter()
-            .position(|&b| b == 0)
-            .unwrap_or(FILE_NAME_MAX_LEN);
-        std::str::from_utf8(&self.file_name[..nul_pos]).unwrap_or("")
+    /// Reads a header from `r`.
+    pub fn read_from<R: Read>(r: &mut R) -> Result<Self, LogError> {
+        let mut buf = [0u8; SEGMENT_FILE_HEADER_LEN as usize];
+        r.read_exact(&mut buf).map_err(LogError::IoError)?;
+        Self::from_bytes(&buf)
     }
+}
+
+/// Returns `true` if a segment file with the given four-byte version
+/// string can be read by this build of tcslog. The spec restricts
+/// every version character to the ASCII digits `'0'..'9'`. The rule
+/// is: major must match exactly; the file's minor must be less than or
+/// equal to the crate's minor.
+fn version_is_compatible(v: &[u8; 4]) -> bool {
+    fn digit(b: u8) -> Option<u8> {
+        match b {
+            b'0'..=b'9' => Some(b - b'0'),
+            _ => None,
+        }
+    }
+    let (Some(h), Some(t), Some(m), Some(_p)) =
+        (digit(v[0]), digit(v[1]), digit(v[2]), digit(v[3]))
+    else {
+        return false;
+    };
+    let major = h * 10 + t;
+    let minor = m;
+    major == VERSION_MAJOR && minor <= VERSION_MINOR
 }
 
 #[cfg(test)]
@@ -168,33 +158,69 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_header_roundtrip() {
-        let header = Header::new(
-            Timestamp::from_nanos(1234567890_000_000_000),
-            HEADER_SIZE as u64,
-            HEADER_SIZE as u64 + BLOCK_SIZE as u64,
-            "test-0001_2345_6789_0abc",
-        );
-
-        let bytes = header.to_bytes();
-        let restored = Header::from_bytes(&bytes).unwrap();
-
-        assert_eq!(header.file_type, restored.file_type);
-        assert_eq!(header.version, restored.version);
-        assert_eq!(header.timestamp, restored.timestamp);
-        assert_eq!(header.file_name, restored.file_name);
-        assert_eq!(header.index_offset, restored.index_offset);
-        assert_eq!(header.data_offset, restored.data_offset);
+    fn roundtrip_variable_ts_rc() {
+        let h = SegmentHeader {
+            segment_id: SegId::from_u64(0x1111_2222_3333_4444),
+            session_id: SegId::from_u64(0x1111_2222_3333_4444),
+            max_size: 4096,
+            remaining: 0,
+            format: Format::VariableTsRc,
+        };
+        let bytes = h.to_bytes();
+        let back = SegmentHeader::from_bytes(&bytes).unwrap();
+        assert_eq!(h, back);
     }
 
     #[test]
-    fn test_file_name_str() {
-        let header = Header::new(
-            Timestamp::ZERO,
-            HEADER_SIZE as u64,
-            HEADER_SIZE as u64,
-            "test-file",
-        );
-        assert_eq!(header.file_name_str(), "test-file");
+    fn roundtrip_fixed() {
+        let h = SegmentHeader {
+            segment_id: SegId::from_u64(1),
+            session_id: SegId::from_u64(1),
+            max_size: 256,
+            remaining: 17,
+            format: Format::Fixed(64),
+        };
+        let bytes = h.to_bytes();
+        let back = SegmentHeader::from_bytes(&bytes).unwrap();
+        assert_eq!(h, back);
+    }
+
+    #[test]
+    fn rejects_bad_magic() {
+        let mut bytes = SegmentHeader {
+            segment_id: SegId::from_u64(1),
+            session_id: SegId::from_u64(1),
+            max_size: 256,
+            remaining: 0,
+            format: Format::VariableSimple,
+        }
+        .to_bytes();
+        bytes[0] = b'X';
+        assert!(matches!(
+            SegmentHeader::from_bytes(&bytes),
+            Err(LogError::InvalidHeader)
+        ));
+    }
+
+    #[test]
+    fn accepts_minor_zero() {
+        assert!(version_is_compatible(b"0000"));
+        assert!(version_is_compatible(b"0010"));
+    }
+
+    #[test]
+    fn rejects_higher_minor() {
+        assert!(!version_is_compatible(b"0020"));
+    }
+
+    #[test]
+    fn rejects_higher_major() {
+        assert!(!version_is_compatible(b"0100"));
+    }
+
+    #[test]
+    fn rejects_non_digit_version() {
+        assert!(!version_is_compatible(b"00a0"));
+        assert!(!version_is_compatible(b"XXXX"));
     }
 }

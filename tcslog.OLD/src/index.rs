@@ -1,11 +1,13 @@
 //! Index structure and operations for log files.
 
 use crate::error::TcsLogError;
-use crate::{Timestamp, BLOCK_SIZE};
+use crate::{Uid, BLOCK_SIZE};
 use std::mem::size_of;
 
-/// Size of an index entry (offset + timestamp).
-pub const INDEX_ENTRY_SIZE: usize = 2 * size_of::<u64>();
+/// Size of an index entry (offset + packed Uid). The Uid's
+/// packed size (`Uid::PACKLEN`) is used rather than `size_of::<Uid>()`,
+/// which includes struct padding.
+pub const INDEX_ENTRY_SIZE: usize = size_of::<u64>() + Uid::PACKLEN;
 
 /// Number of index entries per block.
 pub const ENTRIES_PER_BLOCK: usize = BLOCK_SIZE / INDEX_ENTRY_SIZE;
@@ -19,21 +21,21 @@ pub struct IndexEntry {
     /// Offset of the referenced file block within the file.
     /// FILE_NULL if this entry does not reference any block.
     pub offset: u64,
-    /// Timestamp in nanoseconds since UNIX epoch.
-    pub timestamp: Timestamp,
+    /// Uid in nanoseconds since UNIX epoch.
+    pub Uid: Uid,
 }
 
 impl IndexEntry {
     /// Creates a new index entry.
-    pub fn new(offset: u64, timestamp: Timestamp) -> Self {
-        IndexEntry { offset, timestamp }
+    pub fn new(offset: u64, Uid: Uid) -> Self {
+        IndexEntry { offset, Uid }
     }
 
     /// Creates a null index entry.
     pub fn null() -> Self {
         IndexEntry {
             offset: FILE_NULL,
-            timestamp: Timestamp::ZERO,
+            Uid: Uid::ZERO,
         }
     }
 
@@ -45,16 +47,22 @@ impl IndexEntry {
     /// Serializes the entry to bytes (little-endian).
     pub fn to_bytes(&self) -> [u8; INDEX_ENTRY_SIZE] {
         let mut bytes = [0u8; INDEX_ENTRY_SIZE];
-        bytes[0..8].copy_from_slice(&self.offset.to_le_bytes());
-        bytes[8..16].copy_from_slice(&self.timestamp.to_le_bytes());
+        let i = size_of::<u64>();
+        bytes[0..i].copy_from_slice(&self.offset.to_le_bytes());
+        bytes[i..i + Uid::PACKLEN].copy_from_slice(&self.Uid.to_le_bytes());
         bytes
     }
 
     /// Deserializes an entry from bytes.
     pub fn from_bytes(bytes: &[u8; INDEX_ENTRY_SIZE]) -> Self {
-        let offset = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
-        let timestamp = Timestamp::from_le_bytes(bytes[8..16].try_into().unwrap());
-        IndexEntry { offset, timestamp }
+        let i = size_of::<u64>();
+        let offset = u64::from_le_bytes(bytes[0..i].try_into().unwrap());
+        let Uid = Uid::from_le_bytes(bytes[i..i + Uid::PACKLEN].try_into().unwrap());
+        IndexEntry { offset, Uid }
+    }
+
+    pub fn pathlen(&self) -> usize {
+        unimplemented!();
     }
 }
 
@@ -101,15 +109,15 @@ impl IndexBlock {
         IndexBlock { entries }
     }
 
-    /// Finds the entry with the largest timestamp less than or equal to the given timestamp.
+    /// Finds the entry with the largest Uid less than or equal to the given Uid.
     /// Returns the index of the entry, or None if no such entry exists.
-    pub fn find_le(&self, timestamp: Timestamp) -> Option<usize> {
+    pub fn find_le(&self, Uid: Uid) -> Option<usize> {
         let mut result = None;
         for (i, entry) in self.entries.iter().enumerate() {
             if entry.is_null() {
                 break;
             }
-            if entry.timestamp <= timestamp {
+            if entry.Uid <= Uid {
                 result = Some(i);
             } else {
                 break;
@@ -206,41 +214,41 @@ mod tests {
     fn test_index_entry_roundtrip() {
         let entry = IndexEntry::new(
             0x1234_5678_9ABC_DEF0,
-            Timestamp::from_nanos(0xFEDC_BA98_7654_3210),
+            Uid::from_nanos(0xFEDC_BA98_7654_3210),
         );
         let bytes = entry.to_bytes();
         let restored = IndexEntry::from_bytes(&bytes);
         assert_eq!(entry.offset, restored.offset);
-        assert_eq!(entry.timestamp, restored.timestamp);
+        assert_eq!(entry.Uid, restored.Uid);
     }
 
     #[test]
     fn test_index_block_roundtrip() {
         let mut block = IndexBlock::new();
-        block.entries[0] = IndexEntry::new(4096, Timestamp::from_nanos(1000));
-        block.entries[1] = IndexEntry::new(8192, Timestamp::from_nanos(2000));
+        block.entries[0] = IndexEntry::new(4096, Uid::from_nanos(1000));
+        block.entries[1] = IndexEntry::new(8192, Uid::from_nanos(2000));
 
         let bytes = block.to_bytes();
         let restored = IndexBlock::from_bytes(&bytes);
 
         assert_eq!(block.entries[0].offset, restored.entries[0].offset);
-        assert_eq!(block.entries[0].timestamp, restored.entries[0].timestamp);
+        assert_eq!(block.entries[0].Uid, restored.entries[0].Uid);
         assert_eq!(block.entries[1].offset, restored.entries[1].offset);
-        assert_eq!(block.entries[1].timestamp, restored.entries[1].timestamp);
+        assert_eq!(block.entries[1].Uid, restored.entries[1].Uid);
     }
 
     #[test]
     fn test_find_le() {
         let mut block = IndexBlock::new();
-        block.entries[0] = IndexEntry::new(4096, Timestamp::from_nanos(1000));
-        block.entries[1] = IndexEntry::new(8192, Timestamp::from_nanos(2000));
-        block.entries[2] = IndexEntry::new(12288, Timestamp::from_nanos(3000));
+        block.entries[0] = IndexEntry::new(4096, Uid::from_nanos(1000));
+        block.entries[1] = IndexEntry::new(8192, Uid::from_nanos(2000));
+        block.entries[2] = IndexEntry::new(12288, Uid::from_nanos(3000));
 
-        assert_eq!(block.find_le(Timestamp::from_nanos(500)), None);
-        assert_eq!(block.find_le(Timestamp::from_nanos(1000)), Some(0));
-        assert_eq!(block.find_le(Timestamp::from_nanos(1500)), Some(0));
-        assert_eq!(block.find_le(Timestamp::from_nanos(2000)), Some(1));
-        assert_eq!(block.find_le(Timestamp::from_nanos(3500)), Some(2));
+        assert_eq!(block.find_le(Uid::from_nanos(500)), None);
+        assert_eq!(block.find_le(Uid::from_nanos(1000)), Some(0));
+        assert_eq!(block.find_le(Uid::from_nanos(1500)), Some(0));
+        assert_eq!(block.find_le(Uid::from_nanos(2000)), Some(1));
+        assert_eq!(block.find_le(Uid::from_nanos(3500)), Some(2));
     }
 
     #[test]

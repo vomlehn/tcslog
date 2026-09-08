@@ -1,10 +1,10 @@
 [package]
-name = "tcslogtest"
+name = "tcslog-dump"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [dependencies]
-tcslog = { path = "../tcslog" }
-tempfile.workspace = true
+tcslog = { path = "../tcslog", default-features = false }
+clap.workspace = true

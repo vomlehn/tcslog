@@ -2,7 +2,9 @@
 resolver = "2"
 
 members = [
-    "tcslog", "tcslogtest",
+    "tcslog",
+    "tcslog-sample",
+    "tcslog-dump",
 ]
 
 [workspace.package]
@@ -14,3 +16,5 @@ license = "MIT"
 [workspace.dependencies]
 libc = "0.2"
 thiserror = "1.0"
+tempfile = "3"
+clap = { version = "4", features = ["derive"] }

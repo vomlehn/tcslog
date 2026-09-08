@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cargo build *)",
+      "Bash(cargo test *)",
+      "Bash(cargo run *)",
+      "Bash(timeout 25 cargo add clap --features derive --dry-run)",
+      "Bash(echo \"exit: $?\")",
+      "Bash(make -n help)",
+      "Bash(make -n clean)",
+      "Bash(rst2html:*)",
+      "Bash(sphinx-build:*)",
+      "Bash(unset TIMER_RESOLUTION)",
+      "Bash(TIMER_RESOLUTION=1 cargo test --workspace)"
+    ]
+  }
+}

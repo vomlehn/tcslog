@@ -1,14 +1,21 @@
 [package]
 name = "tcslog"
-version = "0.1.0"
-edition = "2021"
-description = "Telemetry logging library with fixed-length logs, timestamps, and indexed searching"
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "Onboard segmented telemetry log library for storage-bounded systems"
+build = "build.rs"
+
+[features]
+default = ["write"]
+# Enables `LogWrite` and its supporting code. When disabled, the crate
+# provides only the reader path and does not require `TIMER_RESOLUTION`
+# to be set at build time.
+write = []
 
 [dependencies]
-error = "0.1.9"
-this = "0.3.0"
 thiserror.workspace = true
 
 [dev-dependencies]
-tempfile = "3"
+tempfile.workspace = true

@@ -1,10 +1,10 @@
 [package]
-name = "tcslogtest"
+name = "tcslog-tarball"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
 
 [dependencies]
-tcslog = { path = "../tcslog" }
-tempfile.workspace = true
+tar = "0.4"
+flate2 = "1"
