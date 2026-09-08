@@ -432,6 +432,39 @@ mod tests {
     }
 
     #[test]
+    fn drop_sends_pending_segment() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static CALLS: AtomicUsize = AtomicUsize::new(0);
+        fn count_send(_p: &Path) -> std::io::Result<()> {
+            CALLS.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+        CALLS.store(0, Ordering::SeqCst);
+
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        let cbs = WriteCallbacks {
+            record_complete: |_| Ok(()),
+            send: count_send,
+        };
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "ds-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 4096,
+                Format::VariableSimple,
+                cbs,
+            )
+            .unwrap();
+            log.write(b"only-record").unwrap();
+        }
+        // The one segment holds the single record and must be handed
+        // off exactly once when the writer drops.
+        assert_eq!(CALLS.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn clear_removes_prior_segments_only() {
         let dir = tempfile::tempdir().unwrap();
         let d = dir_str(&dir);
