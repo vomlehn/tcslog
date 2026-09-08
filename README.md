@@ -12,17 +12,44 @@ o   Recovery from errors
 
 Building
 --------
-After checking out, use:
+From the repository root:
 
-    make install
+```sh
+make build
+```
 
-User documentation in;
+This compiles the library and binaries and builds the user documentation
+under `docs/`.
 
-    docs/tcslog.rst
+Installing
+----------
+```sh
+make install
+```
 
-and
+Installs two binaries — `tcslog-sample` and `tcslog-dump` — into
+`$HOME/bin/`. Make sure `$HOME/bin` is on your `PATH`.
 
-    docs/tcslog.html
+Uninstalling
+------------
+```sh
+make uninstall
+```
+
+Removes `tcslog-sample` and `tcslog-dump` from `$HOME/bin/`.
+
+Documentation
+-------------
+User documentation is generated to:
+
+```
+docs/tcslog.rst
+docs/tcslog.html
+```
+
+The Claude Code prompt that generates the sources and user docs lives at
+`docs/tcslog-prompt.rst` — do not confuse it with the generated user guide
+at `docs/tcslog.rst`.
 
 Making Changes
 --------------
@@ -31,11 +58,15 @@ file directly or by incremental AI work. For now, changes are made by
 modifying the Claude Code prompt file in the docs directory, tcslog-prompt.rst.
 To run claude to rebuild everything, start in the root directory and type:
 
-    make distclean
+```sh
+make distclean
+```
 
 to discard the previous Rust files in tcslog and the user documentation in
 docs. Then generate new ones with:
 
-    make generate
+```sh
+make generate
+```
 
 This will generate the tcslog subcrate and the user documentation.

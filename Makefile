@@ -4,8 +4,6 @@ include config.mk
 
 SHELL := /bin/sh
 
-.PHONY: all setup build test clean install help
-
 # Portable command abstractions (override per-OS as needed)
 RM      := rm -f
 RMDIR   := rm -rf
@@ -183,12 +181,23 @@ distclean: clean
 	make -C docs distclean
 	@echo "[OK] Project reset"
 
-# Install binaries to $HOME/bin
+# Install binaries. Defaults to $HOME; override PREFIX for other locations,
+# and DESTDIR for staged installs (packaging).
+PREFIX  ?= $(HOME)
+DESTDIR ?=
+
 install: build
-	@echo "Installing tcslog-sample and tcslog-dump..."
-	$(TCSLOG_CONFIG) cargo install --path tcslog-sample --root $$HOME
-	$(TCSLOG_CONFIG) cargo install --path tcslog-dump --root $$HOME
-	@echo "[OK] Installed to $$HOME/bin/"
+	@echo "Installing tcslog-sample and tcslog-dump to $(DESTDIR)$(PREFIX)/bin..."
+	$(TCSLOG_CONFIG) cargo install --path tcslog-sample --root $(DESTDIR)$(PREFIX)
+	$(TCSLOG_CONFIG) cargo install --path tcslog-dump   --root $(DESTDIR)$(PREFIX)
+	@echo "[OK] Installed to $(DESTDIR)$(PREFIX)/bin/"
+
+# Uninstall binaries from the same location `install` uses.
+uninstall:
+	@echo "Removing tcslog-sample and tcslog-dump from $(DESTDIR)$(PREFIX)/bin..."
+	$(RM) $(DESTDIR)$(PREFIX)/bin/tcslog-sample
+	$(RM) $(DESTDIR)$(PREFIX)/bin/tcslog-dump
+	@echo "[OK] Uninstalled from $(DESTDIR)$(PREFIX)/bin/"
 
 # Check code quality
 check:
