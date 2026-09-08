@@ -11,3 +11,7 @@ tcslog-prompt.html: tcslog-prompt.rst
 .PHONY: clean
 clean:
 	rm -f tcslog.html tcslog-prompt.html
+
+.PHONY: distclean
+distclean:
+	rm -f tcslog.rst
