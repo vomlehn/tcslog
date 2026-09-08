@@ -503,6 +503,12 @@ pub fn clear();
 
     Remove all existing segment files.
 
+pub fn drop(&self);
+
+    If the current segment file has data in the data section, call the
+    user callback function send(). Then proceed with the rest of
+    processing drop is expected to do.
+
 LogRead
 -------
 The LogRead interface is used for reading from logs. Its members include:
@@ -704,6 +710,9 @@ o   Verify that the callback function send() is called exactly as many times as
 
 o   Ensure the callback function record_complete() is called each time
     a data record is written and no more times than that.
+
+o   Verify that the user callback function sent() is called when the LogWrite
+    drop() function is invoked.
 
 User Documentation
 ==================
