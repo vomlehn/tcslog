@@ -27,8 +27,6 @@ RUST = .
 TCSLOG_CODE = tcslog
 TCSLOG_TEST = 
 TCSLOG_RUST = tcslog
-TCSLOG_TAR = $(TCSLOG_RUST).tar.gz
-TCSLOG_OUTPUT = compressed tar file $(TCSLOG_TAR)
 BASE_PROMPT_FILE = base-prompt
 PROMPT = Generate Rust code ($(TCSLOG_CODE)), auditing and patching against the code if it exists and creating it if not, and write a full user guide to $(TCSLOG_DOC) in RST format.
 
@@ -167,8 +165,8 @@ tcslog-dump:
 clean:
 	@echo "Cleaning build artifacts..."
 	-cargo clean
-	$(RM) generate.out build.out run.out test.out $(TCSLOG_TAR)
-	$(RMDIR) $(TCSLOG_RUST) $(TCSLOG_TAR)
+	$(RM) generate.out build.out run.out test.out
+	$(RMDIR) $(TCSLOG_RUST)
 	make -C docs clean
 	@echo "[OK] Clean complete"
 
