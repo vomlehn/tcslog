@@ -11,7 +11,23 @@
       "Bash(rst2html:*)",
       "Bash(sphinx-build:*)",
       "Bash(unset TIMER_RESOLUTION)",
-      "Bash(TIMER_RESOLUTION=1 cargo test --workspace)"
+      "Bash(TIMER_RESOLUTION=1 cargo test --workspace)",
+      "Bash(TIMER_RESOLUTION=1 cargo run --quiet -p tcslog-sample -- /tmp/tcslog-sample-test sample- .tcslog)",
+      "Read(//tmp/tcslog-sample-test/**)",
+      "Read(//tmp/**)",
+      "Bash(rm -rf tcslog-gen-test)",
+      "Bash(mkdir tcslog-gen-test *)",
+      "Bash(TIMER_RESOLUTION=1 /home/vomlehn/working/tcslog/target/debug/tcslog-gen --help)",
+      "Bash(/home/vomlehn/working/tcslog/target/debug/tcslog-gen -f banana:10 /tmp/tcslog-gen-test p .log)",
+      "Bash(rm -rf /tmp/tcslog-gen-test)",
+      "Bash(mkdir /tmp/tcslog-gen-test)",
+      "Bash(/home/vomlehn/working/tcslog/target/debug/tcslog-gen -v -f fixed:20 /tmp/tcslog-gen-test/a a- .log)",
+      "Bash(TIMER_RESOLUTION=1 cargo build --workspace)",
+      "Bash(TIMER_RESOLUTION=1 cargo clippy -p tcslog-gen --no-deps)",
+      "Bash(TIMER_RESOLUTION=1 cargo clippy -p tcslog-sample --no-deps)",
+      "Bash(/home/vomlehn/working/tcslog/target/debug/tcslog-gen -f variable-ts-rc:8..20 /tmp/tcslog-gen-test/x x- .log)",
+      "Bash(TIMER_RESOLUTION=1 cargo build -p tcslog-gen)",
+      "Bash(/home/vomlehn/working/tcslog/target/debug/tcslog-gen -v /tmp/tcslog-gen-test/a a- .log)"
     ]
   }
 }
