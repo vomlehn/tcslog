@@ -26,3 +26,7 @@ target
 generate.out
 .generate
 build.out
+
+# Per-developer cargo config; TIMER_RESOLUTION lives here (see
+# .cargo/config.toml.example for the template).
+/.cargo/config.toml
