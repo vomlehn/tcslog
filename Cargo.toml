@@ -3,8 +3,9 @@ resolver = "2"
 
 members = [
     "tcslog",
-    "tcslog-sample",
     "tcslog-dump",
+    "tcslog-gen",
+    "tcslog-sample",
 ]
 
 [workspace.package]
