@@ -6,7 +6,6 @@ use std::fmt;
 use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use tcslog::{Format, LogError, LogWrite, RecSize, SEGMENT_FILE_HEADER_LEN,
     WriteCallbacks};
@@ -242,7 +241,7 @@ pub fn create_log(
     while message_count < count {
         let payload = build_payload(spec, message_count);
         if verbose {
-            println!("record {} ({} bytes)", message_count + 1, payload.len());
+            println!("record #{} ({} bytes)", message_count + 1, payload.len());
         }
         log.write(&payload)?;
         message_count += 1;
@@ -264,22 +263,11 @@ fn build_payload(spec: RecordFormatSpec, index: u64) -> Vec<u8> {
         min + RecSize::try_from(index % span).unwrap_or(0)
     };
 
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock is before 1970");
-    let base = format!(
-        "time={}.{:09}s message={}",
-        dur.as_secs(),
-        dur.subsec_nanos(),
-        index + 1,
-    );
-
     let target_usize = target as usize;
-    let mut buf = base.into_bytes();
-    if buf.len() > target_usize {
-        buf.truncate(target_usize);
-    } else {
-        buf.resize(target_usize, b'.');
+    let mut buf = format!("#{index} ").into_bytes();
+    while buf.len() < target_usize {
+        buf.extend_from_slice(b"123456789 ");
     }
+    buf.truncate(target_usize);
     buf
 }
