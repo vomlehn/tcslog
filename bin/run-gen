@@ -1,0 +1,22 @@
+#!/bin/sh
+#
+# This runs tcslog-gen. It's helpful to verify that tcslog-gen is
+# working correctly. It's also helpful in checking out tcslog-dump.
+
+set -eu
+
+TMP_DIR=/tmp/t1
+PFX=pfx-
+SFX=.log
+rm -rf $TMP_DIR
+mkdir -p $TMP_DIR
+cargo run -p tcslog-gen -- \
+    --verbose \
+    --data-size 5 \
+    --format fixed:10 \
+    --number 1  \
+    $TMP_DIR $PFX $SFX
+
+for f in $TMP_DIR/$PFX*$SFX; do
+    hexdump -C $f
+done
