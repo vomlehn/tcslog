@@ -1,0 +1,14 @@
+# Copy this file to `.cargo/config.toml` and adjust the value for your
+# system. `.cargo/config.toml` is gitignored so each developer/machine
+# can pick its own timer resolution.
+#
+# TIMER_RESOLUTION is the system-dependent timer resolution in
+# nanoseconds. It is read by `tcslog/build.rs` when the `write` feature
+# is enabled and baked in as the `TIMER_RESOLUTION_NS` constant. There
+# is deliberately no default; a missing value causes a build failure.
+#
+# Alternatively, set the environment variable directly on the command
+# line (e.g. `TIMER_RESOLUTION=1 cargo build`) — either mechanism works.
+
+[env]
+TIMER_RESOLUTION = "1"
