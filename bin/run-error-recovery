@@ -1,0 +1,73 @@
+#!/bin/bash
+#
+# This runs tcslog-gen to generate segment files. It then deletes and
+# corrupts them in various ways and uses tcslog-dump to see whether
+# error recovery works.
+# working correctly. It's also helpful in checking out tcslog-dump.
+
+set -eu
+
+TMP_DIR=/tmp/t1
+PFX=pfx-
+SFX=.log
+
+segment_file_header_len=45
+
+# Possible formats
+#FORMAT="--format fixed:10"
+FORMAT="--format variable-simple:10"
+FORMAT="--format variable-simple:5..10"
+
+
+case $FORMAT in
+    *fixed*)
+        data_header_len=0
+        ;;
+
+    *variable-simple*)
+        data_header_len=4;
+        ;;
+
+    *variable--tsrc*)
+        data_header_len=$((4 + 8 + 8))
+        ;;
+
+    *)
+        echo "Invalid format: $FORMAT" 1>&2
+        exit 1
+        ;;
+esac
+
+data_size=$((17))
+number=10
+
+rm -rf $TMP_DIR
+mkdir -p $TMP_DIR
+cargo run -p tcslog-gen -- \
+    --data-size $data_size \
+    $FORMAT \
+    --number $number \
+    $TMP_DIR $PFX $SFX
+
+declare -a files
+files=($TMP_DIR/$PFX*$SFX)
+rm ${files[0]}
+rm ${files[2]}
+rm ${files[3]}
+
+echo
+echo Hexdump of segment files
+for f in ${files[@]}; do
+    if [ -f $f ]; then
+        echo $f:
+        hexdump -C $f
+    else
+        echo $f: deleted
+    fi
+done
+
+echo
+echo tcslog-dump output
+
+cargo run -p tcslog-dump -- \
+    $TMP_DIR $PFX $SFX
