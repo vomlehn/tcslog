@@ -237,9 +237,10 @@ pub fn create_log(
     let session_id = log.session_id();
     let root_file = format!("{prefix}{session_id}{suffix}");
 
+    let mut rng = SplitMix64::new(PAYLOAD_RNG_SEED);
     let mut message_count: u64 = 0;
     while message_count < count {
-        let payload = build_payload(spec, message_count);
+        let payload = build_payload(spec, message_count, &mut rng);
         if verbose {
             println!("record #{} ({} bytes)", message_count + 1, payload.len());
         }
@@ -253,14 +254,14 @@ pub fn create_log(
     })
 }
 
-fn build_payload(spec: RecordFormatSpec, index: u64) -> Vec<u8> {
+fn build_payload(spec: RecordFormatSpec, index: u64, rng: &mut SplitMix64) -> Vec<u8> {
     let min = spec.min_size();
     let max = spec.max_size();
     let target = if min == max {
         min
     } else {
         let span = u64::from(max - min) + 1;
-        min + RecSize::try_from(index % span).unwrap_or(0)
+        min + RecSize::try_from(rng.next_u64() % span).unwrap_or(0)
     };
 
     let target_usize = target as usize;
@@ -270,4 +271,28 @@ fn build_payload(spec: RecordFormatSpec, index: u64) -> Vec<u8> {
     }
     buf.truncate(target_usize);
     buf
+}
+
+/// Fixed seed for the payload-length PRNG. Held constant so that runs with
+/// the same parameters produce the same sequence of record lengths.
+const PAYLOAD_RNG_SEED: u64 = 0x0123_4567_89ab_cdef;
+
+/// Minimal deterministic PRNG (SplitMix64) used to pick record lengths for
+/// the variable-length `--format` kinds.
+struct SplitMix64 {
+    state: u64,
+}
+
+impl SplitMix64 {
+    fn new(seed: u64) -> Self {
+        Self { state: seed }
+    }
+
+    fn next_u64(&mut self) -> u64 {
+        self.state = self.state.wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = self.state;
+        z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
+        z ^ (z >> 31)
+    }
 }
