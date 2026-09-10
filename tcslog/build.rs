@@ -23,7 +23,10 @@ fn main() {
         Ok(s) => s,
         Err(_) => panic!(
             "TIMER_RESOLUTION must be set (nanoseconds, positive integer). \
-             Typical invocation: `TIMER_RESOLUTION=1 cargo build`."
+             Provide it via the `TIMER_RESOLUTION` environment variable \
+             (`TIMER_RESOLUTION=1 cargo build`) or by copying \
+             `.cargo/config.toml.example` to `.cargo/config.toml` and \
+             editing the `[env]` value there."
         ),
     };
 
