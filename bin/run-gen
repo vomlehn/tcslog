@@ -8,15 +8,30 @@ set -eu
 TMP_DIR=/tmp/t1
 PFX=pfx-
 SFX=.log
+
+# Possible formats
+#FORMAT="--format fixed:10"
+FORMAT="--format variable-simple:10"
+FORMAT="--format variable-simple:5..10"
+
 rm -rf $TMP_DIR
 mkdir -p $TMP_DIR
 cargo run -p tcslog-gen -- \
     --verbose \
     --data-size 5 \
-    --format fixed:10 \
-    --number 1  \
+    $FORMAT \
+    --number 2  \
     $TMP_DIR $PFX $SFX
 
+echo
+echo Hexdump of segment files
 for f in $TMP_DIR/$PFX*$SFX; do
     hexdump -C $f
 done
+
+echo
+echo tcslog-dump output
+
+cargo run -p tcslog-dump -- \
+    --verbose \
+    $TMP_DIR $PFX $SFX
