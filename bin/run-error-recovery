@@ -13,11 +13,16 @@ SFX=.log
 
 segment_file_header_len=45
 
+rm_seg() {
+    local args="$@"
+    echo "Remove segment file: $args"
+    rm $args
+}
+
 # Possible formats
 #FORMAT="--format fixed:10"
 FORMAT="--format variable-simple:10"
-FORMAT="--format variable-simple:5..10"
-
+FORMAT="--format variable-simple:0..10"
 
 case $FORMAT in
     *fixed*)
@@ -39,9 +44,9 @@ case $FORMAT in
 esac
 
 data_size=$((17))
-number=10
+number=20
 
-rm -rf $TMP_DIR
+rm_seg -rf $TMP_DIR
 mkdir -p $TMP_DIR
 cargo run -p tcslog-gen -- \
     --data-size $data_size \
@@ -51,9 +56,12 @@ cargo run -p tcslog-gen -- \
 
 declare -a files
 files=($TMP_DIR/$PFX*$SFX)
-rm ${files[0]}
-rm ${files[2]}
-rm ${files[3]}
+
+if true; then
+    rm_seg ${files[0]}
+    rm_seg ${files[2]}
+    rm_seg ${files[3]}
+fi
 
 echo
 echo Hexdump of segment files
