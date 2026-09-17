@@ -365,10 +365,27 @@ prefix, suffix, and all possible segment IDs, deleting each one.
 
 Read-Related Operations
 -----------------------
-The LogRead struct provides for reading data records from a log. If
-an error is encountered while reading or an expected segment file is missing,
-it will skip over any errors until it can resynchronize with the data
-record stream.
+The LogRead struct provides for reading data records from a log. It must
+tolerate two independent classes of fault:
+
+o   I/O errors when reading the current segment file (bad sectors, an
+    unreadable header, a short read).
+
+o   Missing segment files, i.e. a gap in the sequence of segment IDs
+    returned by the initial directory scan. A gap may skip a segment
+    that held the middle of a multi-segment data record, or it may
+    skip whole records that lived entirely within the missing file.
+
+In either case, the reader must discard whatever record was in progress,
+resynchronize on the next segment file that opens cleanly, and continue
+returning subsequent records. The reader is permitted to return an error
+to the caller for the record that was lost, but the reader itself must
+remain usable: the very next call must recover, not repeat the failure.
+The only condition under which reading ends is exhaustion of the segment
+file list.
+
+Recovery is coordinated through a piece of LogRead state called the
+resync flag, described under "Reading Data Records" below.
 
 Initialization
 ~~~~~~~~~~~~~~
@@ -431,7 +448,7 @@ will the beginning of the data section. The new segment file becomes the
 current segment file.
 
 Reading Data Buffers
-~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~
 Data buffers are implemented as byte arrays and read from the data section.
 If there is no current segment file, the next segment file is opened. If
 there is no next segment file, an end of log indication is returned,
@@ -449,7 +466,47 @@ more segment files available, or there is another segment file available
 but its session ID is different from the session ID of the segment file
 from which the previously read bytes have been obtained,
 an error indicating that the read has been truncated is returned, along
-with the number for previously read bytes.
+with a ReadResult value.
+
+Segment Boundary Validation
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Whenever a read that spans segment files crosses from one segment file
+into the next, before consuming any bytes from the new segment's data
+section the reader must confirm the following:
+
+o   The new segment's remaining field equals the number of bytes still
+    owed to the in-progress data record. A different value means the new
+    segment does not contain the continuation of the current record --
+    either the current record's tail was in a segment file that has been
+    lost, or the on-disk data was corrupted. (Segment IDs are wall-clock
+    timestamps, not a dense integer sequence, so ID-based contiguity
+    checks are not meaningful; the remaining field is the sole authority
+    for continuation.)
+
+The remaining field is only knowable after the current record's data
+header has been fully decoded (since Variable* record sizes come from
+the header itself). Crossings that happen while the header itself is
+still being read cannot be validated up front; if they land on a
+corrupted continuation, the retroactive check on the next payload-side
+crossing, or the failure of the payload read itself, will surface the
+problem.
+
+If the check fails, the reader must:
+
+o   Close the newly opened segment file and push its segment ID back to
+    the front of the pending list so it will be re-examined as the start
+    of a fresh record.
+
+o   Set the resync flag.
+
+o   Return control to the record-reading layer with an error indicating
+    that the read has been truncated, along with a ReadResult value.
+    successfully read from the previous segment(s).
+
+The record-reading layer will then, on the next call, honor the resync
+flag by invoking "Find the Next Data Record Start" against the pushed-back
+segment file, which uses that segment's own remaining field to locate a
+fresh record boundary.
 
 Skipping To Data Record End
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -465,32 +522,54 @@ read.
 
 Reading Data Records
 ~~~~~~~~~~~~~~~~~~~~
+The reader owns a boolean resync flag, initialized to true when
+LogRead::new() returns. Setting the flag to true on construction ensures
+that the very first read finds a valid record start using "Find the Next
+Data Record Start" rather than assuming the first pending segment file's
+data section already begins on a record boundary.
+
 Print a message at each decision point.
 
-If no more items remain in the segment file list, an end of log indication
-is returned.
+The read function proceeds as follows:
 
-If the resync flag was set, find the next record start. If it returned an
-error, propagate it. Otherwise, clear the resync flag.
+1.  If no more items remain in the segment file list and no segment is
+    currently open, return an end of log indication.
 
-Next, if there is a data header of a non-zero size, read it into a data
-buffer.
-If an error occurred, set the resync flag and propagate the error to the
-caller.
+2.  If the resync flag is set, invoke "Find the Next Data Record Start."
+    If it returns an error, leave the resync flag set and propagate the
+    error to the caller -- the caller may retry, and the reader will
+    resume the search on the next call. If it succeeds, clear the resync
+    flag and continue.
 
-Using the format-dependent size of the telemetry data, read the telemetry
-data into the user-supplied buffer.
+3.  If the format has a non-zero data header, read it. If any read error
+    occurs (I/O error, or a segment-boundary validation failure as
+    described under "Segment Boundary Validation"), set the resync flag
+    and propagate the error. Do not attempt to interpret partial header
+    bytes.
 
-Read the telemetry data into the given data buffer. If errors were detected,
-set the resync flag and propagate the error.  If no errors were
-encountered, and the number of bytes read matches the size of the telemetry
-data, return the number of bytes successfully read.
+4.  Using the payload length taken from the data header (or the fixed
+    size, for Format::Fixed), read the telemetry data into the
+    user-supplied buffer. If any read error occurs, set the resync flag
+    and propagate the error. On success, if the number of bytes read
+    matches the payload length and fit within the buffer, return the
+    number of bytes read.
 
-At this point, there is telemetry data remaining for this data record that
-didn't fit in the buffer. We need to skip to the end of the remaining
-telemetry buffer. The number of bytes in the data section to skip is
-the difference between the number of bytes in the data record and the
-requested number of bytes.
+5.  If the payload length exceeded the caller's buffer, there is
+    telemetry data remaining for this data record that did not fit. Skip
+    to the end of that record. The number of bytes in the data section
+    to skip is the difference between the payload length and the buffer
+    size. If any error occurs during the skip, set the resync flag but
+    do not disturb the ReadOverflow result -- the caller has already
+    received valid bytes for this record, and the resync flag guarantees
+    the next call will recover.
+
+At every point where the resync flag is set on error, the reader is
+guaranteed to make forward progress on the next call: "Find the Next Data
+Record Start" either opens a new segment successfully (clearing the flag
+and yielding the next record), or exhausts the pending list and returns
+end of log. In no case may an error leave the reader pointing at a
+position within a segment that would cause the next call to produce
+garbage.
 
 Public Data Structures
 ======================
