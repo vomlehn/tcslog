@@ -93,6 +93,11 @@ and require further processing. There is also a provision for calling functions
 that can flush data and/or metadata for segment files to ensure that data
 is written to stable storage, such as flush().
 
+Buffering
+---------
+I/O is generally buffered but the flush() function can be used to ensure
+data is written to storage.
+
 File Format
 ===========
 All segment files start with a header, followed by a data section. The 
@@ -352,41 +357,65 @@ is closed and the
 file name is placed on the send FIFO. The segment ID is incremented
 unless it is already SegId\ :sub:`max`.
 
-Deleting a Log File
-~~~~~~~~~~~~~~~~~~~
-Logwrite::clear() can be called to delete all segment files. It goes
-through all existing segment files and deletes each one.
+Deleting a Log
+~~~~~~~~~~~~~~
+Logwrite::clear() can be called to delete all segment files for a log. It goes
+through all existing segment files in the given directory that match the
+prefix, suffix, and all possible segment IDs, deleting each one.
 
 Read-Related Operations
 -----------------------
+The LogRead struct provides for reading data records from a log. If
+an error is encountered while reading or an expected segment file is missing,
+it will skip over any errors until it can resynchronize with the data
+record stream.
 
-Find the First Data Record Start
+Initialization
+~~~~~~~~~~~~~~
+The read process begins by creating a list of segment files that match
+the given prefix and suffix. This list is then sorted alphabtically. Since
+the segment file ID monotonically increases with time, the list is
+consequently sorted from oldest to newest. Process starts with the oldest
+segment file and proceeds to the newest one.
+
+Find the Next Data Record Start
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-There may be missing segment files at the beginning of a log. To skip
-any missing or corrupted segment files and find the start of the
-first data record, begin by constructing a list of all existing
-segment files matching the given prefix and suffix, in order from oldest
-to newest. Then, starting with the oldest segment file, read the segment
-file headers. There are three cases:
+Finding the next data record starts with asserting that there is no
+current file, i.e. there may not be an open segment file.
+
+Print a message at each decision point.
+
+There may be missing or corrupted segment files at various points in a log.
+When there is no current segment file, try to open the next file in the
+segment file list and keep trying until there are either no more files
+available in the list of segment files or a file could be opened. If no
+more segment files are available in the list, an end of log indication is
+returned for the log.
+
+When a segment file is opened, read the segment file header.
+There are three cases:
 
 o   The remaining field value is greater than the size of the data section:
-    continue to the next segment file.
+    This means this segment file holds the middle of a data record.
+    Continue to the next segment file in the list of segment files.
 
 o   The remaining field value is less than the size of the data section:
-    The log starts at an offset of remaining into the data section.
+    The data record starts at an offset of remaining into the data section.
+    Use this offset as the location to start reading a data record.
 
 o   The remaining field value and size of the data section are equal:
-    If this is the last segment file, there is no data available in the
-    log. Otherwise, the log starts at the first byte of the next segment
-    file.
+    -   If this is the last segment file, there is no more data available
+        in the log. Return an end of log indicator
+        
+    -   Otherwise, start reading the data record at the first byte of the next
+        segment file.
 
-If a segment file cannot be opened or the header cannot be read, the
-search for the start of the log advances to the next segment file.
+If an error occurs during the read of the segment file header, close the
+segment file and resume the walk down the segment file list, as described
+above.
 
-It is an error if no matching segment file names are found.
-
-Reading Telemetry Data
-~~~~~~~~~~~~~~~~~~~~~~
+Validating a New Segment File
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Each time a new segment file is opened, the segment header is read. It does
 the following checks:
 
@@ -396,31 +425,74 @@ o   The version string is "0010", corresponding to version 0.1.0.
 
 o   The segment ID matches the segment part of the segment file name
 
-It can then start reading data records.
+o   The segment file size is less than or equal to the value of max size
+    read from the segment file header.
 
-To read a data record, first try to read a data header. If an end of file
-is encountered, close the segment file and open the one with the next
-segment ID, do the file header verification, and try to read the
-a data header again. Keep doing this until no more segment files are
-available.
+At the end of reading the segment file header, the next position to read
+will the beginning of the data section. The new segment file becomes the
+current segment file.
 
+Reading Data Buffers
+~~~~~~~~~~~~~~~~~~
+Data buffers are implemented as byte arrays and read from the data section.
+If there is no current segment file, the next segment file is opened. If
+there is no next segment file, an end of log indication is returned,
+otherwise, the segment file header is read, propagating any errors.
 
-Once we read a data header, read the number of bytes specified by n.
-Copy as many as will fit into the user's buffer. If the buffer is too
-small, set a flag indicating this so we can return an overflow status.
-Keep
+As many bytes as are required to fill the data buffer are then read from the current location in the segment file.
+If an error occurs, an error code is returned indicating the error and the
+number of bytes successfully read into the beginning of the data buffer.
+If the data buffer is not filled, the current segment file is closed, a
+new one opened--propagating any errors--and reading to the data buffer
+continued until the entire data buffer has been successfully read.
 
-If we can't open the segment file, and we found more
-segment files, skip this one and open the next.
+If there are more bytes in the read buffer to be read and either there are no
+more segment files available, or there is another segment file available
+but its session ID is different from the session ID of the segment file
+from which the previously read bytes have been obtained,
+an error indicating that the read has been truncated is returned, along
+with the number for previously read bytes.
 
-Reading a Record
-~~~~~~~~~~~~~~~~
-If there is no current segment file, remove the segment file name with the
-smallest segment ID from the list of matching segment file names
-and attempt to open it. If the open fails and the match segment file name
-list is now empty, we have reached to end of the log and return an
-approprite status. Otherwise, extract the segment ID from the segment
-file name as a SegId value.
+Skipping To Data Record End
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In the case where the user supplied a buffer smaller than the length of the
+telemetry data, it is necessary to skip over the rest of the data record
+to find the segment file and data section data to find where the next
+record begins. This is only done when data has been successfully read
+into the user buffer, so errors at this stage will not affect the
+status returned. If errors are encountered during skipping, however,
+the resync flag is set to true to indicate error recovery must occur the next
+time a record is
+read.
+
+Reading Data Records
+~~~~~~~~~~~~~~~~~~~~
+Print a message at each decision point.
+
+If no more items remain in the segment file list, an end of log indication
+is returned.
+
+If the resync flag was set, find the next record start. If it returned an
+error, propagate it. Otherwise, clear the resync flag.
+
+Next, if there is a data header of a non-zero size, read it into a data
+buffer.
+If an error occurred, set the resync flag and propagate the error to the
+caller.
+
+Using the format-dependent size of the telemetry data, read the telemetry
+data into the user-supplied buffer.
+
+Read the telemetry data into the given data buffer. If errors were detected,
+set the resync flag and propagate the error.  If no errors were
+encountered, and the number of bytes read matches the size of the telemetry
+data, return the number of bytes successfully read.
+
+At this point, there is telemetry data remaining for this data record that
+didn't fit in the buffer. We need to skip to the end of the remaining
+telemetry buffer. The number of bytes in the data section to skip is
+the difference between the number of bytes in the data record and the
+requested number of bytes.
 
 Public Data Structures
 ======================
