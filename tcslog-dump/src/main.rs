@@ -15,8 +15,7 @@ use tcslog::{LogError, LogRead, Meta, SegmentHeader};
 
 const MAX_MESSAGE_SIZE: usize = 256;
 
-/// Create a chain of segment files, then read the whole chain back and print
-/// every header and message.
+/// Print a tcslog file
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
@@ -28,6 +27,10 @@ struct Args {
 
     /// Segment file name suffix.
     suffix: String,
+
+    /// Print as hex bytes or text (default)
+    #[arg(short, long)]
+    text: bool,
 
     /// Print segment headers, session boundaries, and summary information
     /// in addition to log messages.
@@ -50,7 +53,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut buf = vec![0u8; MAX_MESSAGE_SIZE];
 
     loop {
-        match log.read(&mut buf) {
+        let read_result = log.read(&mut buf);
+        match read_result {
             Ok(res) => {
                 if let Some(h) = log.current_header() {
                     if current_seg != Some(h.segment_id) {
@@ -65,13 +69,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 total += 1;
-                let text = String::from_utf8_lossy(&buf[..res.n as usize]);
+                let msg = format_msg(args.text, &buf[..res.n as usize]);
                 match res.meta {
                     Meta::VariableTsRc(ts, rn) => {
-                        println!("    msg {rn}: ts={ts} {:?}", text.trim_end());
+                        println!("    msg {rn}: ts={ts} {:?}", msg);
                     }
                     Meta::VariableSimple | Meta::Fixed => {
-                        println!("    msg {total}: {:?}", text.trim_end());
+                        println!("    msg {total}: {:?}", msg);
                     }
                 }
             }
@@ -83,7 +87,9 @@ fn main() -> Result<(), Box<dyn Error>> {
                 }
                 continue;
             },
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                return Err(e.into());
+            },
         }
     }
 
@@ -91,6 +97,21 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("\nread {total} message(s) across {} file(s)", files_seen);
     }
     Ok(())
+}
+
+fn format_msg(as_text: bool, buf: &[u8]) -> String {
+    if as_text {
+        String::from_utf8_lossy(&buf).to_string()
+    } else {
+        let mut text = "".to_string();
+        let delim = "";
+
+        for item in buf {
+            text = format!("{}{}{:02x}", text, delim, item);
+        }
+
+        text
+    }
 }
 
 fn print_header(prefix: &str, suffix: &str, h: &SegmentHeader) {
