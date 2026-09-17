@@ -46,8 +46,12 @@ esac
 data_size=$((17))
 number=20
 
-rm_seg -rf $TMP_DIR
+echo Removing any existing logs in $TMP_DIR
+rm -rf $TMP_DIR
 mkdir -p $TMP_DIR
+
+echo "Generating log in $TMP_DIR: prefix $PFX suffix $SFX"
+
 cargo run -p tcslog-gen -- \
     --data-size $data_size \
     $FORMAT \
@@ -58,21 +62,25 @@ declare -a files
 files=($TMP_DIR/$PFX*$SFX)
 
 if true; then
+    echo
+    echo "Removing segment files"
     rm_seg ${files[0]}
     rm_seg ${files[2]}
     rm_seg ${files[3]}
 fi
 
-echo
-echo Hexdump of segment files
-for f in ${files[@]}; do
-    if [ -f $f ]; then
-        echo $f:
-        hexdump -C $f
-    else
-        echo $f: deleted
-    fi
-done
+if false; then
+    echo
+    echo Hexdump of segment files
+    for f in ${files[@]}; do
+        if [ -f $f ]; then
+            echo $f:
+            hexdump -C $f
+        else
+            echo $f: deleted
+        fi
+    done
+fi
 
 echo
 echo tcslog-dump output
