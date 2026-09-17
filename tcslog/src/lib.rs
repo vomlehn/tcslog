@@ -297,6 +297,86 @@ mod tests {
     }
 
     #[test]
+    fn missing_segment_mid_record_recovers() {
+        // Write records that force a single record's payload to span
+        // several segments. Delete a segment from the middle of that
+        // record's span. The reader must:
+        //   * return the record(s) before the gap cleanly,
+        //   * surface the truncated record as `ReadTruncated`,
+        //   * and recover far enough to return the record(s) after
+        //     the gap.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "ms-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableSimple,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            // Record 0: 30 bytes; comfortably fits in the first
+            // segment. Record 1: 200 bytes; forces ~5 segment spans.
+            // Record 2: 30 bytes; sits after the multi-segment record.
+            log.write(&vec![0xA0u8; 30]).unwrap();
+            log.write(&vec![0xB1u8; 200]).unwrap();
+            log.write(&vec![0xC2u8; 30]).unwrap();
+            log.flush().unwrap();
+        }
+        let mut segments: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        segments.sort();
+        assert!(
+            segments.len() >= 5,
+            "test setup produced too few segments: {}",
+            segments.len()
+        );
+        // Delete a segment from the middle of the run — squarely
+        // inside record 1's span.
+        std::fs::remove_file(&segments[segments.len() / 2]).unwrap();
+
+        let mut reader = LogRead::new(&d, "ms-", ".log").unwrap();
+        let mut buf = vec![0u8; 4096];
+
+        // Record 0 comes back cleanly.
+        let r0 = reader.read(&mut buf).unwrap();
+        assert_eq!(r0.n, 30);
+        assert!(buf[..30].iter().all(|b| *b == 0xA0));
+
+        // Record 1 must not be silently mis-read; the mid-record
+        // segment gap must surface as ReadTruncated.
+        let mut saw_truncation = false;
+        let mut saw_c2 = false;
+        loop {
+            match reader.read(&mut buf) {
+                Ok(res) => {
+                    if res.n == 30 && buf[..30].iter().all(|b| *b == 0xC2) {
+                        saw_c2 = true;
+                        break;
+                    }
+                    // Any other successful record means the gap
+                    // wasn't detected — that is the bug we're
+                    // guarding against.
+                    if res.n == 200 && buf[..200].iter().all(|b| *b == 0xB1) {
+                        panic!("record 1 read succeeded despite missing segment");
+                    }
+                }
+                Err(LogError::ReadTruncated) => {
+                    saw_truncation = true;
+                }
+                Err(LogError::Eof) => break,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+        }
+        assert!(saw_truncation, "expected ReadTruncated for the record spanning the gap");
+        assert!(saw_c2, "expected record 2 to be recovered after the gap");
+    }
+
+    #[test]
     fn callbacks_see_rolled_segments() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static CALLS: AtomicUsize = AtomicUsize::new(0);
@@ -462,6 +542,52 @@ mod tests {
         // The one segment holds the single record and must be handed
         // off exactly once when the writer drops.
         assert_eq!(CALLS.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn write_error_recovery_rolls_to_new_segment() {
+        // A `send` callback that returns an error the first time it is
+        // invoked simulates a write-time fault: `LogWrite::write` calls
+        // it during roll-over, propagating the error back to the
+        // caller. The very next call to `write` must succeed by opening
+        // a fresh segment file, matching the spec's "next call to
+        // write() creates a new segment file" contract.
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        static SEND_CALLS: AtomicUsize = AtomicUsize::new(0);
+        fn flaky_send(_p: &Path) -> std::io::Result<()> {
+            let n = SEND_CALLS.fetch_add(1, Ordering::SeqCst);
+            if n == 0 {
+                Err(std::io::Error::new(std::io::ErrorKind::Other, "boom"))
+            } else {
+                Ok(())
+            }
+        }
+        SEND_CALLS.store(0, Ordering::SeqCst);
+
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        let cbs = WriteCallbacks {
+            record_complete: |_| Ok(()),
+            send: flaky_send,
+        };
+        let mut log = LogWrite::new(
+            &d,
+            "we-",
+            ".log",
+            SEGMENT_FILE_HEADER_LEN + 40,
+            Format::VariableSimple,
+            cbs,
+        )
+        .unwrap();
+        // Force the first roll: write a record larger than the data
+        // section so `write_bytes` calls `roll_segment` and hits the
+        // simulated failure.
+        let err = log.write(&[0x11u8; 100]).unwrap_err();
+        assert!(matches!(err, LogError::IoError(_)));
+
+        // The next write must succeed - a fresh segment file has been
+        // opened by the recovery path.
+        assert!(log.write(&[0x22u8; 5]).is_ok());
     }
 
     #[test]

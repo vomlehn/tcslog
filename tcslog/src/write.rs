@@ -210,14 +210,38 @@ impl LogWrite {
         self.record_bytes_left = total as u64;
 
         if header_len > 0 {
-            self.write_bytes(&header_buf[..header_len])?;
+            if let Err(e) = self.write_bytes(&header_buf[..header_len]) {
+                return Err(self.recover_from_write_error(e));
+            }
         }
-        self.write_bytes(msg)?;
+        if let Err(e) = self.write_bytes(msg) {
+            return Err(self.recover_from_write_error(e));
+        }
 
         let file = self.file.as_mut().expect("file present after write");
-        (self.callbacks.record_complete)(file).map_err(LogError::IoError)?;
+        if let Err(e) = (self.callbacks.record_complete)(file) {
+            return Err(self.recover_from_write_error(LogError::IoError(e)));
+        }
 
         Ok(total as u32)
+    }
+
+    /// Applies the spec-mandated recovery after a write-side I/O error:
+    /// close the current segment file, hand it to `send`, and roll into
+    /// a freshly created replacement so that the next call to
+    /// [`LogWrite::write`] begins in a clean segment.
+    ///
+    /// Returns the original write error when recovery succeeds. If the
+    /// recovery itself fails (for example, `send` errors or the new
+    /// segment file cannot be created), the recovery error is returned
+    /// instead - the spec requires that errors while creating a new
+    /// segment file terminate the write and propagate to the caller.
+    fn recover_from_write_error(&mut self, original: LogError) -> LogError {
+        self.record_bytes_left = 0;
+        match self.roll_segment_inner(true) {
+            Ok(()) => original,
+            Err(e) => e,
+        }
     }
 
     /// Flushes any buffered data in the current segment file.
@@ -295,9 +319,16 @@ impl LogWrite {
     }
 
     fn roll_segment(&mut self) -> Result<(), LogError> {
+        self.roll_segment_inner(false)
+    }
+
+    fn roll_segment_inner(&mut self, best_effort_flush: bool) -> Result<(), LogError> {
         if let Some(mut f) = self.file.take() {
-            f.flush().map_err(LogError::IoError)?;
+            let flush_res = f.flush();
             drop(f);
+            if !best_effort_flush {
+                flush_res.map_err(LogError::IoError)?;
+            }
         }
         let sent_path = self.current_path.clone();
         (self.callbacks.send)(&sent_path).map_err(LogError::IoError)?;

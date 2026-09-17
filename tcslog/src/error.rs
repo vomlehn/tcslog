@@ -58,6 +58,13 @@ pub enum LogError {
     #[error("read overflow (buffer filled with {0} bytes; remainder discarded)")]
     ReadOverflow(u32),
 
+    /// A segment-boundary crossing during a mid-record read found a
+    /// continuation that does not match the bytes still owed to the
+    /// current record. The record was truncated; the next call to read
+    /// will resynchronize on the next available segment file.
+    #[error("read truncated by missing or corrupted segment file")]
+    ReadTruncated,
+
     /// The segment file's stored `segment_id` did not match the value
     /// encoded in its file name.
     #[error("segment id does not match file name")]

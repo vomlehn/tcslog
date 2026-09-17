@@ -72,7 +72,19 @@ pub struct LogRead {
     current: Option<OpenSegment>,
     session_id: Option<SegId>,
     pending_session_end: bool,
-    at_first_record: bool,
+    /// When true, the next read must locate a fresh record boundary via
+    /// "Find the Next Data Record Start" before decoding anything.
+    /// Initialized to true so the very first read finds a record start
+    /// rather than assuming the first pending segment's data section
+    /// already begins on a record boundary.
+    resync: bool,
+    /// Bytes consumed of the current data record (header + payload) so
+    /// far. Reset to zero at the start of every read.
+    record_bytes_consumed: u64,
+    /// Total bytes in the current data record (header + payload) once
+    /// the data header has been decoded. `None` until then. Reset at
+    /// the start of every read.
+    record_total_bytes: Option<u64>,
 }
 
 impl LogRead {
@@ -98,7 +110,9 @@ impl LogRead {
             current: None,
             session_id: None,
             pending_session_end: false,
-            at_first_record: true,
+            resync: true,
+            record_bytes_consumed: 0,
+            record_total_bytes: None,
         })
     }
 
@@ -120,33 +134,54 @@ impl LogRead {
     /// are copied and [`LogError::ReadOverflow`] is returned so the
     /// caller can detect truncation. The truncated tail is silently
     /// discarded so subsequent reads pick up at the next record.
+    ///
+    /// On any read failure other than [`LogError::Eof`],
+    /// [`LogError::SessionEnd`], or [`LogError::ReadOverflow`], the
+    /// reader arms the resync flag and discards any partially opened
+    /// segment so the next call recovers via "Find the Next Data
+    /// Record Start."
     pub fn read(&mut self, buf: &mut [u8]) -> Result<ReadResult, LogError> {
+        let result = self.read_inner(buf);
+        if let Err(ref e) = result {
+            match e {
+                LogError::Eof | LogError::SessionEnd | LogError::ReadOverflow(_) => {}
+                _ => self.arm_resync(),
+            }
+        }
+        result
+    }
+
+    fn read_inner(&mut self, buf: &mut [u8]) -> Result<ReadResult, LogError> {
         if self.pending_session_end {
             self.pending_session_end = false;
             self.session_id = None;
-            self.at_first_record = true;
+            self.resync = true;
         }
 
-        loop {
-            if self.current.is_none() {
-                match self.open_next_ready_segment()? {
-                    None => return Err(LogError::Eof),
-                    Some(()) => {}
-                }
-            }
+        self.record_bytes_consumed = 0;
+        self.record_total_bytes = None;
 
-            if self.at_first_record {
-                self.at_first_record = false;
+        if self.resync {
+            loop {
+                if self.current.is_none() {
+                    match self.open_next_ready_segment()? {
+                        None => return Err(LogError::Eof),
+                        Some(()) => {}
+                    }
+                }
                 if let Some(offset) = self.locate_first_record_offset()? {
                     let cur = self.current.as_mut().unwrap();
                     cur.file_pos = offset;
-                } else {
-                    self.current = None;
-                    continue;
+                    self.resync = false;
+                    break;
                 }
+                self.current = None;
             }
-
-            break;
+        } else if self.current.is_none() {
+            match self.open_next_ready_segment()? {
+                None => return Err(LogError::Eof),
+                Some(()) => {}
+            }
         }
 
         let format = self.current.as_ref().unwrap().header.format;
@@ -156,13 +191,25 @@ impl LogRead {
         self.read_exact_spanning(&mut buf[..take])?;
         if (payload_len as usize) > buf.len() {
             let extra = (payload_len as u64) - (buf.len() as u64);
-            self.skip_spanning(extra)?;
+            if self.skip_spanning(extra).is_err() {
+                self.arm_resync();
+            }
             return Err(LogError::ReadOverflow(take as u32));
         }
         Ok(ReadResult {
             n: payload_len,
             meta,
         })
+    }
+
+    /// Puts the reader into resync mode, discarding any current segment
+    /// and pushing its identifier back onto the front of the pending
+    /// list so it will be reopened cleanly on the next attempt.
+    fn arm_resync(&mut self) {
+        self.resync = true;
+        if let Some(cur) = self.current.take() {
+            self.pending.push_front(cur.header.segment_id);
+        }
     }
 
     /// Returns an [`Iterator`] over the remaining records in the log.
@@ -180,19 +227,21 @@ impl LogRead {
     }
 
     fn read_data_header(&mut self, format: Format) -> Result<(RecSize, Meta), LogError> {
-        match format {
-            Format::Fixed(n) => Ok((n, Meta::Fixed)),
+        let (payload_len, meta, header_size) = match format {
+            Format::Fixed(n) => (n, Meta::Fixed, 0u64),
             Format::VariableSimple => {
                 let n = self.read_u32_spanning()?;
-                Ok((n, Meta::VariableSimple))
+                (n, Meta::VariableSimple, 4u64)
             }
             Format::VariableTsRc => {
                 let n = self.read_u32_spanning()?;
                 let ts = self.read_u64_spanning()?;
                 let rc = self.read_u64_spanning()?;
-                Ok((n, Meta::VariableTsRc(ts, rc)))
+                (n, Meta::VariableTsRc(ts, rc), 20u64)
             }
-        }
+        };
+        self.record_total_bytes = Some(header_size + payload_len as u64);
+        Ok((payload_len, meta))
     }
 
     fn read_u32_spanning(&mut self) -> Result<u32, LogError> {
@@ -208,17 +257,21 @@ impl LogRead {
     }
 
     /// Reads exactly `buf.len()` bytes, moving forward across segment
-    /// boundaries as needed.
+    /// boundaries as needed. Every mid-record crossing is validated
+    /// against the new segment's `remaining` field; a mismatch arms
+    /// resync and returns [`LogError::ReadTruncated`].
     fn read_exact_spanning(&mut self, buf: &mut [u8]) -> Result<(), LogError> {
         let mut filled = 0usize;
         while filled < buf.len() {
-            if self.current.is_none() && self.open_next_ready_segment()?.is_none() {
-                return Err(LogError::Eof);
+            if self.current.is_none() {
+                if self.open_next_ready_segment()?.is_none() {
+                    return Err(LogError::Eof);
+                }
             }
             let cur = self.current.as_mut().unwrap();
             let avail = cur.bytes_left_in_segment() as usize;
             if avail == 0 {
-                self.current = None;
+                self.cross_to_next_in_record()?;
                 continue;
             }
             let want = (buf.len() - filled).min(avail);
@@ -227,22 +280,26 @@ impl LogRead {
                 .map_err(LogError::IoError)?;
             cur.file_pos += want as u32;
             filled += want;
+            self.record_bytes_consumed += want as u64;
         }
         Ok(())
     }
 
     /// Skips exactly `count` bytes, moving forward across segment
-    /// boundaries as needed.
+    /// boundaries as needed. Crossings are validated identically to
+    /// [`read_exact_spanning`].
     fn skip_spanning(&mut self, mut count: u64) -> Result<(), LogError> {
         let mut scratch = [0u8; 512];
         while count > 0 {
-            if self.current.is_none() && self.open_next_ready_segment()?.is_none() {
-                return Err(LogError::Eof);
+            if self.current.is_none() {
+                if self.open_next_ready_segment()?.is_none() {
+                    return Err(LogError::Eof);
+                }
             }
             let cur = self.current.as_mut().unwrap();
             let avail = cur.bytes_left_in_segment() as u64;
             if avail == 0 {
-                self.current = None;
+                self.cross_to_next_in_record()?;
                 continue;
             }
             let want = count.min(avail).min(scratch.len() as u64) as usize;
@@ -251,6 +308,35 @@ impl LogRead {
                 .map_err(LogError::IoError)?;
             cur.file_pos += want as u32;
             count -= want as u64;
+            self.record_bytes_consumed += want as u64;
+        }
+        Ok(())
+    }
+
+    /// Opens the next segment as a continuation of the current data
+    /// record and validates its `remaining` field against the bytes
+    /// still owed. On any inconsistency the offending segment is
+    /// pushed back onto the front of the pending list, resync is
+    /// armed, and [`LogError::ReadTruncated`] is returned. If the
+    /// total record size is not yet known (mid-header crossing),
+    /// only the crossing itself is performed; the check is deferred
+    /// to the next crossing after the header has been decoded.
+    fn cross_to_next_in_record(&mut self) -> Result<(), LogError> {
+        self.current = None;
+        match self.open_next_ready_segment()? {
+            None => return Err(LogError::Eof),
+            Some(()) => {}
+        }
+        if let Some(total) = self.record_total_bytes {
+            let expected = total - self.record_bytes_consumed;
+            let cur = self.current.as_ref().unwrap();
+            if cur.header.remaining != expected {
+                let bad_id = cur.header.segment_id;
+                self.current = None;
+                self.pending.push_front(bad_id);
+                self.resync = true;
+                return Err(LogError::ReadTruncated);
+            }
         }
         Ok(())
     }
@@ -277,6 +363,13 @@ impl LogRead {
                 Err(_) => continue,
             };
             if header.segment_id != id {
+                continue;
+            }
+            // Spec: "The segment file size is less than or equal to the
+            // value of max size read from the segment file header." A
+            // file that exceeds its own declared cap has been tampered
+            // with or is otherwise corrupt; skip it silently.
+            if file_len > header.max_size {
                 continue;
             }
             match self.session_id {
