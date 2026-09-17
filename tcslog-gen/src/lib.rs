@@ -241,9 +241,12 @@ pub fn create_log(
     let mut message_count: u64 = 0;
     while message_count < count {
         let payload = build_payload(spec, message_count, &mut rng);
-        if verbose {
-            println!("record #{} ({} bytes)", message_count + 1, payload.len());
-        }
+        println!(
+            "    msg {}: {:?} ({} bytes)",
+            message_count + 1,
+            String::from_utf8_lossy(&payload),
+            payload.len(),
+        );
         log.write(&payload)?;
         message_count += 1;
     }
