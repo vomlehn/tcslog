@@ -383,8 +383,6 @@ Find the Next Data Record Start
 Finding the next data record starts with asserting that there is no
 current file, i.e. there may not be an open segment file.
 
-Print a message at each decision point.
-
 There may be missing or corrupted segment files at various points in a log.
 When there is no current segment file, try to open the next file in the
 segment file list and keep trying until there are either no more files
