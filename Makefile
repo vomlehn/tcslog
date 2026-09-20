@@ -99,8 +99,8 @@ generate: .generate
 				--verbose; \
 		print-elapsed $$start_time; \
 		echo "[OK] Project files generated"; \
-		echo "File created after project code is generated" > .generate; \
 	) 2>&1 | tee -a generate.out
+	echo "File created after project code is generated" > .generate
 
 # Alternative: Use echo to pipe commands
 generate-alt:
@@ -116,6 +116,7 @@ generate-alt:
 	    | claude --model claude-sonnet-4-5-20250929
 
 # Build the project
+.PHONY: build
 build:
 	( \
 		set -eu; \
@@ -127,14 +128,16 @@ build:
 	) 2>&1 | tee build.out
 
 # Run tests
+.PHONY: test
 test:
 	( \
 		set -eu; \
-		$(FIXUP_TEST) \
 		echo "Running tests..."; \
+		$(FIXUP_TEST) \
 		cd $(RUST) && $(TCSLOG_CONFIG) cargo test; \
-		echo "[OK] Tests complete"; \
 	)
+	$(MAKE) -C test
+	echo "[OK] Tests complete"
 
 # Run the tcspecial application
 run:
