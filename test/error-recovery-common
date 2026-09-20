@@ -1,0 +1,130 @@
+#!/bin/bash
+#
+# This runs tcslog-gen to generate segment files. It then deletes and
+# corrupts them in various ways and uses tcslog-dump to see whether
+# error recovery works.
+# working correctly. It's also helpful in checking out tcslog-dump.
+
+set -eu
+
+TMP_DIR=/tmp/t1
+PFX=pfx-
+SFX=.log
+
+hexdump_enabled=false
+delete_indices_str=""
+FORMAT="variable-simple:0..10"
+number=20
+data_size=17
+usage() {
+    echo "Usage: $0 [-x] [-d \"idx1 idx2 ...\"] [-f \"--format <spec>\"] [-n <count>] [-s <bytes>] [-h]" 1>&2
+    exit 1
+}
+require_uint() {
+    local flag="$1" val="$2"
+    if ! [[ "$val" =~ ^[0-9]+$ ]]; then
+        echo "Option -$flag requires an unsigned integer, got: '$val'" 1>&2
+        exit 1
+    fi
+}
+while getopts ":xhd:f:n:s:" opt; do
+    case "$opt" in
+        x) hexdump_enabled=true ;;
+        d) delete_indices_str="$OPTARG" ;;
+        f) FORMAT="$OPTARG" ;;
+        n) require_uint n "$OPTARG"; number="$OPTARG" ;;
+        s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
+        h) usage ;;
+        :) echo "Option -$OPTARG requires an argument" 1>&2; usage ;;
+        \?) echo "Unknown option: -$OPTARG" 1>&2; usage ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+read -r -a delete_indices <<< "$delete_indices_str"
+for idx in "${delete_indices[@]}"; do
+    if ! [[ "$idx" =~ ^[0-9]+$ ]]; then
+        echo "Invalid index in -d list: '$idx' (must be a non-negative integer)" 1>&2
+        exit 1
+    fi
+done
+
+segment_file_header_len=45
+
+rm_seg() {
+    local idx=$1
+    shift 1
+    local args="$@"
+    echo "Remove segment file #$idx: $args"
+    rm $args
+}
+
+case $FORMAT in
+    *fixed*)
+        data_header_len=0
+        ;;
+
+    *variable-simple*)
+        data_header_len=4;
+        ;;
+
+    *variable--tsrc*)
+        data_header_len=$((4 + 8 + 8))
+        ;;
+
+    *)
+        echo "Invalid format: $FORMAT" 1>&2
+        exit 1
+        ;;
+esac
+
+echo Removing any existing logs in $TMP_DIR
+rm -rf $TMP_DIR
+mkdir -p $TMP_DIR
+
+echo "Generating log in $TMP_DIR: prefix $PFX suffix $SFX"
+
+cargo run -p tcslog-gen -- \
+    --data-size $data_size \
+    --format $FORMAT \
+    --number $number \
+    $TMP_DIR $PFX $SFX
+
+declare -a files
+files=($TMP_DIR/$PFX*$SFX)
+
+if true; then # Remove this
+    for f in "${files[@]}"; do
+        echo
+        echo $f
+        hexdump -C $f
+    done
+    exit 1
+fi
+
+if [ ${#delete_indices[@]} -gt 0 ]; then
+    echo
+    echo "Removing segment files"
+    for idx in "${delete_indices[@]}"; do
+        rm_seg $idx "${files[$idx]}"
+    done
+fi
+
+if $hexdump_enabled; then
+    echo
+    echo Hexdump of segment files
+    for f in ${files[@]}; do
+        if [ -f $f ]; then
+            echo $f:
+            hexdump -C $f
+        else
+            echo $f: deleted
+        fi
+    done
+fi
+
+echo
+echo tcslog-dump output
+
+cargo run -p tcslog-dump -- \
+    $TMP_DIR $PFX $SFX
