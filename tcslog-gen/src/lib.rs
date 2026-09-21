@@ -268,7 +268,7 @@ fn build_payload(spec: RecordFormatSpec, index: u64, rng: &mut SplitMix64) -> Ve
     };
 
     let target_usize = target as usize;
-    let mut buf = format!("#{index} ").into_bytes();
+    let mut buf = format!("#{} ", index + 1).into_bytes();
     while buf.len() < target_usize {
         buf.extend_from_slice(b"123456789 ");
     }

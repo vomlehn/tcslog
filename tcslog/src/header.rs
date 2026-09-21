@@ -5,6 +5,7 @@ use std::io::{Read, Write};
 use crate::error::LogError;
 use crate::format::Format;
 use crate::segid::SegId;
+use crate::seq_id::SeqId;
 
 /// ASCII magic tag stored at the start of every segment file.
 pub const FILE_TYPE: &[u8; 8] = b"tcslogsf";
@@ -33,7 +34,8 @@ pub const VERSION_MINOR: u8 = 1;
 /// |     32 |      8 | remaining   |
 /// |     40 |      1 | format tag  |
 /// |     41 |      4 | format arg  |
-pub const SEGMENT_FILE_HEADER_LEN: u32 = 45;
+/// |     45 |      8 | sequence    |
+pub const SEGMENT_FILE_HEADER_LEN: u32 = 53;
 
 /// In-memory representation of a segment file header.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,22 +55,48 @@ pub struct SegmentHeader {
     pub remaining: u64,
     /// Layout used for records in the data section.
     pub format: Format,
+    /// Zero-based index of this segment file within its session. Resets
+    /// to zero for the first segment of a new session and increments by
+    /// one for each subsequent roll. The `u64` width ensures the
+    /// counter cannot realistically overflow during a single session.
+    ///
+    /// Segment IDs are wall-clock timestamps, not a dense integer
+    /// sequence, so they cannot be used to count segments or detect
+    /// gaps. This field is the canonical dense counter, and it plays a
+    /// role distinct from [`SegmentHeader::remaining`] in loss
+    /// detection: `remaining` catches losses that fall inside a data
+    /// record, whereas `sequence` catches losses that fall on
+    /// record-aligned segment boundaries -- where both surrounding
+    /// segments show `remaining == 0` and the `remaining` check
+    /// silently accepts the crossing even though whole segments' worth
+    /// of records have vanished. Together the two checks upgrade the
+    /// reader's guarantee from "no in-progress record was silently
+    /// truncated" to "no segment in the session was silently dropped."
+    ///
+    /// The field also lets recovery tools reassemble a session by
+    /// `session_id` + `sequence` when file names have been changed,
+    /// since segment file names carry the timestamp-based segment ID
+    /// and are not reliable if the files have been renamed or copied.
+    pub sequence: SeqId,
 }
 
 impl SegmentHeader {
     /// Number of bytes usable for the data section of a segment file
     /// that is at most `max_size` bytes long.
+    #[must_use]
     pub fn data_section_len(max_size: u32) -> u32 {
         max_size.saturating_sub(SEGMENT_FILE_HEADER_LEN)
     }
 
     /// Number of bytes available for records in this segment's data
     /// section.
+    #[must_use]
     pub fn data_capacity(&self) -> u32 {
         Self::data_section_len(self.max_size)
     }
 
     /// Serializes the header into `SEGMENT_FILE_HEADER_LEN` bytes.
+    #[must_use]
     pub fn to_bytes(&self) -> [u8; SEGMENT_FILE_HEADER_LEN as usize] {
         let mut buf = [0u8; SEGMENT_FILE_HEADER_LEN as usize];
         buf[0..8].copy_from_slice(FILE_TYPE);
@@ -79,16 +107,27 @@ impl SegmentHeader {
         buf[32..40].copy_from_slice(&self.remaining.to_le_bytes());
         buf[40] = self.format.tag();
         buf[41..45].copy_from_slice(&self.format.fixed_len().to_le_bytes());
+        buf[45..53].copy_from_slice(&self.sequence.to_le_bytes());
         buf
     }
 
     /// Writes the header to `w` in on-disk form.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::IoError`] if the underlying writer fails.
     pub fn write_to<W: Write>(&self, w: &mut W) -> Result<(), LogError> {
         let buf = self.to_bytes();
         w.write_all(&buf).map_err(LogError::IoError)
     }
 
     /// Deserializes a header from its on-disk byte encoding.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::InvalidHeader`] if the magic tag or format
+    /// tag are wrong, or [`LogError::VersionMismatch`] if the version
+    /// string identifies an incompatible on-disk format.
     pub fn from_bytes(buf: &[u8; SEGMENT_FILE_HEADER_LEN as usize]) -> Result<Self, LogError> {
         if &buf[0..8] != FILE_TYPE {
             return Err(LogError::InvalidHeader);
@@ -103,6 +142,7 @@ impl SegmentHeader {
         let remaining = u64::from_le_bytes(buf[32..40].try_into().unwrap());
         let tag = buf[40];
         let arg = u32::from_le_bytes(buf[41..45].try_into().unwrap());
+        let sequence = SeqId::from_le_bytes(buf[45..53].try_into().unwrap());
         let format = match tag {
             0 => {
                 if arg == 0 {
@@ -120,10 +160,16 @@ impl SegmentHeader {
             max_size,
             remaining,
             format,
+            sequence,
         })
     }
 
     /// Reads a header from `r`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::IoError`] on underlying read failure, or the
+    /// errors documented on [`SegmentHeader::from_bytes`].
     pub fn read_from<R: Read>(r: &mut R) -> Result<Self, LogError> {
         let mut buf = [0u8; SEGMENT_FILE_HEADER_LEN as usize];
         r.read_exact(&mut buf).map_err(LogError::IoError)?;
@@ -165,6 +211,7 @@ mod tests {
             max_size: 4096,
             remaining: 0,
             format: Format::VariableTsRc,
+            sequence: SeqId::ZERO,
         };
         let bytes = h.to_bytes();
         let back = SegmentHeader::from_bytes(&bytes).unwrap();
@@ -179,10 +226,12 @@ mod tests {
             max_size: 256,
             remaining: 17,
             format: Format::Fixed(64),
+            sequence: SeqId::from_u64(3),
         };
         let bytes = h.to_bytes();
         let back = SegmentHeader::from_bytes(&bytes).unwrap();
         assert_eq!(h, back);
+        assert_eq!(back.sequence, SeqId::from_u64(3));
     }
 
     #[test]
@@ -193,6 +242,7 @@ mod tests {
             max_size: 256,
             remaining: 0,
             format: Format::VariableSimple,
+            sequence: SeqId::ZERO,
         }
         .to_bytes();
         bytes[0] = b'X';

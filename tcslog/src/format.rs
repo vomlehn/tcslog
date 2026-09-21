@@ -33,6 +33,7 @@ pub enum Format {
 impl Format {
     /// The single-byte tag written in the segment header to identify this
     /// format.
+    #[must_use]
     pub const fn tag(self) -> u8 {
         match self {
             Format::Fixed(_) => 0,
@@ -42,6 +43,7 @@ impl Format {
     }
 
     /// The `n` parameter for [`Format::Fixed`], or zero for other formats.
+    #[must_use]
     pub const fn fixed_len(self) -> RecSize {
         match self {
             Format::Fixed(n) => n,
@@ -50,6 +52,7 @@ impl Format {
     }
 
     /// Number of bytes the per-record data header consumes on disk.
+    #[must_use]
     pub const fn data_header_len(self) -> u32 {
         match self {
             Format::Fixed(_) => 0,

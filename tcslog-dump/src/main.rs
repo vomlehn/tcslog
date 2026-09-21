@@ -69,27 +69,34 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 total += 1;
-                let msg = format_msg(args.text, &buf[..res.n as usize]);
-                match res.meta {
-                    Meta::VariableTsRc(ts, rn) => {
-                        println!("    msg {rn}: ts={ts} {:?}", msg);
-                    }
-                    Meta::VariableSimple | Meta::Fixed => {
-                        println!("    msg {total}: {:?}", msg);
-                    }
-                }
+                print_record(total, args.text, res.meta, &buf[..res.n as usize]);
+                println!();
             }
             Err(LogError::Eof) => break,
+            Err(LogError::ReadTruncated) => {
+                if args.verbose {
+                    println!("    -- record truncated by missing or corrupted segment; resynchronizing --");
+                }
+            }
+            Err(LogError::ReadOverflow(n)) => {
+                total += 1;
+                if args.verbose {
+                    println!(
+                        "    msg {total}: (payload larger than {MAX_MESSAGE_SIZE}-byte buffer; \
+                        {n} bytes captured, remainder discarded)"
+                    );
+                }
+            }
             Err(LogError::SessionEnd) => {
                 if args.verbose {
                     println!();
                     println!("--- End of Session---");
                 }
                 continue;
-            },
+            }
             Err(e) => {
                 return Err(e.into());
-            },
+            }
         }
     }
 
@@ -99,17 +106,26 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+fn print_record(total: u64, text: bool, meta: Meta, buf: &[u8]) {
+    let msg = format_msg(text, buf);
+    match meta {
+        Meta::VariableTsRc(ts, rn) => {
+            print!("    msg {rn}: ts={ts} {msg:?}");
+        }
+        Meta::VariableSimple | Meta::Fixed => {
+            print!("    msg {total}: {msg:?}");
+        }
+    }
+}
+
 fn format_msg(as_text: bool, buf: &[u8]) -> String {
     if as_text {
-        String::from_utf8_lossy(&buf).to_string()
+        String::from_utf8_lossy(buf).to_string()
     } else {
-        let mut text = "".to_string();
-        let delim = "";
-
+        let mut text = String::new();
         for item in buf {
-            text = format!("{}{}{:02x}", text, delim, item);
+            text.push(*item as char);
         }
-
         text
     }
 }
@@ -121,4 +137,5 @@ fn print_header(prefix: &str, suffix: &str, h: &SegmentHeader) {
     println!("    max_size:   {}", h.max_size);
     println!("    remaining:  {}", h.remaining);
     println!("    format:     {:?}", h.format);
+    println!("    sequence:   {}", h.sequence);
 }

@@ -10,6 +10,7 @@ use crate::error::LogError;
 use crate::format::{Format, RecSize};
 use crate::header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN};
 use crate::segid::SegId;
+use crate::seq_id::SeqId;
 use crate::util::{
     check_no_path_delim, enumerate_segments, segment_file_name, segment_path,
 };
@@ -76,6 +77,7 @@ pub struct LogWrite {
     file_pos: u32,
     record_bytes_left: u64,
     record_count: u64,
+    session_sequence: SeqId,
 }
 
 impl LogWrite {
@@ -89,8 +91,8 @@ impl LogWrite {
     /// * `suffix` - Suffix that appears at the end of every segment
     ///   file's name. Must not contain a path separator.
     /// * `seg_size_max` - Maximum size, in bytes, of any single segment
-    ///   file. Must be at least [`SEGMENT_FILE_HEADER_LEN`] plus one
-    ///   data-record header.
+    ///   file. Must be strictly greater than [`SEGMENT_FILE_HEADER_LEN`]
+    ///   plus one data-record header.
     /// * `format` - Layout used to store records.
     /// * `callbacks` - User callbacks invoked at various points; see
     ///   [`WriteCallbacks`].
@@ -98,6 +100,23 @@ impl LogWrite {
     /// Every segment file already present in `dir` that matches the
     /// prefix and suffix is handed to `callbacks.send` before the new
     /// session's first segment file is created.
+    ///
+    /// # Errors
+    ///
+    /// * [`LogError::TimerResolutionZero`] if the build-time
+    ///   `TIMER_RESOLUTION` value slipped through as zero.
+    /// * [`LogError::PathDelimiterNotAllowed`] if `prefix` or `suffix`
+    ///   contains a `/` or `\`.
+    /// * [`LogError::SegSizeTooSmall`] if `seg_size_max` is not
+    ///   strictly greater than the segment header plus one data
+    ///   header.
+    /// * [`LogError::FixedLenMismatch`] if `format` is
+    ///   `Format::Fixed(0)`.
+    /// * [`LogError::InvalidPathname`] if `dir` does not name a
+    ///   directory.
+    /// * [`LogError::IoError`] on directory enumeration, `send`
+    ///   callback error, segment-file creation, or header write
+    ///   failure.
     pub fn new(
         dir: &str,
         prefix: &str,
@@ -148,6 +167,7 @@ impl LogWrite {
             max_size: seg_size_max,
             remaining: 0,
             format,
+            sequence: SeqId::ZERO,
         };
         header.write_to(&mut file)?;
 
@@ -165,23 +185,30 @@ impl LogWrite {
             file_pos: SEGMENT_FILE_HEADER_LEN,
             record_bytes_left: 0,
             record_count: 0,
+            session_sequence: SeqId::ZERO,
         })
     }
 
     /// The session identifier of this writer. Equals the segment
     /// identifier of the first segment file that was created for this
     /// session.
+    #[must_use]
     pub fn session_id(&self) -> SegId {
         self.session_id
     }
 
     /// The segment identifier of the segment file the next byte will be
     /// written into.
+    #[must_use]
     pub fn current_segment_id(&self) -> SegId {
         self.segment_id
     }
 
     /// Writes the UTF-8 bytes of `msg` as a single record.
+    ///
+    /// # Errors
+    ///
+    /// See [`LogWrite::write`].
     pub fn write_str(&mut self, msg: &str) -> Result<u32, LogError> {
         self.write(msg.as_bytes())
     }
@@ -194,9 +221,19 @@ impl LogWrite {
     ///
     /// Returns the total number of bytes written, including the
     /// per-record data header.
+    ///
+    /// # Errors
+    ///
+    /// * [`LogError::FixedLenMismatch`] if `format` is
+    ///   [`Format::Fixed`] and `msg.len()` differs from the configured
+    ///   fixed length (including zero-length payloads).
+    /// * [`LogError::PayloadTooLarge`] if `msg.len()` exceeds
+    ///   [`RecSize::MAX`].
+    /// * [`LogError::IoError`], [`LogError::ClockError`] and any error
+    ///   returned by segment-file creation on a write-time roll.
     pub fn write(&mut self, msg: &[u8]) -> Result<u32, LogError> {
         if let Format::Fixed(n) = self.format {
-            if msg.len() as u64 != n as u64 {
+            if msg.len() as u64 != u64::from(n) {
                 return Err(LogError::FixedLenMismatch);
             }
         }
@@ -245,6 +282,10 @@ impl LogWrite {
     }
 
     /// Flushes any buffered data in the current segment file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::IoError`] if the underlying flush fails.
     pub fn flush(&mut self) -> Result<(), LogError> {
         if let Some(f) = self.file.as_mut() {
             f.flush().map_err(LogError::IoError)?;
@@ -257,6 +298,11 @@ impl LogWrite {
     /// handle is still open; on platforms that do not permit deleting
     /// an open file, removing it would fail and leave the writer in an
     /// inconsistent state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::IoError`] if directory enumeration or file
+    /// removal fails.
     pub fn clear(&mut self) -> Result<(), LogError> {
         let current_name = segment_file_name(&self.prefix, self.segment_id, &self.suffix);
         for id in enumerate_segments(&self.dir, &self.prefix, &self.suffix)? {
@@ -337,6 +383,7 @@ impl LogWrite {
             create_segment_file(&self.dir, &self.prefix, &self.suffix)?;
         self.segment_id = new_id;
         self.current_path = new_path;
+        self.session_sequence = self.session_sequence.saturating_next();
 
         let header = SegmentHeader {
             segment_id: new_id,
@@ -344,6 +391,7 @@ impl LogWrite {
             max_size: self.seg_size_max,
             remaining: self.record_bytes_left,
             format: self.format,
+            sequence: self.session_sequence,
         };
         header.write_to(&mut new_file)?;
 

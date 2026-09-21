@@ -31,9 +31,7 @@ fn main() {
     };
 
     let ns: u64 = raw.parse().unwrap_or_else(|_| {
-        panic!(
-            "TIMER_RESOLUTION={raw:?} is not a non-negative integer"
-        )
+        panic!("TIMER_RESOLUTION={raw:?} is not a non-negative integer")
     });
     if ns == 0 {
         panic!("TIMER_RESOLUTION must be greater than zero");

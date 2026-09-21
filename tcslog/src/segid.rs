@@ -17,11 +17,13 @@ impl SegId {
     pub const MAX: SegId = SegId(u64::MAX);
 
     /// Wraps a raw `u64` value as a [`SegId`].
+    #[must_use]
     pub const fn from_u64(v: u64) -> SegId {
         SegId(v)
     }
 
     /// Returns the underlying `u64`.
+    #[must_use]
     pub const fn as_u64(self) -> u64 {
         self.0
     }
@@ -31,6 +33,7 @@ impl SegId {
     /// The input must be exactly [`STR_LEN`](Self::STR_LEN) bytes long and
     /// match the pattern `xxxx-xxxx-xxxx-xxxx` where each `x` is a
     /// lowercase hexadecimal digit.
+    #[must_use]
     pub fn parse(s: &str) -> Option<SegId> {
         let bytes = s.as_bytes();
         if bytes.len() != Self::STR_LEN {
@@ -45,8 +48,8 @@ impl SegId {
                 continue;
             }
             let digit = match b {
-                b'0'..=b'9' => (b - b'0') as u64,
-                b'a'..=b'f' => (b - b'a' + 10) as u64,
+                b'0'..=b'9' => u64::from(b - b'0'),
+                b'a'..=b'f' => u64::from(b - b'a' + 10),
                 _ => return None,
             };
             v = (v << 4) | digit;
@@ -55,11 +58,13 @@ impl SegId {
     }
 
     /// Little-endian byte encoding of the underlying `u64`.
+    #[must_use]
     pub fn to_le_bytes(self) -> [u8; 8] {
         self.0.to_le_bytes()
     }
 
     /// Constructs a [`SegId`] from its little-endian byte encoding.
+    #[must_use]
     pub fn from_le_bytes(bytes: [u8; 8]) -> SegId {
         SegId(u64::from_le_bytes(bytes))
     }

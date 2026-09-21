@@ -36,6 +36,7 @@ mod format;
 mod header;
 mod read;
 mod segid;
+mod seq_id;
 mod util;
 #[cfg(feature = "write")]
 mod write;
@@ -48,6 +49,7 @@ pub use format::{Format, Meta, RecSize, RecordCount, Timestamp};
 pub use header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN, VERSION_MAJOR, VERSION_MINOR};
 pub use read::{LogRead, LogReadIter, ReadResult, Record};
 pub use segid::SegId;
+pub use seq_id::SeqId;
 #[cfg(feature = "write")]
 pub use write::{LogWrite, WriteCallbacks};
 
@@ -318,8 +320,9 @@ mod tests {
             )
             .unwrap();
             // Record 0: 30 bytes; comfortably fits in the first
-            // segment. Record 1: 200 bytes; forces ~5 segment spans.
-            // Record 2: 30 bytes; sits after the multi-segment record.
+            // segment. Record 1: 200 bytes; forces several segment
+            // spans. Record 2: 30 bytes; sits after the multi-segment
+            // record.
             log.write(&vec![0xA0u8; 30]).unwrap();
             log.write(&vec![0xB1u8; 200]).unwrap();
             log.write(&vec![0xC2u8; 30]).unwrap();
@@ -436,6 +439,7 @@ mod tests {
         reader.read(&mut buf).unwrap();
         let h = reader.current_header().unwrap();
         assert_eq!(h.format, Format::VariableTsRc);
+        assert_eq!(h.sequence, SeqId::ZERO);
     }
 
     #[test]

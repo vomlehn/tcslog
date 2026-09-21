@@ -91,6 +91,16 @@ impl LogRead {
     /// Opens the log identified by `dir`, `prefix`, and `suffix` for
     /// reading. The directory must contain at least one segment file
     /// matching the pattern.
+    ///
+    /// # Errors
+    ///
+    /// * [`LogError::PathDelimiterNotAllowed`] if `prefix` or `suffix`
+    ///   contains a `/` or `\`.
+    /// * [`LogError::InvalidPathname`] if `dir` does not name a
+    ///   directory.
+    /// * [`LogError::NoSegmentFiles`] if the directory contains no
+    ///   file whose name matches the segment-file pattern.
+    /// * [`LogError::IoError`] on directory enumeration failure.
     pub fn new(dir: &str, prefix: &str, suffix: &str) -> Result<LogRead, LogError> {
         check_no_path_delim(prefix)?;
         check_no_path_delim(suffix)?;
@@ -118,12 +128,18 @@ impl LogRead {
 
     /// The header of the segment file that supplied the most recent
     /// record, or `None` if no record has been read yet.
+    #[must_use]
     pub fn current_header(&self) -> Option<&SegmentHeader> {
         self.current.as_ref().map(|c| &c.header)
     }
 
     /// Reads the next record's payload into `buf` (which may be UTF-8
-    /// text) and returns its length and metadata.
+    /// text) and returns its length and metadata. Equivalent to
+    /// [`LogRead::read`].
+    ///
+    /// # Errors
+    ///
+    /// See [`LogRead::read`].
     pub fn read_str(&mut self, buf: &mut [u8]) -> Result<ReadResult, LogError> {
         self.read(buf)
     }
@@ -140,6 +156,16 @@ impl LogRead {
     /// reader arms the resync flag and discards any partially opened
     /// segment so the next call recovers via "Find the Next Data
     /// Record Start."
+    ///
+    /// # Errors
+    ///
+    /// * [`LogError::Eof`] when the segment list is exhausted.
+    /// * [`LogError::SessionEnd`] once, at each session boundary.
+    /// * [`LogError::ReadOverflow`] when the record's payload is
+    ///   larger than `buf`.
+    /// * [`LogError::ReadTruncated`] when a mid-record segment gap or
+    ///   corruption is detected. The reader recovers on the next call.
+    /// * [`LogError::IoError`] on underlying I/O failure.
     pub fn read(&mut self, buf: &mut [u8]) -> Result<ReadResult, LogError> {
         let result = self.read_inner(buf);
         if let Err(ref e) = result {
@@ -190,7 +216,7 @@ impl LogRead {
         let take = (payload_len as usize).min(buf.len());
         self.read_exact_spanning(&mut buf[..take])?;
         if (payload_len as usize) > buf.len() {
-            let extra = (payload_len as u64) - (buf.len() as u64);
+            let extra = u64::from(payload_len) - buf.len() as u64;
             if self.skip_spanning(extra).is_err() {
                 self.arm_resync();
             }
@@ -240,7 +266,7 @@ impl LogRead {
                 (n, Meta::VariableTsRc(ts, rc), 20u64)
             }
         };
-        self.record_total_bytes = Some(header_size + payload_len as u64);
+        self.record_total_bytes = Some(header_size + u64::from(payload_len));
         Ok((payload_len, meta))
     }
 
@@ -263,10 +289,8 @@ impl LogRead {
     fn read_exact_spanning(&mut self, buf: &mut [u8]) -> Result<(), LogError> {
         let mut filled = 0usize;
         while filled < buf.len() {
-            if self.current.is_none() {
-                if self.open_next_ready_segment()?.is_none() {
-                    return Err(LogError::Eof);
-                }
+            if self.current.is_none() && self.open_next_ready_segment()?.is_none() {
+                return Err(LogError::Eof);
             }
             let cur = self.current.as_mut().unwrap();
             let avail = cur.bytes_left_in_segment() as usize;
@@ -291,13 +315,11 @@ impl LogRead {
     fn skip_spanning(&mut self, mut count: u64) -> Result<(), LogError> {
         let mut scratch = [0u8; 512];
         while count > 0 {
-            if self.current.is_none() {
-                if self.open_next_ready_segment()?.is_none() {
-                    return Err(LogError::Eof);
-                }
+            if self.current.is_none() && self.open_next_ready_segment()?.is_none() {
+                return Err(LogError::Eof);
             }
             let cur = self.current.as_mut().unwrap();
-            let avail = cur.bytes_left_in_segment() as u64;
+            let avail = u64::from(cur.bytes_left_in_segment());
             if avail == 0 {
                 self.cross_to_next_in_record()?;
                 continue;
@@ -352,7 +374,7 @@ impl LogRead {
                 Err(_) => continue,
             };
             let file_len = match file.metadata() {
-                Ok(m) => m.len().min(u32::MAX as u64) as u32,
+                Ok(m) => u32::try_from(m.len().min(u64::from(u32::MAX))).unwrap_or(u32::MAX),
                 Err(_) => continue,
             };
             if file_len < SEGMENT_FILE_HEADER_LEN {
@@ -401,10 +423,10 @@ impl LogRead {
     /// the next segment.
     fn locate_first_record_offset(&mut self) -> Result<Option<u32>, LogError> {
         let cur = self.current.as_mut().unwrap();
-        let data_len = cur.header.data_capacity() as u64;
+        let data_len = u64::from(cur.header.data_capacity());
         let remaining = cur.header.remaining;
         if remaining >= data_len {
-            let available = cur.bytes_left_in_segment() as u64;
+            let available = u64::from(cur.bytes_left_in_segment());
             let mut left = available;
             let mut scratch = [0u8; 512];
             while left > 0 {
@@ -417,7 +439,7 @@ impl LogRead {
             }
             return Ok(None);
         }
-        let mut left = remaining.min(cur.bytes_left_in_segment() as u64);
+        let mut left = remaining.min(u64::from(cur.bytes_left_in_segment()));
         let mut scratch = [0u8; 512];
         while left > 0 {
             let want = left.min(scratch.len() as u64) as usize;

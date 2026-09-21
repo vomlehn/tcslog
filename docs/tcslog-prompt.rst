@@ -211,6 +211,42 @@ data format
         nanosecond-resolution, 64-bit offset from the UNIX epoch. This
         value will be returned when data is read.
 
+sequence
+    Zero-based index of this segment file within its session. Resets to
+    zero for the first segment of a new session and increments by one
+    for each subsequent roll. Stored as a u64, so the counter cannot
+    realistically overflow during a single session.
+
+    Rationale: segment IDs are wall-clock timestamps, not a dense
+    integer sequence, so they cannot be used to count segments or
+    detect gaps. The sequence field is the canonical dense counter,
+    and it plays a distinct role from the remaining field in
+    loss detection.
+
+    Without a sequence field, the reader's only continuity signal is
+    remaining. That catches losses that fall inside a data record --
+    the surviving segment's remaining will not match the outstanding
+    byte count owed to the in-progress record -- but it is blind to
+    losses that fall on record-aligned segment boundaries. In that
+    case the segment before the gap ends with the reader owing zero
+    bytes, and the segment after the gap has remaining = 0, which is
+    exactly what the reader expects; the reader continues silently
+    and the records that lived in the lost segments vanish with no
+    error raised.
+
+    With a sequence field, the reader also checks that the new
+    segment's sequence equals the previous segment's sequence plus
+    one. A jump makes the gap visible even when remaining agrees on
+    both sides, and it reports how many segments were lost. The two
+    checks together upgrade the reader's guarantee from "no
+    in-progress record was silently truncated" to "no segment in the
+    session was silently dropped."
+
+    The field also lets recovery tools reassemble a session by
+    session_id + sequence when file names have been changed, since
+    segment file names carry the timestamp-based segment ID and are
+    not reliable if the files have been renamed or copied.
+
 Data Header Format
 ------------------
 The data section consists of alternating data headers and telemetry data, which
@@ -392,42 +428,44 @@ Initialization
 The read process begins by creating a list of segment files that match
 the given prefix and suffix. This list is then sorted alphabtically. Since
 the segment file ID monotonically increases with time, the list is
-consequently sorted from oldest to newest. Process starts with the oldest
+consequently sorted from oldest to newest. Processing starts with the oldest
 segment file and proceeds to the newest one.
+
+If the segment file list is empty, an error code is returned indicating that
+the log could not be found.
+
+After creating the segment file list, the start of the next data record is
+found. If errors occur, they are propagated to the caller. If successful,
+there will be a current segment file.
 
 Find the Next Data Record Start
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 Finding the next data record starts with asserting that there is no
-current file, i.e. there may not be an open segment file.
+current segment file, i.e. there may not be an open segment file.
 
-There may be missing or corrupted segment files at various points in a log.
-When there is no current segment file, try to open the next file in the
-segment file list and keep trying until there are either no more files
-available in the list of segment files or a file could be opened. If no
-more segment files are available in the list, an end of log indication is
-returned for the log.
+This process starts by trying to open the next segment file, which becomes the
+current segment file. If this fails and there are no more items in the
+segment file list, an error is returned indicating the log ended prematurely.
+If the open fails and there are more items in the segment list, repeat
+trying to open the next segment file.
 
-When a segment file is opened, read the segment file header.
-There are three cases:
+If the next segment file could be opened, perform the usual segment file
+header validation. Then:
 
-o   The remaining field value is greater than the size of the data section:
-    This means this segment file holds the middle of a data record.
-    Continue to the next segment file in the list of segment files.
+o   If remaining field value is greater than the size of the data section:
+    This means this segment file holds the middle of a data record. Go back
+    to trying to open the next segment file.
 
 o   The remaining field value is less than the size of the data section:
-    The data record starts at an offset of remaining into the data section.
-    Use this offset as the location to start reading a data record.
+    The data record starts at an offset of remaining into the data section,
+    seek to that location.
 
 o   The remaining field value and size of the data section are equal:
     -   If this is the last segment file, there is no more data available
         in the log. Return an end of log indicator
         
-    -   Otherwise, start reading the data record at the first byte of the next
-        segment file.
+    -   Otherwise, go back to trying to open the next segment file.
 
-If an error occurs during the read of the segment file header, close the
-segment file and resume the walk down the segment file list, as described
-above.
 
 Validating a New Segment File
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -480,16 +518,53 @@ o   The new segment's remaining field equals the number of bytes still
     either the current record's tail was in a segment file that has been
     lost, or the on-disk data was corrupted. (Segment IDs are wall-clock
     timestamps, not a dense integer sequence, so ID-based contiguity
-    checks are not meaningful; the remaining field is the sole authority
-    for continuation.)
+    checks are not meaningful; the remaining field is the authority for
+    in-record continuation.)
 
-The remaining field is only knowable after the current record's data
-header has been fully decoded (since Variable* record sizes come from
-the header itself). Crossings that happen while the header itself is
-still being read cannot be validated up front; if they land on a
-corrupted continuation, the retroactive check on the next payload-side
-crossing, or the failure of the payload read itself, will surface the
-problem.
+o   The new segment's sequence field equals the previous segment's
+    sequence plus one. A jump means one or more segments between the
+    two were lost. This check is required in addition to the remaining
+    check because the remaining check is blind to losses that fall on
+    record-aligned segment boundaries: in that case both surrounding
+    segments show remaining = 0 and the remaining check silently
+    accepts the crossing even though whole segments' worth of records
+    have vanished. See the sequence field description under "Segment
+    Header Format" for the full rationale. On sequence-jump the
+    reader must respond identically to the remaining-field failure:
+    close the segment, push its ID to the front of the pending list,
+    set the resync flag, and return the read-truncated error.
+
+The number of bytes still owed to the in-progress record cannot be
+computed until the current record's data header has been fully decoded,
+since Variable* record sizes come from the header itself. A crossing
+that happens while the header is still being read therefore cannot be
+validated at the crossing itself. It must not, however, be left
+unchecked: if the crossing lands on a lost-segment gap, the new
+segment's leading bytes belong to some other record entirely, and
+consuming them as header continuation will silently produce a bogus
+payload length and a bogus record.
+
+To close that gap, the reader defers the check. When it crosses into a
+new segment while the current record's total size is not yet known, it
+captures a snapshot of two values: the number of bytes of the current
+record consumed before the crossing, and the new segment's remaining
+field. As soon as the data header finishes decoding and the record's
+total size (header plus payload) is known, the reader validates the
+snapshot: the total size minus the bytes-consumed-before-the-crossing
+value must equal the new segment's remaining field. If it does not, the
+crossing was into an unrelated segment (typically because one or more
+segments between the two were lost), and the reader must respond
+identically to the payload-side validation failure: close the segment,
+push its ID to the front of the pending list, set the resync flag, and
+return the read-truncated error.
+
+If a second mid-header crossing occurs before the first has been
+validated, the more recent snapshot supersedes the earlier one; a valid
+subsequent crossing implies the earlier crossing was consistent with the
+same eventual total, and a bogus intermediate crossing will corrupt the
+decoded total in a way that the most-recent snapshot's check catches.
+The snapshot is cleared at the start of every read and whenever the
+resync flag is armed.
 
 If the check fails, the reader must:
 
