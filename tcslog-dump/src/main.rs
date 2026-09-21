@@ -69,7 +69,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     }
                 }
                 total += 1;
-                print_record(total, args.text, res.meta, &buf[..res.n as usize]);
+                print_record(args.text, res.meta, &buf[..res.n as usize]);
                 println!();
             }
             Err(LogError::Eof) => break,
@@ -82,7 +82,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 total += 1;
                 if args.verbose {
                     println!(
-                        "    msg {total}: (payload larger than {MAX_MESSAGE_SIZE}-byte buffer; \
+                        "    (payload larger than {MAX_MESSAGE_SIZE}-byte buffer; \
                         {n} bytes captured, remainder discarded)"
                     );
                 }
@@ -106,14 +106,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn print_record(total: u64, text: bool, meta: Meta, buf: &[u8]) {
+fn print_record(text: bool, meta: Meta, buf: &[u8]) {
     let msg = format_msg(text, buf);
     match meta {
-        Meta::VariableTsRc(ts, rn) => {
-            print!("    msg {rn}: ts={ts} {msg:?}");
+        Meta::VariableTsRc(ts, _rn) => {
+            print!("    ts={ts} {msg}");
         }
         Meta::VariableSimple | Meta::Fixed => {
-            print!("    msg {total}: {msg:?}");
+            print!("    {msg}");
         }
     }
 }

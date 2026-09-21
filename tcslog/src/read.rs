@@ -343,6 +343,17 @@ impl LogRead {
     /// total record size is not yet known (mid-header crossing),
     /// only the crossing itself is performed; the check is deferred
     /// to the next crossing after the header has been decoded.
+    ///
+    /// Two crossing shapes are validated:
+    ///
+    /// * **Mid-record**: some bytes of the current record were read
+    ///   from the previous segment (`record_bytes_consumed > 0`). The
+    ///   new segment must declare the remaining tail with
+    ///   `remaining == total - consumed`.
+    /// * **Boundary**: nothing has been read of the current record
+    ///   (`record_bytes_consumed == 0`), so the previous segment ended
+    ///   exactly at a record boundary and the new segment starts a
+    ///   fresh record. The new segment must declare `remaining == 0`.
     fn cross_to_next_in_record(&mut self) -> Result<(), LogError> {
         self.current = None;
         match self.open_next_ready_segment()? {
@@ -350,7 +361,11 @@ impl LogRead {
             Some(()) => {}
         }
         if let Some(total) = self.record_total_bytes {
-            let expected = total - self.record_bytes_consumed;
+            let expected = if self.record_bytes_consumed == 0 {
+                0
+            } else {
+                total - self.record_bytes_consumed
+            };
             let cur = self.current.as_ref().unwrap();
             if cur.header.remaining != expected {
                 let bad_id = cur.header.segment_id;

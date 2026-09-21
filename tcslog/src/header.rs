@@ -48,10 +48,14 @@ pub struct SegmentHeader {
     pub session_id: SegId,
     /// Maximum size in bytes that a segment file in this log may reach.
     pub max_size: u32,
-    /// Number of bytes remaining in the data record whose first byte is
-    /// the first byte of this segment file's data section. May exceed
-    /// this segment's data section, in which case that record is
-    /// continued in later segment files.
+    /// Number of bytes at the start of this segment's data section that
+    /// are the tail of a data record that began in an earlier segment
+    /// file. Zero when the data section starts with a fresh record (the
+    /// common case for a session's first segment and for every segment
+    /// whose predecessor ended exactly at a record boundary). May exceed
+    /// this segment's data section, in which case the continuing record
+    /// extends into later segment files and no fresh record begins in
+    /// this segment.
     pub remaining: u64,
     /// Layout used for records in the data section.
     pub format: Format,

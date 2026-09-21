@@ -1,0 +1,26 @@
+#!/bin/bash
+#
+# This runs tcslog-gen to generate segment files. It then deletes and
+# corrupts them in various ways and uses tcslog-dump to see whether
+# error recovery works.
+# working correctly. It's also helpful in checking out tcslog-dump.
+
+set -eu
+
+TMP_DIR=/tmp/t1
+PFX=pfx-
+SFX=.log
+
+test="$(dirname "$0")"
+
+FORMAT="fixed:8"
+DELETE="2"
+DATA_SIZE="8"
+NUMBER="4"
+
+$test/error-recovery-common \
+    -e "fixed_8-8.expected" \
+    -f "$FORMAT" \
+    -d "$DELETE" \
+    -s "$DATA_SIZE" \
+    -n "$NUMBER"

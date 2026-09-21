@@ -11,13 +11,14 @@ TMP_DIR=/tmp/t1
 PFX=pfx-
 SFX=.log
 
-hexdump_enabled=false
+hexdump_enabled=0
 delete_indices_str=""
+expected_file=""
 FORMAT="variable-simple:0..10"
 number=20
 data_size=17
 usage() {
-    echo "Usage: $0 [-x] [-d \"idx1 idx2 ...\"] [-f \"--format <spec>\"] [-n <count>] [-s <bytes>] [-h]" 1>&2
+    echo "Usage: $0 -e <expected-file> [-x] [-d \"idx1 idx2 ...\"] [-f \"--format <spec>\"] [-n <count>] [-s <bytes>] [-h]" 1>&2
     exit 1
 }
 require_uint() {
@@ -27,10 +28,11 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":xhd:f:n:s:" opt; do
+while getopts ":xhd:e:f:n:s:" opt; do
     case "$opt" in
-        x) hexdump_enabled=true ;;
+        x) hexdump_enabled=1 ;;
         d) delete_indices_str="$OPTARG" ;;
+        e) expected_file="expected/$OPTARG" ;;
         f) FORMAT="$OPTARG" ;;
         n) require_uint n "$OPTARG"; number="$OPTARG" ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
@@ -40,6 +42,15 @@ while getopts ":xhd:f:n:s:" opt; do
     esac
 done
 shift $((OPTIND - 1))
+
+if [ -z "$expected_file" ]; then
+    echo "The -e <expected-file> option is required." 1>&2
+    usage
+fi
+if [ ! -f "$expected_file" ]; then
+    echo "Expected results file not found: $expected_file" 1>&2
+    exit 1
+fi
 
 read -r -a delete_indices <<< "$delete_indices_str"
 for idx in "${delete_indices[@]}"; do
@@ -94,23 +105,24 @@ declare -a files
 files=($TMP_DIR/$PFX*$SFX)
 
 if true; then # Remove this
+    echo ">>>>>>>>>>>>>>>>>>>>>>> hexdumping files. REMOVE this code"
     for f in "${files[@]}"; do
         echo
         echo $f
         hexdump -C $f
     done
-    exit 1
 fi
 
 if [ ${#delete_indices[@]} -gt 0 ]; then
     echo
     echo "Removing segment files"
-    for idx in "${delete_indices[@]}"; do
-        rm_seg $idx "${files[$idx]}"
+    for num in "${delete_indices[@]}"; do
+        idx=$((num - 1))
+        rm_seg $num "${files[$idx]}"
     done
 fi
 
-if $hexdump_enabled; then
+if [ $hexdump_enabled -ne 0 ]; then
     echo
     echo Hexdump of segment files
     for f in ${files[@]}; do
@@ -126,5 +138,16 @@ fi
 echo
 echo tcslog-dump output
 
-cargo run -p tcslog-dump -- \
-    $TMP_DIR $PFX $SFX
+actual_file=$(mktemp)
+trap 'rm -f "$actual_file"' EXIT
+cargo run --quiet -p tcslog-dump -- \
+    "$TMP_DIR" "$PFX" "$SFX" > "$actual_file"
+cat "$actual_file"
+
+echo
+if diff -u "$expected_file" "$actual_file"; then
+    echo "OK: dump output matches $expected_file"
+else
+    echo "FAIL: dump output does not match $expected_file" 1>&2
+    exit 1
+fi

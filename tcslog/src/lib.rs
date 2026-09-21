@@ -380,6 +380,65 @@ mod tests {
     }
 
     #[test]
+    fn missing_segments_at_record_boundaries_recovers_survivors() {
+        // Fixed(1) with a data section of exactly one byte means every
+        // record fills its own segment and every segment boundary is a
+        // fresh-record boundary. Deleting segments 1, 3, and 4 must
+        // still let the reader surface records 2 and 5. This is the
+        // regression case for the writer/reader mismatch where a record
+        // filling a whole data section was indistinguishable on disk
+        // from the tail of a record that started in a now-missing
+        // predecessor.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "fb-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 1,
+                Format::Fixed(1),
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for byte in b"12345" {
+                log.write(&[*byte]).unwrap();
+            }
+        }
+        let mut segments: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        segments.sort();
+        assert_eq!(
+            segments.len(),
+            5,
+            "test setup produced the wrong number of segments"
+        );
+        // Remove indices in descending order so earlier indices remain
+        // valid after each removal.
+        for idx in [3usize, 2, 0] {
+            std::fs::remove_file(&segments[idx]).unwrap();
+        }
+
+        let mut reader = LogRead::new(&d, "fb-", ".log").unwrap();
+        let mut buf = [0u8; 1];
+        let mut recovered: Vec<u8> = Vec::new();
+        loop {
+            match reader.read(&mut buf) {
+                Ok(res) => {
+                    assert_eq!(res.n, 1);
+                    recovered.push(buf[0]);
+                }
+                Err(LogError::ReadTruncated) => {}
+                Err(LogError::Eof) => break,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+        }
+        assert_eq!(recovered, b"25");
+    }
+
+    #[test]
     fn callbacks_see_rolled_segments() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static CALLS: AtomicUsize = AtomicUsize::new(0);

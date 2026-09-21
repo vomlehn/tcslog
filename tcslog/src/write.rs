@@ -244,6 +244,19 @@ impl LogWrite {
         let mut header_buf = [0u8; MAX_DATA_HEADER_LEN];
         let header_len = self.build_data_header(msg.len() as u32, &mut header_buf)?;
         let total = header_len + msg.len();
+
+        // If the current segment is already full, roll BEFORE arming
+        // `record_bytes_left` so the new segment's header records
+        // `remaining = 0`. That value is the reader's "no prior record
+        // continues into this segment" signal and is what lets a resync
+        // recover records after a missing predecessor when a record
+        // exactly fills a segment's data section. Rolling after
+        // `record_bytes_left` is set would instead stamp
+        // `remaining = total`, which the reader interprets as a
+        // continuation and skips.
+        if self.file_pos >= self.seg_size_max {
+            self.roll_segment()?;
+        }
         self.record_bytes_left = total as u64;
 
         if header_len > 0 {

@@ -156,11 +156,21 @@ max size
     The maximum size, in bytes, of a segment file. This is seg_size\ :sub:`max`.
 
 remaining
-    This is the number of bytes remaining in the data record that contains the
-    first byte in the data section.
-    This value may be longer than the length
-    of the data section, in which case the record is continued in the following
-    one or more segment files.
+    The number of bytes at the start of this segment's data section that
+    are the tail of a data record whose first byte was written to an
+    earlier segment file. Zero when the data section starts with a fresh
+    record -- the common case for the first segment of a session and for
+    every segment whose predecessor ended exactly at a record boundary.
+    May be greater than the size of the data section, in which case the
+    continuing record extends into one or more later segment files and
+    no fresh record begins in this segment.
+
+    The reader uses this field to locate the start of the first fresh
+    record in a segment it has just opened during resync: the first
+    ``remaining`` bytes of the data section belong to a record whose
+    header lives in an earlier (possibly missing) segment file and can
+    therefore not be reassembled, so they are skipped; the next byte
+    begins a fresh record.
 
 data format
     Several formats are supported for storing data, which have different 
@@ -185,21 +195,21 @@ data format
         RecSize.MAX. This is the most compact storage format, at the price of
         having to use fixed-length telemetry data records.
 
-        The data header for this format is of zero size. A record with a byte
-        in the first byte of the data section for a segment file with
-        segment ID n will have 0 or more bytes in preceeding segment
-        files. Thus, the offset of that byte in the record is:
-        
-            offset = (s * size of data section) mod n
-
-        If this is zero, the first byte of the data data record is at the
-        first byte of the data section of the segment file with segment
-        number n.
-
-        The number of bytes remaining in the record are:
+        The data header for this format is of zero size. The value of
+        the ``remaining`` field in a segment file's header is the number
+        of bytes at the start of that segment's data section that belong
+        to a record whose first byte was in an earlier segment. If the
+        record whose bytes occupy the start of the data section began
+        exactly at that data section (a fresh-record boundary), or if
+        the segment starts a new session, ``remaining`` is zero.
+        Otherwise, letting ``offset`` denote the number of bytes of the
+        continuing record that were already written to earlier segments,
 
             remaining = n - offset
-        
+
+        and after the reader skips those ``remaining`` bytes, the next
+        byte of the data section is the first byte of a fresh record.
+
     VariableSimple
         Records may have from zero to RecSize.MAX bytes. This will generally
         used when the telemetry data being stored already contains a
@@ -373,8 +383,15 @@ being managed by Tcslog.
 After these, and possibly other, checks, are made a new segment file is created.
 This becomes the current segment file.  After this, a segment file header is
 written.
-The value in the remaining field is the number of bytes from the data
-record that must still be written.
+The value in the ``remaining`` field is the number of bytes of the
+previous segment's last data record that continue at the start of the
+new segment's data section. If the previous segment ended exactly at a
+data record boundary, ``remaining`` is zero. A roll must not be
+performed while ``remaining`` would otherwise be armed to the full
+record size (i.e., before any byte of the current record has been
+written to the previous segment); the writer must roll first, then
+begin the record in the new segment, so that the fresh-record start
+is unambiguously encoded as ``remaining = 0``.
 
 Error Handling
 ^^^^^^^^^^^^^^
@@ -452,19 +469,20 @@ trying to open the next segment file.
 If the next segment file could be opened, perform the usual segment file
 header validation. Then:
 
-o   If remaining field value is greater than the size of the data section:
-    This means this segment file holds the middle of a data record. Go back
-    to trying to open the next segment file.
+o   If the ``remaining`` field value is greater than or equal to the
+    size of the data section: the entire data section belongs to a
+    data record that began in an earlier segment file which is not
+    available (either because it was lost, or because we are resyncing
+    after a fault), so no fresh record can be located here. Discard
+    the segment and go back to trying to open the next segment file.
 
-o   The remaining field value is less than the size of the data section:
-    The data record starts at an offset of remaining into the data section,
-    seek to that location.
-
-o   The remaining field value and size of the data section are equal:
-    -   If this is the last segment file, there is no more data available
-        in the log. Return an end of log indicator
-        
-    -   Otherwise, go back to trying to open the next segment file.
+o   Otherwise the ``remaining`` field value is less than the size of
+    the data section: skip past the first ``remaining`` bytes of the
+    data section, which are the unrecoverable tail of a record from a
+    prior segment, and treat the following byte as the first byte of a
+    fresh data record. Note that ``remaining = 0`` -- the fresh-record
+    boundary case -- is not special here: skipping zero bytes leaves
+    the read position exactly at the fresh record's first byte.
 
 
 Validating a New Segment File
@@ -512,14 +530,23 @@ Whenever a read that spans segment files crosses from one segment file
 into the next, before consuming any bytes from the new segment's data
 section the reader must confirm the following:
 
-o   The new segment's remaining field equals the number of bytes still
-    owed to the in-progress data record. A different value means the new
-    segment does not contain the continuation of the current record --
-    either the current record's tail was in a segment file that has been
-    lost, or the on-disk data was corrupted. (Segment IDs are wall-clock
+o   The new segment's ``remaining`` field equals the number of bytes
+    of the current data record that were in the previous segment's
+    tail. Concretely, if the reader has already consumed one or more
+    bytes of the current record from earlier segment(s), the new
+    segment's ``remaining`` must equal ``total_record_size -
+    bytes_consumed``. If the reader has consumed zero bytes of the
+    current record -- meaning the previous segment ended exactly at a
+    record boundary and this is a boundary crossing rather than a
+    mid-record crossing -- the new segment's ``remaining`` must be
+    zero, marking a fresh record starting at the new segment's data
+    section. Any other value means the new segment does not contain
+    the continuation of the current record: either the current
+    record's tail was in a segment file that has been lost, or the
+    on-disk data was corrupted. (Segment IDs are wall-clock
     timestamps, not a dense integer sequence, so ID-based contiguity
-    checks are not meaningful; the remaining field is the authority for
-    in-record continuation.)
+    checks are not meaningful; the ``remaining`` field is the
+    authority for in-record continuation.)
 
 o   The new segment's sequence field equals the previous segment's
     sequence plus one. A jump means one or more segments between the
