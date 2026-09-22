@@ -341,6 +341,20 @@ telemetry data is logically appended to the data header to form a logical data
 record. The data header
 depends on the format and may be zero length.
 
+A logical data record's data header must be written entirely within
+one segment file. Before starting a record, if the space left in the
+current segment file is smaller than the data header for the format,
+close the current segment file, call the send() function, and create a
+new segment file; the closed file is simply shorter than
+seg_size\ :sub:`max`
+and no padding is written. A data header split across a segment
+boundary cannot be decoded once the segment holding its leading bytes
+is lost, because the surviving tail of the payload length is
+indistinguishable from the tail of some longer record. Keeping the
+header whole means the remaining field always points at a complete
+data header, so a lost segment file costs only the records whose own
+bytes it held.
+
 If writing the remaining bytes in the logical data record would cause the segment
 file to grow longer than
 seg_size\ :sub:`max`
@@ -563,35 +577,20 @@ o   The new segment's sequence field equals the previous segment's
 
 The number of bytes still owed to the in-progress record cannot be
 computed until the current record's data header has been fully decoded,
-since Variable* record sizes come from the header itself. A crossing
-that happens while the header is still being read therefore cannot be
-validated at the crossing itself. It must not, however, be left
-unchecked: if the crossing lands on a lost-segment gap, the new
-segment's leading bytes belong to some other record entirely, and
-consuming them as header continuation will silently produce a bogus
-payload length and a bogus record.
+since Variable* record sizes come from the header itself. Because the
+writer never splits a data header across a segment boundary, no
+crossing can happen part way through one: either no byte of the record
+has been consumed yet, in which case the previous segment ended on a
+record boundary and the new segment's remaining field must be zero, or
+the header has been decoded in full and the owed-byte count is known.
+Both cases are therefore checked at the crossing itself.
 
-To close that gap, the reader defers the check. When it crosses into a
-new segment while the current record's total size is not yet known, it
-captures a snapshot of two values: the number of bytes of the current
-record consumed before the crossing, and the new segment's remaining
-field. As soon as the data header finishes decoding and the record's
-total size (header plus payload) is known, the reader validates the
-snapshot: the total size minus the bytes-consumed-before-the-crossing
-value must equal the new segment's remaining field. If it does not, the
-crossing was into an unrelated segment (typically because one or more
-segments between the two were lost), and the reader must respond
-identically to the payload-side validation failure: close the segment,
-push its ID to the front of the pending list, set the resync flag, and
-return the read-truncated error.
-
-If a second mid-header crossing occurs before the first has been
-validated, the more recent snapshot supersedes the earlier one; a valid
-subsequent crossing implies the earlier crossing was consistent with the
-same eventual total, and a bogus intermediate crossing will corrupt the
-decoded total in a way that the most-recent snapshot's check catches.
-The snapshot is cleared at the start of every read and whenever the
-resync flag is armed.
+A reader must still not assume a header is whole in a file it did not
+write. A crossing with no bytes consumed is validated against
+remaining = 0 whether or not a header is being decoded, and the
+sequence check applies to every crossing, so a header that does span a
+boundary in a foreign or damaged file is caught rather than spliced
+together into a bogus record.
 
 If the check fails, the reader must:
 

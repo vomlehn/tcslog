@@ -391,6 +391,83 @@ mod tests {
     }
 
     #[test]
+    fn record_after_lost_segment_survives_a_header_that_would_not_fit() {
+        // Regression test for a record that was lost even though every
+        // one of its own bytes was on disk. The writer used to fill a
+        // segment to the last byte, so a record's data header could
+        // straddle the boundary. When the segment holding the header's
+        // leading bytes went missing, the next segment's `remaining`
+        // counted the orphaned header bytes together with the payload,
+        // and a reader resyncing there had to skip the whole record:
+        // the low byte of the little-endian length was gone, and the
+        // surviving tail could equally well have belonged to a longer
+        // record. The writer now rolls early rather than split a
+        // header, so the record is readable on its own.
+        //
+        // Sizing: a 10-byte data section and 4-byte VariableSimple
+        // headers. Record A occupies 7 bytes, leaving 3 - too few for
+        // record B's header, so B starts a fresh segment and record C
+        // starts a third.
+        const A: &[u8] = b"aaa";
+        const B: &[u8] = b"bbbbb";
+        const C: &[u8] = b"ccc";
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "hs-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 10,
+                Format::VariableSimple,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for m in [A, B, C] {
+                log.write(m).unwrap();
+            }
+            log.flush().unwrap();
+        }
+
+        let mut segments: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        segments.sort();
+        assert_eq!(
+            segments.len(),
+            3,
+            "each record should have started its own segment"
+        );
+        assert_eq!(
+            std::fs::metadata(&segments[0]).unwrap().len(),
+            u64::from(SEGMENT_FILE_HEADER_LEN + 4) + A.len() as u64,
+            "the first segment must end after record A rather than \
+             take the leading bytes of record B's data header"
+        );
+
+        // Lose the segment holding record A. Record B lives entirely
+        // in the next segment and must come back.
+        std::fs::remove_file(&segments[0]).unwrap();
+
+        let mut reader = LogRead::new(&d, "hs-", ".log").unwrap();
+        let mut buf = vec![0u8; 64];
+        let mut recovered: Vec<Vec<u8>> = Vec::new();
+        loop {
+            match reader.read(&mut buf) {
+                Ok(res) => recovered.push(buf[..res.n as usize].to_vec()),
+                Err(LogError::Eof) => break,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+        }
+        assert_eq!(
+            recovered,
+            vec![B.to_vec(), C.to_vec()],
+            "every record outside the lost segment must be returned"
+        );
+    }
+
+    #[test]
     fn missing_segment_mid_data_header_is_detected() {
         // Regression test: a data header that straddles a segment
         // boundary used to escape validation entirely, because the
@@ -401,10 +478,16 @@ mod tests {
         // bytes. The segment `sequence` field is checked instead,
         // which holds regardless of how much of the record is decoded.
         //
+        // The writer no longer splits a data header across segments,
+        // so the crossing this test once produced now falls on a
+        // record boundary; the assertions below still stand guard over
+        // the phantom records that were the original symptom.
+        //
         // Sizing: a 40-byte data section with 20-byte VariableTsRc
         // headers and 9-byte payloads means each record occupies 29
-        // bytes, so record 2 begins 11 bytes before the end of segment
-        // 0 and its 20-byte header necessarily spans into segment 1.
+        // bytes, leaving 11 bytes - less than one header - unused at
+        // the end of every segment, so each record gets a segment of
+        // its own.
         const PAYLOAD: usize = 9;
         const COUNT: usize = 8;
         let dir = tempfile::tempdir().unwrap();

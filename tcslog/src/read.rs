@@ -339,10 +339,7 @@ impl LogRead {
     /// record and validates its `remaining` field against the bytes
     /// still owed. On any inconsistency the offending segment is
     /// pushed back onto the front of the pending list, resync is
-    /// armed, and [`LogError::ReadTruncated`] is returned. If the
-    /// total record size is not yet known (mid-header crossing),
-    /// only the crossing itself is performed; the check is deferred
-    /// to the next crossing after the header has been decoded.
+    /// armed, and [`LogError::ReadTruncated`] is returned.
     ///
     /// Three crossing shapes are validated:
     ///
@@ -350,19 +347,22 @@ impl LogRead {
     ///   immediate successor of the one just left, i.e. its
     ///   `sequence` must be the previous segment's plus one. A record
     ///   can only continue into the very next segment, so any jump
-    ///   means at least one segment between them is missing. This is
-    ///   checked first because it holds whether or not the record's
-    ///   header has been decoded yet, and so it also covers crossings
-    ///   that occur part way through a data header - the case the
-    ///   `remaining` checks below cannot see.
+    ///   means at least one segment between them is missing.
+    /// * **Boundary**: nothing has been read of the current record
+    ///   (`record_bytes_consumed == 0`), so the previous segment ended
+    ///   at a record boundary and the new segment starts a fresh
+    ///   record. The new segment must declare `remaining == 0`. This
+    ///   case does not need the record's total size and so is checked
+    ///   even before the data header has been decoded - which is where
+    ///   every boundary crossing lands, since the first thing a read
+    ///   does is ask for the header.
     /// * **Mid-record**: some bytes of the current record were read
     ///   from the previous segment (`record_bytes_consumed > 0`). The
     ///   new segment must declare the remaining tail with
-    ///   `remaining == total - consumed`.
-    /// * **Boundary**: nothing has been read of the current record
-    ///   (`record_bytes_consumed == 0`), so the previous segment ended
-    ///   exactly at a record boundary and the new segment starts a
-    ///   fresh record. The new segment must declare `remaining == 0`.
+    ///   `remaining == total - consumed`. The writer never splits a
+    ///   data header across segments, so by the time any byte of a
+    ///   record has been consumed its total size is known and this
+    ///   check always has a value to compare against.
     fn cross_to_next_in_record(&mut self) -> Result<(), LogError> {
         let prev_sequence = self.current.as_ref().map(|c| c.header.sequence);
         self.current = None;
@@ -385,12 +385,13 @@ impl LogRead {
                 return Err(self.reject_crossing(lost));
             }
         }
-        if let Some(total) = self.record_total_bytes {
-            let expected = if self.record_bytes_consumed == 0 {
-                0
-            } else {
-                total - self.record_bytes_consumed
-            };
+        let expected = if self.record_bytes_consumed == 0 {
+            Some(0)
+        } else {
+            self.record_total_bytes
+                .map(|total| total - self.record_bytes_consumed)
+        };
+        if let Some(expected) = expected {
             let cur = self.current.as_ref().unwrap();
             if cur.header.remaining != expected {
                 return Err(self.reject_crossing(0));

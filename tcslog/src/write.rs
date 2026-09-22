@@ -267,16 +267,36 @@ impl LogWrite {
         let header_len = self.build_data_header(msg.len() as u32, &mut header_buf)?;
         let total = header_len + msg.len();
 
-        // If the current segment is already full, roll BEFORE arming
-        // `record_bytes_left` so the new segment's header records
-        // `remaining = 0`. That value is the reader's "no prior record
-        // continues into this segment" signal and is what lets a resync
-        // recover records after a missing predecessor when a record
-        // exactly fills a segment's data section. Rolling after
-        // `record_bytes_left` is set would instead stamp
-        // `remaining = total`, which the reader interprets as a
-        // continuation and skips.
-        if self.file_pos >= self.seg_size_max {
+        // Roll before starting the record if what is left of the
+        // current segment cannot hold the whole data header.
+        //
+        // A data header that straddles a segment boundary cannot be
+        // recovered if the segment holding its leading bytes is lost:
+        // the payload length is spread across both segments, and the
+        // surviving tail of a little-endian length is indistinguishable
+        // from the tail of a longer record, so the reader has no way to
+        // tell where the record's payload begins. The `remaining` field
+        // then counts those orphaned bytes and every reader that
+        // resyncs here must skip the record, even though its payload
+        // survived intact. Keeping each header whole means `remaining`
+        // always lands on the first byte of a complete data header, so
+        // a record is lost only when its own bytes are.
+        //
+        // The segment is simply closed short of `seg_size_max` - at
+        // most `data_header_len() - 1` bytes go unused, and no padding
+        // is written, so the reader sees the shorter file length and
+        // stops there.
+        //
+        // Rolling here also happens BEFORE arming `record_bytes_left`
+        // so the new segment's header records `remaining = 0`. That
+        // value is the reader's "no prior record continues into this
+        // segment" signal and is what lets a resync recover records
+        // after a missing predecessor when a record exactly fills a
+        // segment's data section. Rolling after `record_bytes_left` is
+        // set would instead stamp `remaining = total`, which the reader
+        // interprets as a continuation and skips.
+        let header_room = self.format.data_header_len().max(1);
+        if self.seg_size_max.saturating_sub(self.file_pos) < header_room {
             self.roll_segment()?;
         }
         self.record_bytes_left = total as u64;
