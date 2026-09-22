@@ -7,7 +7,6 @@
 
 set -eu
 
-TMP_DIR=/tmp/t1
 PFX=pfx-
 SFX=.log
 

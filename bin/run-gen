@@ -5,16 +5,30 @@
 
 set -eu
 
-TMP_DIR=/tmp/t1
+# Cleanup runs from a single EXIT trap so that -k, which is not known
+# until the options are parsed, can spare the segment files.
+keep_tmp=0
+TMP_DIR=$(mktemp -d -t tcslog.XXXXXXXXXX)
+cleanup() {
+    if [ $keep_tmp -ne 0 ]; then
+        echo "Temporary directory kept: $TMP_DIR"
+    else
+        rm -rf "$TMP_DIR"
+    fi
+}
+trap cleanup EXIT
 PFX=pfx-
 SFX=.log
 
 usage() {
-    echo "Usage: $0 [-h]" 1>&2
+    echo "Usage: $0 [-k] [-h]" 1>&2
+    echo "  -k  Print the temporary directory holding the segment" 1>&2
+    echo "      files and keep it instead of deleting it on exit." 1>&2
     exit 1
 }
-while getopts ":h" opt; do
+while getopts ":kh" opt; do
     case "$opt" in
+        k) keep_tmp=1 ;;
         h) usage ;;
         \?) echo "Unknown option: -$OPTARG" 1>&2; usage ;;
     esac
@@ -26,8 +40,6 @@ shift $((OPTIND - 1))
 FORMAT="--format variable-simple:10"
 FORMAT="--format variable-simple:5..10"
 
-rm -rf $TMP_DIR
-mkdir -p $TMP_DIR
 cargo run -p tcslog-gen -- \
     --verbose \
     --data-size 5 \

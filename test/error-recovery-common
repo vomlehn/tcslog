@@ -7,7 +7,22 @@
 
 set -eu
 
-TMP_DIR=/tmp/t1
+# Cleanup runs from a single EXIT trap so that -k, which is not known
+# until the options are parsed, can spare the segment files.
+keep_tmp=0
+actual_file=""
+expected_cmp=""
+actual_cmp=""
+TMP_DIR=$(mktemp -d -t tcslog.XXXXXXXXXX)
+cleanup() {
+    rm -f "$actual_file" "$expected_cmp" "$actual_cmp"
+    if [ $keep_tmp -ne 0 ]; then
+        echo "Temporary directory kept: $TMP_DIR"
+    else
+        rm -rf "$TMP_DIR"
+    fi
+}
+trap cleanup EXIT
 PFX=pfx-
 SFX=.log
 
@@ -19,10 +34,12 @@ FORMAT="variable-simple:0..10"
 number=20
 data_size=17
 usage() {
-    echo "Usage: $0 -e <expected-file> [-g] [-x] [-d \"idx1 idx2 ...\"] [-f \"--format <spec>\"] [-n <count>] [-s <bytes>] [-h]" 1>&2
+    echo "Usage: $0 -e <expected-file> [-g] [-k] [-x] [-d \"idx1 idx2 ...\"] [-f \"--format <spec>\"] [-n <count>] [-s <bytes>] [-h]" 1>&2
     echo "  -g  Overwrite the expected file with this run's output" 1>&2
     echo "      instead of comparing against it. Timestamps are" 1>&2
     echo "      masked with X so the file stays reproducible." 1>&2
+    echo "  -k  Print the temporary directory holding the segment" 1>&2
+    echo "      files and keep it instead of deleting it on exit." 1>&2
     exit 1
 }
 require_uint() {
@@ -32,9 +49,10 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":gxhd:e:f:n:s:" opt; do
+while getopts ":gkxhd:e:f:n:s:" opt; do
     case "$opt" in
         g) generate=1 ;;
+        k) keep_tmp=1 ;;
         x) hexdump_enabled=1 ;;
         d) delete_indices_str="$OPTARG" ;;
         e) expected_file="expected/$OPTARG" ;;
@@ -86,10 +104,6 @@ case $FORMAT in
         ;;
 esac
 
-echo Removing any existing logs in $TMP_DIR
-rm -rf $TMP_DIR
-mkdir -p $TMP_DIR
-
 echo "Generating log in $TMP_DIR: prefix $PFX suffix $SFX"
 
 cargo run -p tcslog-gen -- \
@@ -138,7 +152,6 @@ echo tcslog-dump output
 actual_file=$(mktemp)
 expected_cmp=$(mktemp)
 actual_cmp=$(mktemp)
-trap 'rm -f "$actual_file" "$expected_cmp" "$actual_cmp"' EXIT
 cargo run --quiet -p tcslog-dump -- \
     "$TMP_DIR" "$PFX" "$SFX" > "$actual_file"
 cat "$actual_file"
