@@ -344,8 +344,17 @@ impl LogRead {
     /// only the crossing itself is performed; the check is deferred
     /// to the next crossing after the header has been decoded.
     ///
-    /// Two crossing shapes are validated:
+    /// Three crossing shapes are validated:
     ///
+    /// * **Sequence continuity**: the new segment must be the
+    ///   immediate successor of the one just left, i.e. its
+    ///   `sequence` must be the previous segment's plus one. A record
+    ///   can only continue into the very next segment, so any jump
+    ///   means at least one segment between them is missing. This is
+    ///   checked first because it holds whether or not the record's
+    ///   header has been decoded yet, and so it also covers crossings
+    ///   that occur part way through a data header - the case the
+    ///   `remaining` checks below cannot see.
     /// * **Mid-record**: some bytes of the current record were read
     ///   from the previous segment (`record_bytes_consumed > 0`). The
     ///   new segment must declare the remaining tail with
@@ -355,10 +364,17 @@ impl LogRead {
     ///   exactly at a record boundary and the new segment starts a
     ///   fresh record. The new segment must declare `remaining == 0`.
     fn cross_to_next_in_record(&mut self) -> Result<(), LogError> {
+        let prev_sequence = self.current.as_ref().map(|c| c.header.sequence);
         self.current = None;
         match self.open_next_ready_segment()? {
             None => return Err(LogError::Eof),
             Some(()) => {}
+        }
+        if let Some(prev) = prev_sequence {
+            let cur = self.current.as_ref().unwrap();
+            if cur.header.sequence != prev.saturating_next() {
+                return Err(self.reject_crossing());
+            }
         }
         if let Some(total) = self.record_total_bytes {
             let expected = if self.record_bytes_consumed == 0 {
@@ -368,14 +384,22 @@ impl LogRead {
             };
             let cur = self.current.as_ref().unwrap();
             if cur.header.remaining != expected {
-                let bad_id = cur.header.segment_id;
-                self.current = None;
-                self.pending.push_front(bad_id);
-                self.resync = true;
-                return Err(LogError::ReadTruncated);
+                return Err(self.reject_crossing());
             }
         }
         Ok(())
+    }
+
+    /// Rejects the segment just opened by [`cross_to_next_in_record`]:
+    /// pushes it back onto the front of the pending list so it is
+    /// reconsidered as a resync candidate, arms resync, and yields the
+    /// error to report.
+    fn reject_crossing(&mut self) -> LogError {
+        let bad_id = self.current.as_ref().expect("segment open").header.segment_id;
+        self.current = None;
+        self.pending.push_front(bad_id);
+        self.resync = true;
+        LogError::ReadTruncated
     }
 
     /// Opens the next segment whose header we can read and whose

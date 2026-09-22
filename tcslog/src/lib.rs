@@ -380,6 +380,114 @@ mod tests {
     }
 
     #[test]
+    fn missing_segment_mid_data_header_is_detected() {
+        // Regression test: a data header that straddles a segment
+        // boundary used to escape validation entirely, because the
+        // record's total size is not yet known at that crossing and
+        // the `remaining` checks are keyed off it. The reader would
+        // splice the tail of the header out of whatever segment came
+        // next and hand back phantom records built from unrelated
+        // bytes. The segment `sequence` field is checked instead,
+        // which holds regardless of how much of the record is decoded.
+        //
+        // Sizing: a 40-byte data section with 20-byte VariableTsRc
+        // headers and 9-byte payloads means each record occupies 29
+        // bytes, so record 2 begins 11 bytes before the end of segment
+        // 0 and its 20-byte header necessarily spans into segment 1.
+        const PAYLOAD: usize = 9;
+        const COUNT: usize = 8;
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "mh-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableTsRc,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for i in 0..COUNT {
+                log.write(&vec![0xA0u8 + i as u8; PAYLOAD]).unwrap();
+            }
+            log.flush().unwrap();
+        }
+
+        let mut segments: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        segments.sort();
+        assert!(
+            segments.len() >= 4,
+            "test setup produced too few segments: {}",
+            segments.len()
+        );
+        // Segment 1 holds the tail of record 2's data header.
+        std::fs::remove_file(&segments[1]).unwrap();
+
+        let mut reader = LogRead::new(&d, "mh-", ".log").unwrap();
+        let mut buf = vec![0u8; 4096];
+        let mut saw_truncation = false;
+        let mut recovered = Vec::new();
+        loop {
+            match reader.read(&mut buf) {
+                Ok(res) => {
+                    // Every record handed back must be one we actually
+                    // wrote: correct length, a uniform payload byte in
+                    // range, and a record count that agrees with that
+                    // payload. A phantom fails all three.
+                    assert_eq!(
+                        res.n as usize, PAYLOAD,
+                        "phantom record with implausible length {}",
+                        res.n
+                    );
+                    let first = buf[0];
+                    assert!(
+                        buf[..PAYLOAD].iter().all(|b| *b == first),
+                        "payload is not one of the written records"
+                    );
+                    let idx = first
+                        .checked_sub(0xA0)
+                        .filter(|i| (*i as usize) < COUNT)
+                        .unwrap_or_else(|| {
+                            panic!("payload byte {first:#x} was never written")
+                        });
+                    match res.meta {
+                        Meta::VariableTsRc(_, rc) => assert_eq!(
+                            rc,
+                            u64::from(idx) + 1,
+                            "record count does not match payload {first:#x}"
+                        ),
+                        other => panic!("unexpected metadata {other:?}"),
+                    }
+                    recovered.push(idx);
+                }
+                Err(LogError::ReadTruncated) => saw_truncation = true,
+                Err(LogError::Eof) => break,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+        }
+
+        assert!(
+            saw_truncation,
+            "the segment gap splitting a data header must surface as \
+             ReadTruncated"
+        );
+        assert_eq!(
+            recovered.first(),
+            Some(&0),
+            "the record before the gap must still be returned"
+        );
+        assert!(
+            recovered.len() > 1,
+            "the reader must resynchronize and recover records after \
+             the gap, got {recovered:?}"
+        );
+    }
+
+    #[test]
     fn missing_segments_at_record_boundaries_recovers_survivors() {
         // Fixed(1) with a data section of exactly one byte means every
         // record fills its own segment and every segment boundary is a
