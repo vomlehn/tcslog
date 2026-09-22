@@ -27,6 +27,11 @@ generate.out
 .generate
 build.out
 
+# Ad-hoc developer scratch drivers and their captured output
+/t
+/t.sh
+/bin/t
+
 # Per-developer cargo config; TIMER_RESOLUTION lives here (see
 # .cargo/config.toml.example for the template).
 .cargo/config.toml
