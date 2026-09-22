@@ -13,13 +13,13 @@ SFX=.log
 
 test="$(dirname "$0")"
 
-FORMAT="variable-simple:0..33"
+FORMAT="variable-tsrc:0..10"
 DELETE="1 3 4"
-DATA_SIZE="10"
+DATA_SIZE="21"
 NUMBER=20
 
 $test/error-recovery-common \
-    -e "variable_0-33-10.expected" \
+    -e "variable_tsrc-0-10-21.expected" \
     -f "$FORMAT" \
     -d "$DELETE" \
     -s "$DATA_SIZE" \

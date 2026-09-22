@@ -7,8 +7,8 @@ use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
-use tcslog::{Format, LogError, LogWrite, RecSize, SEGMENT_FILE_HEADER_LEN,
-    WriteCallbacks};
+use tcslog::{record_trailer, Format, LogError, LogWrite, RecSize,
+    SEGMENT_FILE_HEADER_LEN, WriteCallbacks};
 
 /// User-facing record-format specification parsed from the `--format`
 /// command-line option. Combines the on-disk [`Format`] variant with the
@@ -66,10 +66,10 @@ impl fmt::Display for RecordFormatSpec {
                 write!(f, "variable-simple:{min}..{max}")
             }
             Self::VariableTsRc { min, max } if min == max => {
-                write!(f, "variable-ts-rc:{min}")
+                write!(f, "variable-tsrc:{min}")
             }
             Self::VariableTsRc { min, max } => {
-                write!(f, "variable-ts-rc:{min}..{max}")
+                write!(f, "variable-tsrc:{min}..{max}")
             }
         }
     }
@@ -101,7 +101,7 @@ impl FromStr for RecordFormatSpec {
             RecordFormatSpecError::new(format!(
                 "invalid --format value {s:?}: expected 'KIND:LEN' or \
                  'KIND:MIN..MAX' where KIND is one of 'fixed', \
-                 'variable-simple', 'variable-ts-rc'"
+                 'variable-simple', 'variable-tsrc'"
             ))
         })?;
 
@@ -128,13 +128,13 @@ impl FromStr for RecordFormatSpec {
                 let (min, max) = parse_range(spec, "variable-simple")?;
                 Ok(Self::VariableSimple { min, max })
             }
-            "variable-ts-rc" => {
-                let (min, max) = parse_range(spec, "variable-ts-rc")?;
+            "variable-tsrc" => {
+                let (min, max) = parse_range(spec, "variable-tsrc")?;
                 Ok(Self::VariableTsRc { min, max })
             }
             other => Err(RecordFormatSpecError::new(format!(
                 "invalid --format value {s:?}: unknown kind {other:?}; \
-                 expected 'fixed', 'variable-simple', or 'variable-ts-rc'"
+                 expected 'fixed', 'variable-simple', or 'variable-tsrc'"
             ))),
         }
     }
@@ -241,13 +241,15 @@ pub fn create_log(
     let mut message_count: u64 = 0;
     while message_count < count {
         let payload = build_payload(spec, message_count, &mut rng);
+        // Write first: the timestamp and record count reported by
+        // `last_meta` are minted as the record header is built.
+        log.write(&payload)?;
         println!(
-            "    msg {}: {:?} ({} bytes)",
+            "    msg {}: {:?} {}",
             message_count + 1,
             String::from_utf8_lossy(&payload),
-            payload.len(),
+            record_trailer(payload.len(), log.last_meta()),
         );
-        log.write(&payload)?;
         message_count += 1;
     }
 

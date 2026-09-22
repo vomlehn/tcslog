@@ -11,7 +11,7 @@ use std::error::Error;
 
 use clap::{CommandFactory, Parser};
 
-use tcslog::{LogError, LogRead, Meta, SegmentHeader};
+use tcslog::{record_trailer, LogError, LogRead, Meta, SegmentHeader};
 
 const MAX_MESSAGE_SIZE: usize = 256;
 
@@ -49,6 +49,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let mut log = LogRead::new(&args.dirname, &args.prefix, &args.suffix)?;
     let mut current_seg = None;
     let mut files_seen = 0u32;
+    let mut files_lost = 0u64;
     let mut total = 0u64;
     let mut buf = vec![0u8; MAX_MESSAGE_SIZE];
 
@@ -73,9 +74,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                 println!();
             }
             Err(LogError::Eof) => break,
-            Err(LogError::ReadTruncated) => {
+            Err(LogError::ReadTruncated(lost)) => {
+                files_lost += lost;
                 if args.verbose {
-                    println!("    -- record truncated by missing or corrupted segment; resynchronizing --");
+                    if lost > 0 {
+                        println!(
+                            "    -- record truncated by {lost} missing \
+                             segment file(s); resynchronizing --"
+                        );
+                    } else {
+                        println!(
+                            "    -- record truncated by a corrupted \
+                             segment; resynchronizing --"
+                        );
+                    }
                 }
             }
             Err(LogError::ReadOverflow(n)) => {
@@ -102,20 +114,16 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     if args.verbose {
         println!("\nread {total} message(s) across {} file(s)", files_seen);
+        if files_lost > 0 {
+            println!("{files_lost} segment file(s) lost");
+        }
     }
     Ok(())
 }
 
 fn print_record(text: bool, meta: Meta, buf: &[u8]) {
     let msg = format_msg(text, buf);
-    match meta {
-        Meta::VariableTsRc(ts, _rn) => {
-            print!("    ts={ts} {msg}");
-        }
-        Meta::VariableSimple | Meta::Fixed => {
-            print!("    {msg}");
-        }
-    }
+    print!("    {msg} {}", record_trailer(buf.len(), meta));
 }
 
 fn format_msg(as_text: bool, buf: &[u8]) -> String {

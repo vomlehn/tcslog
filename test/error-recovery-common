@@ -12,13 +12,17 @@ PFX=pfx-
 SFX=.log
 
 hexdump_enabled=0
+generate=0
 delete_indices_str=""
 expected_file=""
 FORMAT="variable-simple:0..10"
 number=20
 data_size=17
 usage() {
-    echo "Usage: $0 -e <expected-file> [-x] [-d \"idx1 idx2 ...\"] [-f \"--format <spec>\"] [-n <count>] [-s <bytes>] [-h]" 1>&2
+    echo "Usage: $0 -e <expected-file> [-g] [-x] [-d \"idx1 idx2 ...\"] [-f \"--format <spec>\"] [-n <count>] [-s <bytes>] [-h]" 1>&2
+    echo "  -g  Overwrite the expected file with this run's output" 1>&2
+    echo "      instead of comparing against it. Timestamps are" 1>&2
+    echo "      masked with X so the file stays reproducible." 1>&2
     exit 1
 }
 require_uint() {
@@ -28,8 +32,9 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":xhd:e:f:n:s:" opt; do
+while getopts ":gxhd:e:f:n:s:" opt; do
     case "$opt" in
+        g) generate=1 ;;
         x) hexdump_enabled=1 ;;
         d) delete_indices_str="$OPTARG" ;;
         e) expected_file="expected/$OPTARG" ;;
@@ -47,8 +52,9 @@ if [ -z "$expected_file" ]; then
     echo "The -e <expected-file> option is required." 1>&2
     usage
 fi
-if [ ! -f "$expected_file" ]; then
+if [ ! -f "$expected_file" ] && [ $generate -eq 0 ]; then
     echo "Expected results file not found: $expected_file" 1>&2
+    echo "Use -g to create it from this run's output." 1>&2
     exit 1
 fi
 
@@ -60,8 +66,6 @@ for idx in "${delete_indices[@]}"; do
     fi
 done
 
-segment_file_header_len=45
-
 rm_seg() {
     local idx=$1
     shift 1
@@ -70,17 +74,10 @@ rm_seg() {
     rm $args
 }
 
+# Reject a --format this script does not know about before spending a
+# cargo build on it; tcslog-gen validates the full syntax itself.
 case $FORMAT in
-    *fixed*)
-        data_header_len=0
-        ;;
-
-    *variable-simple*)
-        data_header_len=4;
-        ;;
-
-    *variable--tsrc*)
-        data_header_len=$((4 + 8 + 8))
+    *fixed*|*variable-simple*|*variable-tsrc*)
         ;;
 
     *)
@@ -139,14 +136,44 @@ echo
 echo tcslog-dump output
 
 actual_file=$(mktemp)
-trap 'rm -f "$actual_file"' EXIT
+expected_cmp=$(mktemp)
+actual_cmp=$(mktemp)
+trap 'rm -f "$actual_file" "$expected_cmp" "$actual_cmp"' EXIT
 cargo run --quiet -p tcslog-dump -- \
     "$TMP_DIR" "$PFX" "$SFX" > "$actual_file"
 cat "$actual_file"
 
+# The variable-tsrc format stamps each record with the wall-clock time,
+# so the timestamp differs on every run and cannot be checked against a
+# stored file. Blank it out on both sides before comparing; every other
+# field, the record count included, is still compared exactly.
+strip_timestamp() {
+    sed 's/ts=[^,)]*/ts=<ignored>/g' "$1"
+}
+
+# Replace every character of each timestamp with an X, preserving its
+# length, so a stored expected file shows where the timestamp sits
+# without pinning a value that can never repeat. Each pass turns the
+# first not-yet-masked character after "ts=" into an X and branches
+# back, until the run of X reaches the ',' or ')' ending the field.
+mask_timestamp() {
+    sed ':a; s/\(ts=X*\)[^,)X]/\1X/; ta' "$1"
+}
+
+if [ $generate -ne 0 ]; then
+    mask_timestamp "$actual_file" > "$actual_cmp"
+    cp "$actual_cmp" "$expected_file"
+    echo
+    echo "GENERATED: $expected_file (timestamps masked with X)"
+    exit 0
+fi
+
+strip_timestamp "$expected_file" > "$expected_cmp"
+strip_timestamp "$actual_file" > "$actual_cmp"
+
 echo
-if diff -u "$expected_file" "$actual_file"; then
-    echo "OK: dump output matches $expected_file"
+if diff -u "$expected_cmp" "$actual_cmp"; then
+    echo "OK: dump output matches $expected_file (timestamps ignored)"
 else
     echo "FAIL: dump output does not match $expected_file" 1>&2
     exit 1
