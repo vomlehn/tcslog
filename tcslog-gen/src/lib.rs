@@ -66,10 +66,10 @@ impl fmt::Display for RecordFormatSpec {
                 write!(f, "variable-simple:{min}..{max}")
             }
             Self::VariableTsRc { min, max } if min == max => {
-                write!(f, "variable-ts-rc:{min}")
+                write!(f, "variable-tsrc:{min}")
             }
             Self::VariableTsRc { min, max } => {
-                write!(f, "variable-ts-rc:{min}..{max}")
+                write!(f, "variable-tsrc:{min}..{max}")
             }
         }
     }
@@ -101,7 +101,7 @@ impl FromStr for RecordFormatSpec {
             RecordFormatSpecError::new(format!(
                 "invalid --format value {s:?}: expected 'KIND:LEN' or \
                  'KIND:MIN..MAX' where KIND is one of 'fixed', \
-                 'variable-simple', 'variable-ts-rc'"
+                 'variable-simple', 'variable-tsrc'"
             ))
         })?;
 
@@ -128,13 +128,13 @@ impl FromStr for RecordFormatSpec {
                 let (min, max) = parse_range(spec, "variable-simple")?;
                 Ok(Self::VariableSimple { min, max })
             }
-            "variable-ts-rc" => {
-                let (min, max) = parse_range(spec, "variable-ts-rc")?;
+            "variable-tsrc" => {
+                let (min, max) = parse_range(spec, "variable-tsrc")?;
                 Ok(Self::VariableTsRc { min, max })
             }
             other => Err(RecordFormatSpecError::new(format!(
                 "invalid --format value {s:?}: unknown kind {other:?}; \
-                 expected 'fixed', 'variable-simple', or 'variable-ts-rc'"
+                 expected 'fixed', 'variable-simple', or 'variable-tsrc'"
             ))),
         }
     }

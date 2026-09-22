@@ -4,7 +4,7 @@
 //!
 //! ```text
 //! cargo run -p tcslog-gen -- \
-//!     --format variable-ts-rc:16..64 \
+//!     --format variable-tsrc:16..64 \
 //!     ./out prefix- .tcslog
 //! ```
 
@@ -30,7 +30,7 @@ struct Args {
     suffix: String,
 
     /// Data record format. Syntax: `KIND:LEN` or `KIND:MIN..MAX` where
-    /// KIND is one of `fixed`, `variable-simple`, `variable-ts-rc`.
+    /// KIND is one of `fixed`, `variable-simple`, `variable-tsrc`.
     /// `fixed` requires a single length; the variable kinds accept either
     /// a single length or a `MIN..MAX` range.
     #[arg(short = 'f', long, default_value = "variable-simple:10")]
