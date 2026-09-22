@@ -23,4 +23,5 @@ $test/error-recovery-common \
     -f "$FORMAT" \
     -d "$DELETE" \
     -s "$DATA_SIZE" \
-    -n "$NUMBER"
+    -n "$NUMBER" \
+    "$@"
