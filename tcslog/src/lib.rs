@@ -356,6 +356,7 @@ mod tests {
         // Record 1 must not be silently mis-read; the mid-record
         // segment gap must surface as ReadTruncated.
         let mut saw_truncation = false;
+        let mut lost_reported = None;
         let mut saw_c2 = false;
         loop {
             match reader.read(&mut buf) {
@@ -371,14 +372,21 @@ mod tests {
                         panic!("record 1 read succeeded despite missing segment");
                     }
                 }
-                Err(LogError::ReadTruncated) => {
+                Err(LogError::ReadTruncated(lost)) => {
                     saw_truncation = true;
+                    lost_reported = Some(lost);
                 }
                 Err(LogError::Eof) => break,
                 Err(e) => panic!("unexpected error: {e:?}"),
             }
         }
         assert!(saw_truncation, "expected ReadTruncated for the record spanning the gap");
+        assert_eq!(
+            lost_reported,
+            Some(1),
+            "one segment was deleted, so the truncation must report one \
+             lost segment file"
+        );
         assert!(saw_c2, "expected record 2 to be recovered after the gap");
     }
 
@@ -433,6 +441,7 @@ mod tests {
         let mut reader = LogRead::new(&d, "mh-", ".log").unwrap();
         let mut buf = vec![0u8; 4096];
         let mut saw_truncation = false;
+        let mut lost_reported = None;
         let mut recovered = Vec::new();
         loop {
             match reader.read(&mut buf) {
@@ -467,7 +476,10 @@ mod tests {
                     }
                     recovered.push(idx);
                 }
-                Err(LogError::ReadTruncated) => saw_truncation = true,
+                Err(LogError::ReadTruncated(lost)) => {
+                    saw_truncation = true;
+                    lost_reported = Some(lost);
+                }
                 Err(LogError::Eof) => break,
                 Err(e) => panic!("unexpected error: {e:?}"),
             }
@@ -477,6 +489,12 @@ mod tests {
             saw_truncation,
             "the segment gap splitting a data header must surface as \
              ReadTruncated"
+        );
+        assert_eq!(
+            lost_reported,
+            Some(1),
+            "exactly one segment was deleted, so the truncation must \
+             report one lost segment file"
         );
         assert_eq!(
             recovered.first(),
@@ -541,7 +559,7 @@ mod tests {
                     assert_eq!(res.n, 1);
                     recovered.push(buf[0]);
                 }
-                Err(LogError::ReadTruncated) => {}
+                Err(LogError::ReadTruncated(_)) => {}
                 Err(LogError::Eof) => break,
                 Err(e) => panic!("unexpected error: {e:?}"),
             }

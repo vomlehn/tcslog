@@ -373,7 +373,16 @@ impl LogRead {
         if let Some(prev) = prev_sequence {
             let cur = self.current.as_ref().unwrap();
             if cur.header.sequence != prev.saturating_next() {
-                return Err(self.reject_crossing());
+                // The segments between the two sequence numbers are
+                // the ones that went missing. saturating_sub keeps a
+                // sequence that failed to advance (which should not
+                // happen, but would otherwise wrap) reported as zero.
+                let lost = cur
+                    .header
+                    .sequence
+                    .as_u64()
+                    .saturating_sub(prev.saturating_next().as_u64());
+                return Err(self.reject_crossing(lost));
             }
         }
         if let Some(total) = self.record_total_bytes {
@@ -384,7 +393,7 @@ impl LogRead {
             };
             let cur = self.current.as_ref().unwrap();
             if cur.header.remaining != expected {
-                return Err(self.reject_crossing());
+                return Err(self.reject_crossing(0));
             }
         }
         Ok(())
@@ -393,13 +402,14 @@ impl LogRead {
     /// Rejects the segment just opened by [`cross_to_next_in_record`]:
     /// pushes it back onto the front of the pending list so it is
     /// reconsidered as a resync candidate, arms resync, and yields the
-    /// error to report.
-    fn reject_crossing(&mut self) -> LogError {
+    /// error to report. `lost` is the number of segment files the
+    /// sequence gap accounts for, or zero when the sequence is intact.
+    fn reject_crossing(&mut self, lost: u64) -> LogError {
         let bad_id = self.current.as_ref().expect("segment open").header.segment_id;
         self.current = None;
         self.pending.push_front(bad_id);
         self.resync = true;
-        LogError::ReadTruncated
+        LogError::ReadTruncated(lost)
     }
 
     /// Opens the next segment whose header we can read and whose

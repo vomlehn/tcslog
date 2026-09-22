@@ -59,11 +59,20 @@ pub enum LogError {
     ReadOverflow(u32),
 
     /// A segment-boundary crossing during a mid-record read found a
-    /// continuation that does not match the bytes still owed to the
-    /// current record. The record was truncated; the next call to read
-    /// will resynchronize on the next available segment file.
-    #[error("read truncated by missing or corrupted segment file")]
-    ReadTruncated,
+    /// continuation that does not belong after the current one: either
+    /// a gap in the segment `sequence`, or a `remaining` field that
+    /// does not match the bytes still owed to the current record. The
+    /// record was truncated; the next call to read will resynchronize
+    /// on the next available segment file.
+    ///
+    /// The wrapped value is the number of segment files missing from
+    /// the session at that crossing, derived from the gap in the
+    /// `sequence` counter. It is zero when the sequence is intact and
+    /// the crossing was rejected because the surviving segment is
+    /// corrupt or truncated rather than because one was lost.
+    #[error("read truncated by missing or corrupted segment file \
+             ({0} segment file(s) lost)")]
+    ReadTruncated(u64),
 
     /// The segment file's stored `segment_id` did not match the value
     /// encoded in its file name.
