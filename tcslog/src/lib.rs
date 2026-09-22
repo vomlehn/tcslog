@@ -45,7 +45,10 @@ mod write;
 include!(concat!(env!("OUT_DIR"), "/timer_resolution.rs"));
 
 pub use error::LogError;
-pub use format::{Format, Meta, RecSize, RecordCount, Timestamp};
+pub use format::{
+    format_timestamp, record_trailer, Format, Meta, RecSize, RecordCount,
+    Timestamp,
+};
 pub use header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN, VERSION_MAJOR, VERSION_MINOR};
 pub use read::{LogRead, LogReadIter, ReadResult, Record};
 pub use segid::SegId;

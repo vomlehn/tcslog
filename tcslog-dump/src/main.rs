@@ -11,7 +11,7 @@ use std::error::Error;
 
 use clap::{CommandFactory, Parser};
 
-use tcslog::{LogError, LogRead, Meta, SegmentHeader};
+use tcslog::{record_trailer, LogError, LogRead, Meta, SegmentHeader};
 
 const MAX_MESSAGE_SIZE: usize = 256;
 
@@ -108,14 +108,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
 fn print_record(text: bool, meta: Meta, buf: &[u8]) {
     let msg = format_msg(text, buf);
-    match meta {
-        Meta::VariableTsRc(ts, _rn) => {
-            print!("    ts={ts} {msg}");
-        }
-        Meta::VariableSimple | Meta::Fixed => {
-            print!("    {msg}");
-        }
-    }
+    print!("    {msg} {}", record_trailer(buf.len(), meta));
 }
 
 fn format_msg(as_text: bool, buf: &[u8]) -> String {

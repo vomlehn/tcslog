@@ -7,8 +7,8 @@ use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
-use tcslog::{Format, LogError, LogWrite, RecSize, SEGMENT_FILE_HEADER_LEN,
-    WriteCallbacks};
+use tcslog::{record_trailer, Format, LogError, LogWrite, RecSize,
+    SEGMENT_FILE_HEADER_LEN, WriteCallbacks};
 
 /// User-facing record-format specification parsed from the `--format`
 /// command-line option. Combines the on-disk [`Format`] variant with the
@@ -241,13 +241,15 @@ pub fn create_log(
     let mut message_count: u64 = 0;
     while message_count < count {
         let payload = build_payload(spec, message_count, &mut rng);
+        // Write first: the timestamp and record count reported by
+        // `last_meta` are minted as the record header is built.
+        log.write(&payload)?;
         println!(
-            "    msg {}: {:?} ({} bytes)",
+            "    msg {}: {:?} {}",
             message_count + 1,
             String::from_utf8_lossy(&payload),
-            payload.len(),
+            record_trailer(payload.len(), log.last_meta()),
         );
-        log.write(&payload)?;
         message_count += 1;
     }
 

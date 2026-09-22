@@ -7,7 +7,7 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::LogError;
-use crate::format::{Format, RecSize};
+use crate::format::{Format, Meta, RecSize};
 use crate::header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN};
 use crate::segid::SegId;
 use crate::seq_id::SeqId;
@@ -78,6 +78,7 @@ pub struct LogWrite {
     record_bytes_left: u64,
     record_count: u64,
     session_sequence: SeqId,
+    last_meta: Meta,
 }
 
 impl LogWrite {
@@ -186,6 +187,13 @@ impl LogWrite {
             record_bytes_left: 0,
             record_count: 0,
             session_sequence: SeqId::ZERO,
+            last_meta: match format {
+                Format::Fixed(_) => Meta::Fixed,
+                Format::VariableSimple => Meta::VariableSimple,
+                // Replaced by the real timestamp and record count on the
+                // first successful `write`.
+                Format::VariableTsRc => Meta::VariableTsRc(0, 0),
+            },
         })
     }
 
@@ -202,6 +210,20 @@ impl LogWrite {
     #[must_use]
     pub fn current_segment_id(&self) -> SegId {
         self.segment_id
+    }
+
+    /// The per-record metadata stored with the most recent successful
+    /// [`LogWrite::write`]. This is the same metadata a reader will
+    /// report for that record, which lets a writer echo it without
+    /// reading the log back.
+    ///
+    /// For formats that carry no per-record metadata this is simply the
+    /// [`Meta`] variant matching the log's [`Format`]. Before the first
+    /// record is written, a [`Format::VariableTsRc`] log reports a zero
+    /// timestamp and record count.
+    #[must_use]
+    pub fn last_meta(&self) -> Meta {
+        self.last_meta
     }
 
     /// Writes the UTF-8 bytes of `msg` as a single record.
@@ -352,6 +374,7 @@ impl LogWrite {
                 out[0..4].copy_from_slice(&payload_len.to_le_bytes());
                 out[4..12].copy_from_slice(&ts.to_le_bytes());
                 out[12..20].copy_from_slice(&self.record_count.to_le_bytes());
+                self.last_meta = Meta::VariableTsRc(ts, self.record_count);
                 Ok(20)
             }
         }
