@@ -34,12 +34,19 @@ FORMAT="variable-simple:0..10"
 number=20
 data_size=17
 usage() {
-    echo "Usage: $0 -e <expected-file> [-g] [-k] [-x] [-d \"idx1 idx2 ...\"] [-f \"--format <spec>\"] [-n <count>] [-s <bytes>] [-h]" 1>&2
-    echo "  -g  Overwrite the expected file with this run's output" 1>&2
-    echo "      instead of comparing against it. Timestamps are" 1>&2
-    echo "      masked with X so the file stays reproducible." 1>&2
-    echo "  -k  Print the temporary directory holding the segment" 1>&2
-    echo "      files and keep it instead of deleting it on exit." 1>&2
+cat <<-EOF
+Usage: $0 -e <expected-file> [-g] [-k] [-x] [-d \"idx1 idx2 ...\"] [-f spec] [-n <count>] [-s <bytes>] [-h]
+-d idx1 idx2 ...  Indices of files to delete, starting at 1
+-f spec           Data format in log file
+-g                Overwrite the expected file with this run's output
+                  instead of comparing against it. Timestamps are
+                  masked with X so the file stays reproducible.
+-k                Print the temporary directory holding the segment
+                  files and keep it instead of deleting it on exit.
+-n count          Number of records to write
+-s size           Maximum of bytes in the data section
+-x                Perform a hex dump of the output files after deletion
+EOF
     exit 1
 }
 require_uint() {
@@ -51,15 +58,15 @@ require_uint() {
 }
 while getopts ":gkxhd:e:f:n:s:" opt; do
     case "$opt" in
-        g) generate=1 ;;
-        k) keep_tmp=1 ;;
-        x) hexdump_enabled=1 ;;
         d) delete_indices_str="$OPTARG" ;;
         e) expected_file="expected/$OPTARG" ;;
         f) FORMAT="$OPTARG" ;;
+        g) generate=1 ;;
+        h) usage ;;
+        k) keep_tmp=1 ;;
         n) require_uint n "$OPTARG"; number="$OPTARG" ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
-        h) usage ;;
+        x) hexdump_enabled=1 ;;
         :) echo "Option -$OPTARG requires an argument" 1>&2; usage ;;
         \?) echo "Unknown option: -$OPTARG" 1>&2; usage ;;
     esac
