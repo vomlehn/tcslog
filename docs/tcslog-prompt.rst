@@ -426,7 +426,8 @@ unless it is already SegId\ :sub:`max`.
 
 Deleting a Log
 ~~~~~~~~~~~~~~
-Logwrite::clear() can be called to delete all segment files for a log. It goes
+Logwrite::clear() can be called to delete all segment files for a log.
+It starts by closing any open segment files, then goes
 through all existing segment files in the given directory that match the
 prefix, suffix, and all possible segment IDs, deleting each one.
 
@@ -629,8 +630,6 @@ that the very first read finds a valid record start using "Find the Next
 Data Record Start" rather than assuming the first pending segment file's
 data section already begins on a record boundary.
 
-Print a message at each decision point.
-
 The read function proceeds as follows:
 
 1.  If no more items remain in the segment file list and no segment is
@@ -809,10 +808,6 @@ LogError
 
         The prefix and suffix cannot be combined with a segment file ID
         and a directory name to form a valid path name.
-
-    InvalidFileName
-        The combination of prefix, suffix, and segment file ID does not
-        form a valid file name.
 
     ReadOverflow(u32)
 
@@ -1001,6 +996,12 @@ o   Elements, their types and definitions, and the number of bytes in the
     data header
 
 o   Details on when to use this record format.
+
+Theory of Operation
+-------------------
+The final section in the user documentation must be coverage of the
+theory of operation, i.e. how LogWrite and LogRead work, including details
+on what happens when errors occur and how recovery is performed.
 
 Excluded
 --------
