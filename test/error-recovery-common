@@ -27,6 +27,7 @@ PFX=pfx-
 SFX=.log
 
 hexdump_enabled=0
+raw_hexdump_enabled=0
 generate=0
 delete_indices_str=""
 expected_file=""
@@ -35,7 +36,7 @@ number=20
 data_size=17
 usage() {
 cat <<-EOF
-Usage: $0 -e <expected-file> [-g] [-k] [-x] [-d \"idx1 idx2 ...\"] [-f spec] [-n <count>] [-s <bytes>] [-h]
+Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-d \"idx1 idx2 ...\"] [-f spec] [-n <count>] [-s <bytes>] [-h]
 -d idx1 idx2 ...  Indices of files to delete, starting at 1
 -f spec           Data format in log file
 -g                Overwrite the expected file with this run's output
@@ -44,6 +45,8 @@ Usage: $0 -e <expected-file> [-g] [-k] [-x] [-d \"idx1 idx2 ...\"] [-f spec] [-n
 -k                Print the temporary directory holding the segment
                   files and keep it instead of deleting it on exit.
 -n count          Number of records to write
+-r                Hexdump the raw input segment files before any are
+                  deleted
 -s size           Maximum of bytes in the data section
 -x                Perform a hex dump of the output files after deletion
 EOF
@@ -56,7 +59,7 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":gkxhd:e:f:n:s:" opt; do
+while getopts ":gkrxhd:e:f:n:s:" opt; do
     case "$opt" in
         d) delete_indices_str="$OPTARG" ;;
         e) expected_file="expected/$OPTARG" ;;
@@ -65,6 +68,7 @@ while getopts ":gkxhd:e:f:n:s:" opt; do
         h) usage ;;
         k) keep_tmp=1 ;;
         n) require_uint n "$OPTARG"; number="$OPTARG" ;;
+        r) raw_hexdump_enabled=1 ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
         x) hexdump_enabled=1 ;;
         :) echo "Option -$OPTARG requires an argument" 1>&2; usage ;;
@@ -122,8 +126,9 @@ cargo run -p tcslog-gen -- \
 declare -a files
 files=($TMP_DIR/$PFX*$SFX)
 
-if true; then # Remove this
-    echo ">>>>>>>>>>>>>>>>>>>>>>> hexdumping files. REMOVE this code"
+if [ $raw_hexdump_enabled -ne 0 ]; then
+    echo
+    echo "Hexdump of segment files before deletion"
     for f in "${files[@]}"; do
         echo
         echo $f
@@ -142,7 +147,7 @@ fi
 
 if [ $hexdump_enabled -ne 0 ]; then
     echo
-    echo Hexdump of segment files
+    echo "Hexdump of segment files after deletion"
     for f in ${files[@]}; do
         if [ -f $f ]; then
             echo $f:
