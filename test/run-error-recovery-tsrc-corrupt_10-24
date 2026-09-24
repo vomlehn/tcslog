@@ -1,0 +1,29 @@
+#!/bin/bash
+#
+# An unopenable segment header in the variable-tsrc format, whose
+# 20-byte data header carries a timestamp and record count and so offers
+# the most bytes a resync could misread as a record length.
+#
+# This runs tcslog-gen to generate segment files. It then deletes and
+# corrupts them in various ways and uses tcslog-dump to see whether
+# error recovery works.
+
+set -eu
+
+PFX=pfx-
+SFX=.log
+
+test="$(dirname "$0")"
+
+FORMAT="variable-tsrc:10"
+DATA_SIZE="24"
+NUMBER="6"
+CORRUPT="2"
+
+$test/error-recovery-common \
+    -e "tsrc-corrupt_10-24.expected" \
+    -f "$FORMAT" \
+    -s "$DATA_SIZE" \
+    -n "$NUMBER" \
+    -c "$CORRUPT" \
+    "$@"

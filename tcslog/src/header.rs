@@ -73,7 +73,14 @@ pub struct SegmentHeader {
     /// record-aligned segment boundaries -- where both surrounding
     /// segments show `remaining == 0` and the `remaining` check
     /// silently accepts the crossing even though whole segments' worth
-    /// of records have vanished. Together the two checks upgrade the
+    /// of records have vanished.
+    ///
+    /// Both of those checks run at a crossing, so neither can see
+    /// segments lost before the first segment of a session that
+    /// survives: nothing crosses into it. The reader therefore also
+    /// requires the first segment it opens for a session to carry
+    /// `sequence == 0`, and reports a non-zero value as that many
+    /// segments lost ahead of it. The three checks together upgrade the
     /// reader's guarantee from "no in-progress record was silently
     /// truncated" to "no segment in the session was silently dropped."
     ///

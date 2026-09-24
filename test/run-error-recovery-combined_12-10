@@ -1,0 +1,35 @@
+#!/bin/bash
+#
+# Three kinds of damage at once, on separate segment files: one deleted,
+# one with an unopenable header, one with a short data section. Each is
+# covered alone elsewhere; this checks that the reader keeps its
+# bookkeeping straight when it has to recover repeatedly, and that a
+# zero-lost truncation after counted gaps does not disturb the tally.
+#
+# This runs tcslog-gen to generate segment files. It then deletes and
+# corrupts them in various ways and uses tcslog-dump to see whether
+# error recovery works.
+
+set -eu
+
+PFX=pfx-
+SFX=.log
+
+test="$(dirname "$0")"
+
+FORMAT="variable-simple:12"
+DATA_SIZE="10"
+NUMBER="10"
+DELETE="2"
+CORRUPT="6"
+TRUNCATE="10"
+
+$test/error-recovery-common \
+    -e "combined_12-10.expected" \
+    -f "$FORMAT" \
+    -s "$DATA_SIZE" \
+    -n "$NUMBER" \
+    -d "$DELETE" \
+    -c "$CORRUPT" \
+    -t "$TRUNCATE" \
+    "$@"

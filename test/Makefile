@@ -1,10 +1,11 @@
 # Make file for running non-built in tcslog tests
 
 test: test-fixed test-variable test-variable-tsrc test-damage \
-	test-overflow test-sessions
+	test-overflow test-sessions test-rejected
 
 .PHONY: test-fixed
-test-fixed: test-fixed_1-1 test-fixed_8-8 test-fixed_5-17
+test-fixed: test-fixed_1-1 test-fixed_8-8 test-fixed_5-17 \
+	test-fixed-truncated_5-17
 
 .PHONY: test-fixed_1-1
 test-fixed_1-1:
@@ -17,6 +18,10 @@ test-fixed_8-8:
 .PHONY: test-fixed_5-17
 test-fixed_5-17:
 	./run-error-recovery-fixed_5-17
+
+.PHONY: test-fixed-truncated_5-17
+test-fixed-truncated_5-17:
+	./run-error-recovery-fixed-truncated_5-17
 
 .PHONY: test-variable
 test-variable: test-variable_0-10-17 test-variable_0-33-10 \
@@ -39,18 +44,27 @@ test-variable-last_12-10:
 	./run-error-recovery-variable-last_12-10
 
 .PHONY: test-variable-tsrc
-test-variable-tsrc: test-variable-tsrc_0-10-21
+test-variable-tsrc: test-variable-tsrc_0-10-21 test-tsrc-corrupt_10-24 \
+	test-tsrc-truncated_10-24
 
 .PHONY: test-variable-tsrc_0-10-21
 test-variable-tsrc_0-10-21:
 	./run-error-recovery-variable-tsrc_0-10-21
+
+.PHONY: test-tsrc-corrupt_10-24
+test-tsrc-corrupt_10-24:
+	./run-error-recovery-tsrc-corrupt_10-24
+
+.PHONY: test-tsrc-truncated_10-24
+test-tsrc-truncated_10-24:
+	./run-error-recovery-tsrc-truncated_10-24
 
 # Damage that leaves the segment file in place, which deletion cannot
 # reproduce: an unopenable header still leaves a sequence gap, while a
 # short data section leaves the sequence intact and so must be reported
 # with a lost count of zero.
 .PHONY: test-damage
-test-damage: test-corrupt_12-10 test-truncated_12-10
+test-damage: test-corrupt_12-10 test-truncated_12-10 test-combined_12-10
 
 .PHONY: test-corrupt_12-10
 test-corrupt_12-10:
@@ -59,6 +73,29 @@ test-corrupt_12-10:
 .PHONY: test-truncated_12-10
 test-truncated_12-10:
 	./run-error-recovery-truncated_12-10
+
+.PHONY: test-combined_12-10
+test-combined_12-10:
+	./run-error-recovery-combined_12-10
+
+# Segment files the reader must refuse outright rather than read with
+# the wrong assumptions: an unreadable version, a stored segment id that
+# disagrees with the file name, and a file larger than the max_size its
+# own header declares.
+.PHONY: test-rejected
+test-rejected: test-version_12-10 test-segid_12-10 test-oversize_12-10
+
+.PHONY: test-version_12-10
+test-version_12-10:
+	./run-error-recovery-version_12-10
+
+.PHONY: test-segid_12-10
+test-segid_12-10:
+	./run-error-recovery-segid_12-10
+
+.PHONY: test-oversize_12-10
+test-oversize_12-10:
+	./run-error-recovery-oversize_12-10
 
 # A record too large for the caller's buffer, which exercises the
 # overflow path rather than any segment-file damage.

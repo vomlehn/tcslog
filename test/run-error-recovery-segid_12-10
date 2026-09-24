@@ -1,0 +1,29 @@
+#!/bin/bash
+#
+# A segment file whose stored segment_id disagrees with the id in its
+# name, as a renamed or copied file would. The name is not evidence, so
+# the reader must refuse the file rather than trust it.
+#
+# This runs tcslog-gen to generate segment files. It then deletes and
+# corrupts them in various ways and uses tcslog-dump to see whether
+# error recovery works.
+
+set -eu
+
+PFX=pfx-
+SFX=.log
+
+test="$(dirname "$0")"
+
+FORMAT="variable-simple:12"
+DATA_SIZE="10"
+NUMBER="5"
+SEGID="2"
+
+$test/error-recovery-common \
+    -e "segid_12-10.expected" \
+    -f "$FORMAT" \
+    -s "$DATA_SIZE" \
+    -n "$NUMBER" \
+    -I "$SEGID" \
+    "$@"

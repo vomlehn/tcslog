@@ -35,6 +35,9 @@ generate=0
 delete_indices_str=""
 corrupt_indices_str=""
 truncate_indices_str=""
+version_indices_str=""
+segid_indices_str=""
+oversize_indices_str=""
 expected_file=""
 FORMAT="variable-simple:0..10"
 number=20
@@ -49,6 +52,9 @@ Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-d \"idx1 idx2 ...\"] [-c \"id
                   rather than a lost segment looks like.
 -d idx1 idx2 ...  Indices of files to delete, starting at 1
 -f spec           Data format in log file
+-I idx1 idx2 ...  Indices of files whose stored segment_id to alter so
+                  it no longer matches the id in the file name, as a
+                  renamed or copied segment file would not.
 -g                Overwrite the expected file with this run's output
                   instead of comparing against it. Timestamps are
                   masked with X so the file stays reproducible.
@@ -57,6 +63,9 @@ Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-d \"idx1 idx2 ...\"] [-c \"id
 -n count          Number of records to write
 -r                Hexdump the raw input segment files before any are
                   deleted
+-O idx1 idx2 ...  Indices of files to pad past their own stored
+                  max_size, which the spec forbids a segment file from
+                  exceeding.
 -s size           Maximum of bytes in the data section
 -S count          Number of generation passes to run into the same
                   directory, each of which starts a new session. The
@@ -66,6 +75,8 @@ Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-d \"idx1 idx2 ...\"] [-c \"id
                   opens and its sequence is still readable, so a record
                   running off its short end is a truncation with no
                   sequence gap.
+-V idx1 idx2 ...  Indices of files whose stored version to set to a
+                  major this build cannot read.
 -x                Perform a hex dump of the output files after deletion
 
 In every index list, the word "last" stands for the highest-numbered
@@ -80,7 +91,7 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":gkrxhc:d:e:f:n:s:t:S:" opt; do
+while getopts ":gkrxhc:d:e:f:n:s:t:I:O:S:V:" opt; do
     case "$opt" in
         c) corrupt_indices_str="$OPTARG" ;;
         d) delete_indices_str="$OPTARG" ;;
@@ -88,12 +99,15 @@ while getopts ":gkrxhc:d:e:f:n:s:t:S:" opt; do
         f) FORMAT="$OPTARG" ;;
         g) generate=1 ;;
         h) usage ;;
+        I) segid_indices_str="$OPTARG" ;;
         k) keep_tmp=1 ;;
+        O) oversize_indices_str="$OPTARG" ;;
         n) require_uint n "$OPTARG"; number="$OPTARG" ;;
         r) raw_hexdump_enabled=1 ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
         S) require_uint S "$OPTARG"; sessions="$OPTARG" ;;
         t) truncate_indices_str="$OPTARG" ;;
+        V) version_indices_str="$OPTARG" ;;
         x) hexdump_enabled=1 ;;
         :) echo "Option -$OPTARG requires an argument" 1>&2; usage ;;
         \?) echo "Unknown option: -$OPTARG" 1>&2; usage ;;
@@ -133,9 +147,15 @@ check_indices() {
 read -r -a delete_indices <<< "$delete_indices_str"
 read -r -a corrupt_indices <<< "$corrupt_indices_str"
 read -r -a truncate_indices <<< "$truncate_indices_str"
+read -r -a version_indices <<< "$version_indices_str"
+read -r -a segid_indices <<< "$segid_indices_str"
+read -r -a oversize_indices <<< "$oversize_indices_str"
 check_indices d ${delete_indices[@]+"${delete_indices[@]}"}
 check_indices c ${corrupt_indices[@]+"${corrupt_indices[@]}"}
 check_indices t ${truncate_indices[@]+"${truncate_indices[@]}"}
+check_indices V ${version_indices[@]+"${version_indices[@]}"}
+check_indices I ${segid_indices[@]+"${segid_indices[@]}"}
+check_indices O ${oversize_indices[@]+"${oversize_indices[@]}"}
 
 # Maps "last" onto the real segment count and rejects an index that
 # names no segment file, which would otherwise pass silently and leave
@@ -178,13 +198,56 @@ corrupt_seg() {
 # -- the zero-lost case.
 trunc_seg() {
     local idx=$1 f=$2
-    local max_size hdr_len target before
+    local max_size hdr_len before data_len target
     max_size=$(od -An -tu4 -j28 -N4 "$f" | tr -d ' ')
     hdr_len=$((max_size - data_size))
-    target=$((hdr_len + data_size / 2))
     before=$(stat -c%s "$f")
+    # Half of what this file actually holds, not half of the nominal
+    # data section: a segment the writer short-rolled is shorter than
+    # max_size, and `truncate -s` to a larger size would pad it with
+    # zeros instead of cutting it -- damage of an entirely different
+    # kind, silently substituted for the one the test asked for.
+    data_len=$((before - hdr_len))
+    if [ "$data_len" -lt 2 ]; then
+        echo "Segment file #$idx holds $data_len data byte(s); -t has nothing to cut" 1>&2
+        exit 1
+    fi
+    target=$((hdr_len + data_len / 2))
     echo "Truncate segment file #$idx from $before to $target bytes: $f"
     truncate -s "$target" "$f"
+}
+
+# Sets the four-byte version field to a major this build cannot read.
+# The layout is two digits of major, one of minor, one of patch, and
+# the reader requires an exact major match.
+ver_seg() {
+    local idx=$1 f=$2
+    echo "Set unreadable version on segment file #$idx: $f"
+    printf '9900' | dd of="$f" bs=1 seek=8 count=4 conv=notrunc status=none
+}
+
+# Flips a bit of the stored segment_id so it no longer matches the id
+# the file name carries, which is what a renamed or copied segment file
+# looks like. The reader must refuse it rather than trust the name.
+segid_seg() {
+    local idx=$1 f=$2
+    local byte
+    byte=$(od -An -tu1 -j12 -N1 "$f" | tr -d ' ')
+    echo "Break stored segment_id of segment file #$idx: $f"
+    printf "$(printf '\\%03o' $(((byte ^ 0xFF) & 0xFF)))" |
+        dd of="$f" bs=1 seek=12 count=1 conv=notrunc status=none
+}
+
+# Pads a segment file past its own stored max_size. The spec requires a
+# segment file to be no larger than the max_size in its header, so the
+# reader must reject one that is.
+oversize_seg() {
+    local idx=$1 f=$2
+    local max_size before
+    max_size=$(od -An -tu4 -j28 -N4 "$f" | tr -d ' ')
+    before=$(stat -c%s "$f")
+    echo "Pad segment file #$idx from $before past its max_size of $max_size: $f"
+    truncate -s $((max_size + 1)) "$f"
 }
 
 # Resolves an index list against the generated segment files and
@@ -261,6 +324,24 @@ if [ ${#truncate_indices[@]} -gt 0 ]; then
     echo
     echo "Truncating segment files"
     apply_to_indices t trunc_seg "${truncate_indices[@]}"
+fi
+
+if [ ${#version_indices[@]} -gt 0 ]; then
+    echo
+    echo "Setting unreadable versions"
+    apply_to_indices V ver_seg "${version_indices[@]}"
+fi
+
+if [ ${#segid_indices[@]} -gt 0 ]; then
+    echo
+    echo "Breaking stored segment ids"
+    apply_to_indices I segid_seg "${segid_indices[@]}"
+fi
+
+if [ ${#oversize_indices[@]} -gt 0 ]; then
+    echo
+    echo "Padding segment files past max_size"
+    apply_to_indices O oversize_seg "${oversize_indices[@]}"
 fi
 
 if [ $hexdump_enabled -ne 0 ]; then
