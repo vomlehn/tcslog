@@ -7,8 +7,9 @@ use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
-use tcslog::{record_trailer, Format, LogError, LogWrite, RecSize,
-    SEGMENT_FILE_HEADER_LEN, WriteCallbacks};
+use tcslog::{
+    record_trailer, Format, LogError, LogWrite, RecSize, WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
+};
 
 /// User-facing record-format specification parsed from the `--format`
 /// command-line option. Combines the on-disk [`Format`] variant with the
@@ -181,10 +182,14 @@ pub struct LogInfo {
     pub message_count: u64,
 }
 
+// Both keep the fallible signatures declared by `WriteCallbacks` so
+// they can be stored in those function-pointer fields.
+#[allow(clippy::unnecessary_wraps)]
 fn noop_record_complete(_f: &mut File) -> std::io::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn send(p: &Path) -> std::io::Result<()> {
     println!("--> Send file {}", p.display());
     Ok(())
@@ -282,8 +287,8 @@ fn build_payload(spec: RecordFormatSpec, index: u64, rng: &mut SplitMix64) -> Ve
 /// the same parameters produce the same sequence of record lengths.
 const PAYLOAD_RNG_SEED: u64 = 0x0123_4567_89ab_cdef;
 
-/// Minimal deterministic PRNG (SplitMix64) used to pick record lengths for
-/// the variable-length `--format` kinds.
+/// Minimal deterministic PRNG (`SplitMix64`) used to pick record lengths
+/// for the variable-length `--format` kinds.
 struct SplitMix64 {
     state: u64,
 }
