@@ -45,10 +45,7 @@ mod write;
 include!(concat!(env!("OUT_DIR"), "/timer_resolution.rs"));
 
 pub use error::LogError;
-pub use format::{
-    format_timestamp, record_trailer, Format, Meta, RecSize, RecordCount,
-    Timestamp,
-};
+pub use format::{format_timestamp, record_trailer, Format, Meta, RecSize, RecordCount, Timestamp};
 pub use header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN, VERSION_MAJOR, VERSION_MINOR};
 pub use read::{LogRead, LogReadIter, ReadResult, Record};
 pub use segid::SegId;
@@ -123,11 +120,7 @@ mod tests {
     fn variable_ts_rc_records_span_segments() {
         let msg = vec![0x42u8; 200];
         let msgs = vec![msg.as_slice(); 5];
-        write_and_read_roundtrip(
-            Format::VariableTsRc,
-            &msgs,
-            SEGMENT_FILE_HEADER_LEN + 40,
-        );
+        write_and_read_roundtrip(Format::VariableTsRc, &msgs, SEGMENT_FILE_HEADER_LEN + 40);
     }
 
     #[test]
@@ -139,11 +132,7 @@ mod tests {
             b"44444444".as_ref(),
             b"55555555".as_ref(),
         ];
-        write_and_read_roundtrip(
-            Format::Fixed(8),
-            &msgs,
-            SEGMENT_FILE_HEADER_LEN + 5,
-        );
+        write_and_read_roundtrip(Format::Fixed(8), &msgs, SEGMENT_FILE_HEADER_LEN + 5);
     }
 
     #[test]
@@ -240,12 +229,20 @@ mod tests {
         )
         .unwrap();
         assert!(matches!(log.write(b"abc"), Err(LogError::FixedLenMismatch)));
-        assert!(matches!(log.write(b"abcde"), Err(LogError::FixedLenMismatch)));
+        assert!(matches!(
+            log.write(b"abcde"),
+            Err(LogError::FixedLenMismatch)
+        ));
         // Correct length still works.
         assert!(log.write(b"abcd").is_ok());
     }
 
+    // The constant is supplied by build.rs, so its value is fixed at
+    // compile time for any given build; asserting on it is the point of
+    // the test, which guards against a build.rs change that lets zero
+    // through.
     #[test]
+    #[allow(clippy::assertions_on_constants)]
     fn timer_resolution_is_positive() {
         // build.rs enforces this at compile time and LogWrite::new()
         // double-checks at run time.
@@ -295,8 +292,7 @@ mod tests {
         // the next read returns that record), or the corrupt segment
         // held the only record and we hit Eof cleanly.
         match reader.read(&mut buf) {
-            Ok(_) => {}
-            Err(LogError::Eof) => {}
+            Ok(_) | Err(LogError::Eof) => {}
             other => panic!("expected Ok or Eof after corrupt-header skip, got {other:?}"),
         }
     }
@@ -326,9 +322,9 @@ mod tests {
             // segment. Record 1: 200 bytes; forces several segment
             // spans. Record 2: 30 bytes; sits after the multi-segment
             // record.
-            log.write(&vec![0xA0u8; 30]).unwrap();
-            log.write(&vec![0xB1u8; 200]).unwrap();
-            log.write(&vec![0xC2u8; 30]).unwrap();
+            log.write(&[0xA0u8; 30]).unwrap();
+            log.write(&[0xB1u8; 200]).unwrap();
+            log.write(&[0xC2u8; 30]).unwrap();
             log.flush().unwrap();
         }
         let mut segments: Vec<_> = std::fs::read_dir(dir.path())
@@ -368,9 +364,10 @@ mod tests {
                     // Any other successful record means the gap
                     // wasn't detected — that is the bug we're
                     // guarding against.
-                    if res.n == 200 && buf[..200].iter().all(|b| *b == 0xB1) {
-                        panic!("record 1 read succeeded despite missing segment");
-                    }
+                    assert!(
+                        !(res.n == 200 && buf[..200].iter().all(|b| *b == 0xB1)),
+                        "record 1 read succeeded despite missing segment"
+                    );
                 }
                 Err(LogError::ReadTruncated(lost)) => {
                     saw_truncation = true;
@@ -380,7 +377,10 @@ mod tests {
                 Err(e) => panic!("unexpected error: {e:?}"),
             }
         }
-        assert!(saw_truncation, "expected ReadTruncated for the record spanning the gap");
+        assert!(
+            saw_truncation,
+            "expected ReadTruncated for the record spanning the gap"
+        );
         assert_eq!(
             lost_reported,
             Some(1),
@@ -388,6 +388,122 @@ mod tests {
              lost segment file"
         );
         assert!(saw_c2, "expected record 2 to be recovered after the gap");
+    }
+
+    #[test]
+    fn lost_final_segment_reports_truncation_not_clean_eof() {
+        // Regression test for a truncated log tail being reported as a
+        // clean end of log. When a record's continuation ran past the
+        // last surviving segment file, the reader returned `Eof` -- the
+        // same answer it gives for a log that ends neatly on a record
+        // boundary -- so a caller had no way to tell a complete log from
+        // one whose tail had been lost. The spec requires this be
+        // reported as a truncated read. `Eof` must still follow on the
+        // next call so the reader terminates.
+        //
+        // Sizing: a 40-byte data section with 4-byte VariableSimple
+        // headers. Record A takes 34 bytes, leaving 6; record B's
+        // 204-byte total therefore starts in the first segment and runs
+        // on through several more. Deleting the last segment strands
+        // B's tail.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "tt-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableSimple,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            log.write(&[0xA0u8; 30]).unwrap();
+            log.write(&[0xB1u8; 200]).unwrap();
+            log.flush().unwrap();
+        }
+        let mut segments: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        segments.sort();
+        assert!(
+            segments.len() >= 3,
+            "test setup produced too few segments: {}",
+            segments.len()
+        );
+        // Strand the tail of record B by removing the segment that holds
+        // its last bytes.
+        std::fs::remove_file(segments.last().unwrap()).unwrap();
+
+        let mut reader = LogRead::new(&d, "tt-", ".log").unwrap();
+        let mut buf = vec![0u8; 4096];
+
+        // Record A is complete and must come back cleanly.
+        let a = reader.read(&mut buf).unwrap();
+        assert_eq!(a.n, 30);
+        assert!(buf[..30].iter().all(|b| *b == 0xA0));
+
+        // Record B ran off the end of the surviving segments. That is a
+        // truncation, not the end of the log.
+        match reader.read(&mut buf) {
+            Err(LogError::ReadTruncated(lost)) => assert_eq!(
+                lost, 0,
+                "with no following segment there is no sequence field to \
+                 measure the gap against, so no count can be reported"
+            ),
+            Err(LogError::Eof) => {
+                panic!("a stranded record tail was reported as a clean end of log")
+            }
+            other => panic!("expected ReadTruncated, got {other:?}"),
+        }
+
+        // The reader must still terminate on the following call.
+        assert!(matches!(reader.read(&mut buf), Err(LogError::Eof)));
+    }
+
+    #[test]
+    fn complete_log_still_ends_with_clean_eof() {
+        // Guard the other side of the truncation check above: a log that
+        // ends exactly on a record boundary must report `Eof`, never
+        // `ReadTruncated`. Every format is exercised because each
+        // decodes a different number of data-header bytes before the
+        // reader discovers the log has ended.
+        for format in [
+            Format::Fixed(8),
+            Format::VariableSimple,
+            Format::VariableTsRc,
+        ] {
+            let dir = tempfile::tempdir().unwrap();
+            let d = dir_str(&dir);
+            {
+                let mut log = LogWrite::new(
+                    &d,
+                    "ce-",
+                    ".log",
+                    SEGMENT_FILE_HEADER_LEN + 40,
+                    format,
+                    WriteCallbacks::default(),
+                )
+                .unwrap();
+                for _ in 0..4 {
+                    log.write(&[0x5Au8; 8]).unwrap();
+                }
+                log.flush().unwrap();
+            }
+            let mut reader = LogRead::new(&d, "ce-", ".log").unwrap();
+            let mut buf = vec![0u8; 4096];
+            for i in 0..4 {
+                let r = reader
+                    .read(&mut buf)
+                    .unwrap_or_else(|e| panic!("{format:?} record {i}: {e:?}"));
+                assert_eq!(r.n, 8, "{format:?} record {i}");
+            }
+            assert!(
+                matches!(reader.read(&mut buf), Err(LogError::Eof)),
+                "{format:?}: a log ending on a record boundary must report Eof"
+            );
+        }
     }
 
     #[test]
@@ -503,7 +619,8 @@ mod tests {
             )
             .unwrap();
             for i in 0..COUNT {
-                log.write(&vec![0xA0u8 + i as u8; PAYLOAD]).unwrap();
+                let tag = 0xA0u8 + u8::try_from(i).expect("COUNT fits in u8");
+                log.write(&[tag; PAYLOAD]).unwrap();
             }
             log.flush().unwrap();
         }
@@ -546,9 +663,7 @@ mod tests {
                     let idx = first
                         .checked_sub(0xA0)
                         .filter(|i| (*i as usize) < COUNT)
-                        .unwrap_or_else(|| {
-                            panic!("payload byte {first:#x} was never written")
-                        });
+                        .unwrap_or_else(|| panic!("payload byte {first:#x} was never written"));
                     match res.meta {
                         Meta::VariableTsRc(_, rc) => assert_eq!(
                             rc,
@@ -654,6 +769,8 @@ mod tests {
     fn callbacks_see_rolled_segments() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static CALLS: AtomicUsize = AtomicUsize::new(0);
+        // The fallible signature is required by `WriteCallbacks`.
+        #[allow(clippy::unnecessary_wraps)]
         fn count_send(_p: &Path) -> std::io::Result<()> {
             CALLS.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -776,10 +893,7 @@ mod tests {
             log.write(b"gamma").unwrap();
         }
         let mut reader = LogRead::new(&d, "it-", ".log").unwrap();
-        let collected: Vec<Vec<u8>> = reader
-            .iter()
-            .map(|r| r.unwrap().payload)
-            .collect();
+        let collected: Vec<Vec<u8>> = reader.iter().map(|r| r.unwrap().payload).collect();
         assert_eq!(
             collected,
             vec![b"alpha".to_vec(), b"beta".to_vec(), b"gamma".to_vec()]
@@ -790,6 +904,8 @@ mod tests {
     fn drop_sends_pending_segment() {
         use std::sync::atomic::{AtomicUsize, Ordering};
         static CALLS: AtomicUsize = AtomicUsize::new(0);
+        // The fallible signature is required by `WriteCallbacks`.
+        #[allow(clippy::unnecessary_wraps)]
         fn count_send(_p: &Path) -> std::io::Result<()> {
             CALLS.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -832,7 +948,7 @@ mod tests {
         fn flaky_send(_p: &Path) -> std::io::Result<()> {
             let n = SEND_CALLS.fetch_add(1, Ordering::SeqCst);
             if n == 0 {
-                Err(std::io::Error::new(std::io::ErrorKind::Other, "boom"))
+                Err(std::io::Error::other("boom"))
             } else {
                 Ok(())
             }

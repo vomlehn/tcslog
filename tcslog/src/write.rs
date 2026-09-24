@@ -1,4 +1,11 @@
 //! Log writer implementation.
+//
+// Every byte count in this module is bounded by a segment file's
+// `max_size`, which is a `u32`, or by a record total that
+// `LogWrite::write` has already range-checked against `u32::MAX`. The
+// `usize`/`u32` conversions below therefore cannot lose information;
+// `usize` is at least 32 bits wide on every target tcslog supports.
+#![allow(clippy::cast_possible_truncation)]
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
@@ -11,9 +18,7 @@ use crate::format::{Format, Meta, RecSize};
 use crate::header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN};
 use crate::segid::SegId;
 use crate::seq_id::SeqId;
-use crate::util::{
-    check_no_path_delim, enumerate_segments, segment_file_name, segment_path,
-};
+use crate::util::{check_no_path_delim, enumerate_segments, segment_file_name, segment_path};
 use crate::TIMER_RESOLUTION_NS;
 
 /// Largest per-record data header any [`Format`] produces. Sized to the
@@ -44,10 +49,15 @@ pub struct WriteCallbacks {
     pub send: fn(&Path) -> std::io::Result<()>,
 }
 
+// Both no-ops must keep the fallible signatures declared by
+// `WriteCallbacks` so they can be stored in those function-pointer
+// fields, even though neither can fail.
+#[allow(clippy::unnecessary_wraps)]
 fn noop_record_complete(_f: &mut File) -> std::io::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn noop_send(_p: &Path) -> std::io::Result<()> {
     Ok(())
 }
@@ -82,6 +92,11 @@ pub struct LogWrite {
 }
 
 impl LogWrite {
+    /// Length of the segment file header, in bytes. An alias for the
+    /// crate-level [`SEGMENT_FILE_HEADER_LEN`], provided because
+    /// `seg_size_max` is specified relative to it.
+    pub const SEGMENT_FILE_HEADER_LEN: u32 = SEGMENT_FILE_HEADER_LEN;
+
     /// Creates or extends the log identified by `dir`, `prefix`, and
     /// `suffix`, writing records in `format`.
     ///
@@ -158,8 +173,7 @@ impl LogWrite {
             (callbacks.send)(&path).map_err(LogError::IoError)?;
         }
 
-        let (segment_id, current_path, mut file) =
-            create_segment_file(&dir_path, prefix, suffix)?;
+        let (segment_id, current_path, mut file) = create_segment_file(&dir_path, prefix, suffix)?;
         let session_id = segment_id;
 
         let header = SegmentHeader {
@@ -250,22 +264,33 @@ impl LogWrite {
     ///   [`Format::Fixed`] and `msg.len()` differs from the configured
     ///   fixed length (including zero-length payloads).
     /// * [`LogError::PayloadTooLarge`] if `msg.len()` exceeds
-    ///   [`RecSize::MAX`].
+    ///   [`RecSize::MAX`], or if the payload plus its data header would
+    ///   not fit in the `u32` byte count this function returns.
     /// * [`LogError::IoError`], [`LogError::ClockError`] and any error
     ///   returned by segment-file creation on a write-time roll.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the current segment file is absent after the record's
+    /// bytes have been written. Every error path either restores a
+    /// segment file or returns before this point, so the condition is
+    /// unreachable.
     pub fn write(&mut self, msg: &[u8]) -> Result<u32, LogError> {
         if let Format::Fixed(n) = self.format {
             if msg.len() as u64 != u64::from(n) {
                 return Err(LogError::FixedLenMismatch);
             }
         }
-        if msg.len() > RecSize::MAX as usize {
-            return Err(LogError::PayloadTooLarge);
-        }
+        let payload_len = RecSize::try_from(msg.len()).map_err(|_| LogError::PayloadTooLarge)?;
 
         let mut header_buf = [0u8; MAX_DATA_HEADER_LEN];
-        let header_len = self.build_data_header(msg.len() as u32, &mut header_buf)?;
+        let header_len = self.build_data_header(payload_len, &mut header_buf)?;
+        // The returned count covers the data header as well as the
+        // payload, so a payload near `RecSize::MAX` can push the total
+        // past what a `u32` can report. Reject it rather than hand back
+        // a wrapped count.
         let total = header_len + msg.len();
+        let total_u32 = RecSize::try_from(total).map_err(|_| LogError::PayloadTooLarge)?;
 
         // Roll before starting the record if what is left of the
         // current segment cannot hold the whole data header.
@@ -315,7 +340,7 @@ impl LogWrite {
             return Err(self.recover_from_write_error(LogError::IoError(e)));
         }
 
-        Ok(total as u32)
+        Ok(total_u32)
     }
 
     /// Applies the spec-mandated recovery after a write-side I/O error:
@@ -389,7 +414,10 @@ impl LogWrite {
                     .duration_since(UNIX_EPOCH)
                     .map_err(|_| LogError::ClockError)?
                     .as_nanos();
-                let ts = ts.min(u128::from(u64::MAX)) as u64;
+                // Saturate rather than wrap: a clock beyond the year
+                // 2554 would otherwise produce a timestamp that sorts
+                // before the epoch.
+                let ts = u64::try_from(ts).unwrap_or(u64::MAX);
                 self.record_count = self.record_count.saturating_add(1);
                 out[0..4].copy_from_slice(&payload_len.to_le_bytes());
                 out[4..12].copy_from_slice(&ts.to_le_bytes());
@@ -403,8 +431,7 @@ impl LogWrite {
     fn write_bytes(&mut self, data: &[u8]) -> Result<(), LogError> {
         let mut written = 0usize;
         while written < data.len() {
-            let available =
-                self.seg_size_max.saturating_sub(self.file_pos) as usize;
+            let available = self.seg_size_max.saturating_sub(self.file_pos) as usize;
             if available == 0 {
                 self.roll_segment()?;
                 continue;
@@ -489,19 +516,12 @@ fn create_segment_file(
             .duration_since(UNIX_EPOCH)
             .map_err(|_| LogError::ClockError)?
             .as_nanos();
-        let ns = now.min(u128::from(u64::MAX)) as u64;
+        let ns = u64::try_from(now).unwrap_or(u64::MAX);
         let seg_id = SegId::from_u64(ns);
         let path = segment_path(dir, prefix, seg_id, suffix);
-        match OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&path)
-        {
+        match OpenOptions::new().write(true).create_new(true).open(&path) {
             Ok(f) => return Ok((seg_id, path, f)),
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                thread::sleep(sleep);
-                continue;
-            }
+            Err(e) if e.kind() == ErrorKind::AlreadyExists => thread::sleep(sleep),
             Err(e) => return Err(LogError::IoError(e)),
         }
     }

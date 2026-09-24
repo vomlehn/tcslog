@@ -70,8 +70,10 @@ pub enum LogError {
     /// `sequence` counter. It is zero when the sequence is intact and
     /// the crossing was rejected because the surviving segment is
     /// corrupt or truncated rather than because one was lost.
-    #[error("read truncated by missing or corrupted segment file \
-             ({0} segment file(s) lost)")]
+    #[error(
+        "read truncated by missing or corrupted segment file \
+             ({0} segment file(s) lost)"
+    )]
     ReadTruncated(u64),
 
     /// The segment file's stored `segment_id` did not match the value

@@ -19,23 +19,20 @@ fn main() {
     // compile time or at LogWrite::new() time. We reject unset and
     // unparseable values here; a zero value is also refused so that
     // create_segment_file() cannot spin.
-    let raw = match env::var("TIMER_RESOLUTION") {
-        Ok(s) => s,
-        Err(_) => panic!(
+    let Ok(raw) = env::var("TIMER_RESOLUTION") else {
+        panic!(
             "TIMER_RESOLUTION must be set (nanoseconds, positive integer). \
              Provide it via the `TIMER_RESOLUTION` environment variable \
              (`TIMER_RESOLUTION=1 cargo build`) or by copying \
              `.cargo/config.toml.example` to `.cargo/config.toml` and \
              editing the `[env]` value there."
-        ),
+        )
     };
 
-    let ns: u64 = raw.parse().unwrap_or_else(|_| {
+    let Ok(ns) = raw.parse::<u64>() else {
         panic!("TIMER_RESOLUTION={raw:?} is not a non-negative integer")
-    });
-    if ns == 0 {
-        panic!("TIMER_RESOLUTION must be greater than zero");
-    }
+    };
+    assert!(ns != 0, "TIMER_RESOLUTION must be greater than zero");
 
     let out_dir = PathBuf::from(env::var("OUT_DIR").unwrap());
     let path = out_dir.join("timer_resolution.rs");

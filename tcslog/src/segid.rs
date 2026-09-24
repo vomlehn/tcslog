@@ -43,7 +43,7 @@ impl SegId {
             return None;
         }
         let mut v: u64 = 0;
-        for &b in bytes.iter() {
+        for &b in bytes {
             if b == b'-' {
                 continue;
             }

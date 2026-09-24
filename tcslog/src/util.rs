@@ -25,22 +25,13 @@ pub(crate) fn segment_file_name(prefix: &str, seg_id: SegId, suffix: &str) -> St
 }
 
 /// Assembles the on-disk path of a segment file.
-pub(crate) fn segment_path(
-    dir: &Path,
-    prefix: &str,
-    seg_id: SegId,
-    suffix: &str,
-) -> PathBuf {
+pub(crate) fn segment_path(dir: &Path, prefix: &str, seg_id: SegId, suffix: &str) -> PathBuf {
     dir.join(segment_file_name(prefix, seg_id, suffix))
 }
 
 /// Extracts the [`SegId`] embedded in a file name, or returns `None` if
 /// the name does not match `<prefix><SegId::STR_LEN chars><suffix>`.
-pub(crate) fn parse_segment_file_name(
-    name: &str,
-    prefix: &str,
-    suffix: &str,
-) -> Option<SegId> {
+pub(crate) fn parse_segment_file_name(name: &str, prefix: &str, suffix: &str) -> Option<SegId> {
     if !name.starts_with(prefix) || !name.ends_with(suffix) {
         return None;
     }

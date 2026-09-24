@@ -136,17 +136,17 @@ impl SegmentHeader {
         if &buf[0..8] != FILE_TYPE {
             return Err(LogError::InvalidHeader);
         }
-        let version: [u8; 4] = buf[8..12].try_into().unwrap();
-        if !version_is_compatible(&version) {
+        let version: [u8; 4] = field(buf, 8);
+        if !version_is_compatible(version) {
             return Err(LogError::VersionMismatch);
         }
-        let segment_id = SegId::from_le_bytes(buf[12..20].try_into().unwrap());
-        let session_id = SegId::from_le_bytes(buf[20..28].try_into().unwrap());
-        let max_size = u32::from_le_bytes(buf[28..32].try_into().unwrap());
-        let remaining = u64::from_le_bytes(buf[32..40].try_into().unwrap());
+        let segment_id = SegId::from_le_bytes(field(buf, 12));
+        let session_id = SegId::from_le_bytes(field(buf, 20));
+        let max_size = u32::from_le_bytes(field(buf, 28));
+        let remaining = u64::from_le_bytes(field(buf, 32));
         let tag = buf[40];
-        let arg = u32::from_le_bytes(buf[41..45].try_into().unwrap());
-        let sequence = SeqId::from_le_bytes(buf[45..53].try_into().unwrap());
+        let arg = u32::from_le_bytes(field(buf, 41));
+        let sequence = SeqId::from_le_bytes(field(buf, 45));
         let format = match tag {
             0 => {
                 if arg == 0 {
@@ -181,12 +181,23 @@ impl SegmentHeader {
     }
 }
 
+/// Copies the `N`-byte field at `at` out of a header buffer.
+///
+/// Every offset and length passed here is a compile-time constant drawn
+/// from the layout table on [`SEGMENT_FILE_HEADER_LEN`], so the source
+/// slice is always exactly `N` bytes long.
+fn field<const N: usize>(buf: &[u8; SEGMENT_FILE_HEADER_LEN as usize], at: usize) -> [u8; N] {
+    let mut out = [0u8; N];
+    out.copy_from_slice(&buf[at..at + N]);
+    out
+}
+
 /// Returns `true` if a segment file with the given four-byte version
 /// string can be read by this build of tcslog. The spec restricts
 /// every version character to the ASCII digits `'0'..'9'`. The rule
 /// is: major must match exactly; the file's minor must be less than or
 /// equal to the crate's minor.
-fn version_is_compatible(v: &[u8; 4]) -> bool {
+fn version_is_compatible(v: [u8; 4]) -> bool {
     fn digit(b: u8) -> Option<u8> {
         match b {
             b'0'..=b'9' => Some(b - b'0'),
@@ -258,23 +269,23 @@ mod tests {
 
     #[test]
     fn accepts_minor_zero() {
-        assert!(version_is_compatible(b"0000"));
-        assert!(version_is_compatible(b"0010"));
+        assert!(version_is_compatible(*b"0000"));
+        assert!(version_is_compatible(*b"0010"));
     }
 
     #[test]
     fn rejects_higher_minor() {
-        assert!(!version_is_compatible(b"0020"));
+        assert!(!version_is_compatible(*b"0020"));
     }
 
     #[test]
     fn rejects_higher_major() {
-        assert!(!version_is_compatible(b"0100"));
+        assert!(!version_is_compatible(*b"0100"));
     }
 
     #[test]
     fn rejects_non_digit_version() {
-        assert!(!version_is_compatible(b"00a0"));
-        assert!(!version_is_compatible(b"XXXX"));
+        assert!(!version_is_compatible(*b"00a0"));
+        assert!(!version_is_compatible(*b"XXXX"));
     }
 }
