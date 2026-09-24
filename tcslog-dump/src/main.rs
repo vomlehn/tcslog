@@ -47,28 +47,32 @@ fn main() -> Result<(), Box<dyn Error>> {
     });
 
     let mut log = LogRead::new(&args.dirname, &args.prefix, &args.suffix)?;
-    let mut current_seg = None;
-    let mut files_seen = 0u32;
+    // Only collect segment headers when they will be printed: the
+    // reader buffers them until drained, and a non-verbose run never
+    // drains.
+    log.collect_opened_headers(args.verbose);
+    let mut printed_header = false;
     let mut files_lost = 0u64;
     let mut total = 0u64;
     let mut buf = vec![0u8; MAX_MESSAGE_SIZE];
 
     loop {
         let read_result = log.read(&mut buf);
+        // Report every segment this read traversed, not just the one a
+        // record ended in: a record spanning several segments starts in
+        // one that `current_header` never names. Drained before the
+        // result is examined so the headers precede the record they
+        // carried, and so a read that ends the loop still reports the
+        // segments it opened.
+        for h in log.take_opened_headers() {
+            if printed_header {
+                println!();
+            }
+            printed_header = true;
+            print_header(&args.prefix, &args.suffix, &h);
+        }
         match read_result {
             Ok(res) => {
-                if let Some(h) = log.current_header() {
-                    if current_seg != Some(h.segment_id) {
-                        if args.verbose && current_seg.is_some() {
-                            println!();
-                        }
-                        current_seg = Some(h.segment_id);
-                        files_seen += 1;
-                        if args.verbose {
-                            print_header(&args.prefix, &args.suffix, h);
-                        }
-                    }
-                }
                 total += 1;
                 print_record(args.text, res.meta, &buf[..res.n as usize]);
                 println!();
@@ -112,7 +116,14 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if args.verbose {
-        println!("\nread {total} message(s) across {files_seen} file(s)");
+        // Ask the reader how many segment files it traversed rather
+        // than counting the headers printed above: a record spanning
+        // several segments only ever reports the one it ended in, so
+        // counting those undercounts the log's extent.
+        println!(
+            "\nread {total} message(s) across {} file(s)",
+            log.segments_opened()
+        );
         if files_lost > 0 {
             println!("{files_lost} segment file(s) lost");
         }

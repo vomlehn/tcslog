@@ -463,6 +463,137 @@ mod tests {
     }
 
     #[test]
+    fn segments_opened_counts_every_segment_traversed() {
+        // `current_header` only ever names the segment a record ended
+        // in, so a caller counting distinct headers undercounts a log
+        // whose records span segments. `segments_opened` must report
+        // every segment the reader traversed, matching what is on disk.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "so-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableTsRc,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for _ in 0..3 {
+                log.write(&[0x7Eu8; 36]).unwrap();
+            }
+            log.flush().unwrap();
+        }
+        let on_disk = std::fs::read_dir(dir.path()).unwrap().count() as u64;
+        assert!(
+            on_disk > 3,
+            "test setup must span segments, got {on_disk} file(s)"
+        );
+
+        let mut reader = LogRead::new(&d, "so-", ".log").unwrap();
+        let mut buf = vec![0u8; 4096];
+        let mut headers_seen = 0u64;
+        let mut current_seg = None;
+        let mut records = 0u64;
+        while let Ok(res) = reader.read(&mut buf) {
+            assert_eq!(res.n, 36);
+            records += 1;
+            if let Some(h) = reader.current_header() {
+                if current_seg != Some(h.segment_id) {
+                    current_seg = Some(h.segment_id);
+                    headers_seen += 1;
+                }
+            }
+        }
+        assert_eq!(records, 3);
+        assert_eq!(
+            reader.segments_opened(),
+            on_disk,
+            "every segment file must be counted"
+        );
+        assert!(
+            headers_seen < on_disk,
+            "this test is pointless unless header counting undercounts"
+        );
+    }
+
+    #[test]
+    fn opened_headers_drain_covers_every_segment() {
+        // The drain must surface the segments a record started in and
+        // passed through, which `current_header` never names, and must
+        // account for exactly the segments `segments_opened` counts.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "oh-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableTsRc,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for _ in 0..3 {
+                log.write(&[0x7Eu8; 36]).unwrap();
+            }
+            log.flush().unwrap();
+        }
+        let on_disk = std::fs::read_dir(dir.path()).unwrap().count() as u64;
+
+        let mut reader = LogRead::new(&d, "oh-", ".log").unwrap();
+        reader.collect_opened_headers(true);
+        let mut buf = vec![0u8; 4096];
+        let mut drained: Vec<SegId> = Vec::new();
+        loop {
+            let done = reader.read(&mut buf).is_err();
+            drained.extend(reader.take_opened_headers().iter().map(|h| h.segment_id));
+            if done {
+                break;
+            }
+        }
+        assert_eq!(drained.len() as u64, on_disk);
+        assert_eq!(drained.len() as u64, reader.segments_opened());
+        let mut sorted = drained.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(sorted.len(), drained.len(), "a segment was drained twice");
+        // Segments are opened in order, so the drain order is the
+        // on-disk order.
+        let mut in_order = drained.clone();
+        in_order.sort_unstable();
+        assert_eq!(in_order, drained, "headers must drain in open order");
+    }
+
+    #[test]
+    fn opened_headers_are_not_collected_by_default() {
+        // A caller that never drains must not accumulate headers.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "nd-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableTsRc,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for _ in 0..3 {
+                log.write(&[0x7Eu8; 36]).unwrap();
+            }
+            log.flush().unwrap();
+        }
+        let mut reader = LogRead::new(&d, "nd-", ".log").unwrap();
+        let mut buf = vec![0u8; 4096];
+        while reader.read(&mut buf).is_ok() {}
+        assert!(reader.segments_opened() > 0);
+        assert!(reader.take_opened_headers().is_empty());
+    }
+
+    #[test]
     fn complete_log_still_ends_with_clean_eof() {
         // Guard the other side of the truncation check above: a log that
         // ends exactly on a record boundary must report `Eof`, never

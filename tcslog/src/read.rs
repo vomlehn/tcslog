@@ -91,6 +91,19 @@ pub struct LogRead {
     /// the data header has been decoded. `None` until then. Reset at
     /// the start of every read.
     record_total_bytes: Option<u64>,
+    /// Count of distinct segment files this reader has opened and
+    /// accepted. See [`LogRead::segments_opened`].
+    segments_opened: u64,
+    /// Identifier of the most recently opened segment, used to keep
+    /// `segments_opened` from counting a re-open twice.
+    last_opened: Option<SegId>,
+    /// Headers of segments opened since the last
+    /// [`LogRead::take_opened_headers`], collected only while
+    /// `collect_opened_headers` is set.
+    opened_headers: Vec<SegmentHeader>,
+    /// Whether to accumulate `opened_headers`. Off by default so a
+    /// caller that never drains pays nothing.
+    collect_opened_headers: bool,
 }
 
 impl LogRead {
@@ -129,7 +142,50 @@ impl LogRead {
             resync: true,
             record_bytes_consumed: 0,
             record_total_bytes: None,
+            segments_opened: 0,
+            last_opened: None,
+            opened_headers: Vec::new(),
+            collect_opened_headers: false,
         })
+    }
+
+    /// Enables or disables collection of the headers of segments as
+    /// they are opened, for callers that want to report every segment a
+    /// read traversed rather than only the one a record ended in.
+    ///
+    /// Off by default: while enabled, headers accumulate until
+    /// [`LogRead::take_opened_headers`] drains them, so a caller that
+    /// enables collection must drain, or the buffer grows with the log.
+    /// Takes effect for segments opened after this call.
+    pub fn collect_opened_headers(&mut self, enable: bool) {
+        self.collect_opened_headers = enable;
+        if !enable {
+            self.opened_headers = Vec::new();
+        }
+    }
+
+    /// Removes and returns the headers of the segments opened since the
+    /// previous call, in the order they were opened.
+    ///
+    /// Always empty unless [`LogRead::collect_opened_headers`] has been
+    /// enabled. A segment re-opened after a rejected crossing yields
+    /// its header once, matching [`LogRead::segments_opened`].
+    pub fn take_opened_headers(&mut self) -> Vec<SegmentHeader> {
+        std::mem::take(&mut self.opened_headers)
+    }
+
+    /// The number of distinct segment files this reader has opened and
+    /// accepted so far.
+    ///
+    /// This counts every segment traversed, including those that only
+    /// held the middle or the start of a record spanning several files
+    /// and so never appeared in [`LogRead::current_header`]. A segment
+    /// re-opened after a rejected crossing is counted once. Segments
+    /// skipped because they were missing, unreadable, or corrupt are
+    /// not counted, nor is a segment belonging to a later session.
+    #[must_use]
+    pub fn segments_opened(&self) -> u64 {
+        self.segments_opened
     }
 
     /// The header of the segment file that supplied the most recent
@@ -480,6 +536,16 @@ impl LogRead {
                     self.pending.push_front(id);
                     self.pending_session_end = true;
                     return Err(LogError::SessionEnd);
+                }
+            }
+            // `reject_crossing` pushes the segment it rejected back onto
+            // the front of the queue, so the very next open re-opens the
+            // same file. That is one file read twice, not two files.
+            if self.last_opened != Some(id) {
+                self.segments_opened += 1;
+                self.last_opened = Some(id);
+                if self.collect_opened_headers {
+                    self.opened_headers.push(header.clone());
                 }
             }
             self.current = Some(OpenSegment {
