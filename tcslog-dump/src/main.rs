@@ -104,7 +104,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                     println!();
                     println!("--- End of Session---");
                 }
-                continue;
             }
             Err(e) => {
                 return Err(e.into());
@@ -113,7 +112,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     if args.verbose {
-        println!("\nread {total} message(s) across {} file(s)", files_seen);
+        println!("\nread {total} message(s) across {files_seen} file(s)");
         if files_lost > 0 {
             println!("{files_lost} segment file(s) lost");
         }
