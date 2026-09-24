@@ -188,8 +188,21 @@ impl LogRead {
         self.segments_opened
     }
 
-    /// The header of the segment file that supplied the most recent
-    /// record, or `None` if no record has been read yet.
+    /// The header of the segment file the reader is currently
+    /// positioned in, which after a successful [`LogRead::read`] is the
+    /// segment the record *ended* in.
+    ///
+    /// A record may span several segment files, and this names only the
+    /// last of them; the segments it started in and passed through are
+    /// never reported here. Use [`LogRead::collect_opened_headers`] and
+    /// [`LogRead::take_opened_headers`] to see every segment a read
+    /// traversed, or [`LogRead::segments_opened`] for just the count.
+    ///
+    /// `None` whenever no segment is open: before the first read, and
+    /// after a read that exhausted the pending segments or gave up the
+    /// segment it held -- that is, after [`LogError::Eof`],
+    /// [`LogError::SessionEnd`], or [`LogError::ReadTruncated`]. A
+    /// [`LogError::ReadOverflow`] leaves the segment open.
     #[must_use]
     pub fn current_header(&self) -> Option<&SegmentHeader> {
         self.current.as_ref().map(|c| &c.header)
@@ -597,7 +610,9 @@ impl LogRead {
 }
 
 /// Per-record buffer size used by [`LogReadIter`]. Records larger than
-/// this are yielded as [`LogError::ReadOverflow`].
+/// this are yielded as [`LogError::ReadOverflow`]. The iterator's own
+/// documentation states this size in prose, since a public doc comment
+/// cannot link to a private item; keep the two in step.
 const ITER_BUFFER_LEN: usize = 65_536;
 
 /// Iterator over the remaining records of a [`LogRead`].
@@ -605,9 +620,10 @@ const ITER_BUFFER_LEN: usize = 65_536;
 /// Yields `Ok(record)` for each successive record; `Err(SessionEnd)`
 /// once each time the reader crosses a session boundary; and `None` at
 /// end of log. Any other error terminates iteration after the error is
-/// yielded. Records larger than [`ITER_BUFFER_LEN`] are truncated and
-/// reported as [`LogError::ReadOverflow`] - use [`LogRead::read`]
-/// directly with a larger caller-supplied buffer when that matters.
+/// yielded. The iterator allocates a fixed 64 KiB buffer per record;
+/// records larger than that are truncated and reported as
+/// [`LogError::ReadOverflow`] - use [`LogRead::read`] directly with a
+/// larger caller-supplied buffer when that matters.
 pub struct LogReadIter<'a> {
     reader: &'a mut LogRead,
 }
