@@ -31,15 +31,7 @@ PROMPT = Generate Rust code ($(TCSLOG_CODE)), auditing and patching against the 
 
 TCSLOG_CRATES = tcslog
 
-# Uid regular expression definitions
-TS_RE_ATOM = [0-9a-f]
-TS_RE_CHUNK = ${TS_RE_ATOM}${TS_RE_ATOM}${TS_RE_ATOM}${TS_RE_ATOM}
-TS_RE_SECS = ${TS_RE_CHUNK}_${TS_RE_CHUNK}_${TS_RE_CHUNK}_${TS_RE_CHUNK}
-TS_RE_MSECS = ${TS_RE_CHUNK}_${TS_RE_CHUNK}
-TS_RE = ${TS_RE_SECS}_${TS_RE_MSECS}
-
-# Output directory for tcslog-sample
-# TODO: pass to tcslog-sample as an argument
+# Output directory for tcslog-sample, passed to it as its first argument.
 TMPDIR ?= /tmp
 TCSLOG_SAMPLE_DIR ?= $(TMPDIR)/tcslog-sample
 
@@ -148,20 +140,29 @@ run:
 		cd $(RUST) && RUST_LOG=info cargo run --bin tcspecial \
 	)
 
+# Segment file naming used by the tcslog-sample / tcslog-dump demo pair.
+TCSLOG_SAMPLE_PREFIX ?= prefix_
+TCSLOG_SAMPLE_SUFFIX ?= _suffix
+
+# Write a demo log into $(TCSLOG_SAMPLE_DIR). Both binaries take the
+# log directory, prefix, and suffix as their three positional
+# arguments, in that order.
 .PHONY: tcslog-sample
 tcslog-sample:
-	cd tcslog-sample && $(TCSLOG_CONFIG) cargo run --bin tcslog-sample -- prefix_ _suffix 1
+	$(TCSLOG_CONFIG) cargo run -p tcslog-sample -- \
+		$(TCSLOG_SAMPLE_DIR) \
+		$(TCSLOG_SAMPLE_PREFIX) \
+		$(TCSLOG_SAMPLE_SUFFIX) \
+		--verbose
 
+# Read back whatever `make tcslog-sample` wrote.
 .PHONY: tcslog-dump
 tcslog-dump:
-	set -eu; \
-		infile="$$(ls $(TCSLOG_SAMPLE_DIR)/ | sed -e '2,$$d')"; \
-		Uid="$$(echo "$$infile" | \
-			sed -e s/^prefix_// -e s/_suffix$$//)"; \
-		echo infile $$infile; \
-		echo Uid $$Uid; \
-		cd tcslog-dump; \
-		$(TCSLOG_CONFIG) cargo run --bin tcslog-dump -- prefix_ "$$Uid" _suffix
+	$(TCSLOG_CONFIG) cargo run -p tcslog-dump -- \
+		$(TCSLOG_SAMPLE_DIR) \
+		$(TCSLOG_SAMPLE_PREFIX) \
+		$(TCSLOG_SAMPLE_SUFFIX) \
+		--verbose
 
 # Clean build artifacts
 clean:
