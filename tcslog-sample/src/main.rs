@@ -22,7 +22,7 @@ use tcslog_sample::create_sample_logs;
 #[derive(Parser)]
 #[command(version, about)]
 struct Args {
-    dir:    String,
+    dir: String,
 
     /// Log file name prefix.
     prefix: String,

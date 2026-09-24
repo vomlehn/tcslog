@@ -1,12 +1,11 @@
 //! Helper library for the `tcslog-sample` binary: creates a chain of sample
 //! segment files filled with small ASCII messages.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 use std::fs::File;
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 
-use tcslog::{Format, LogError, LogWrite, SEGMENT_FILE_HEADER_LEN,
-    WriteCallbacks};
+use tcslog::{Format, LogError, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
 
 /// Maximum size in bytes of any single segment file. Sized to force
 /// rollover after a small handful of `VariableTsRc` records so the
@@ -24,10 +23,14 @@ pub struct SampleLogs {
     pub message_count: u64,
 }
 
+// Both keep the fallible signatures declared by `WriteCallbacks` so
+// they can be stored in those function-pointer fields.
+#[allow(clippy::unnecessary_wraps)]
 fn noop_record_complete(_f: &mut File) -> std::io::Result<()> {
     Ok(())
 }
 
+#[allow(clippy::unnecessary_wraps)]
 fn send(p: &Path) -> std::io::Result<()> {
     println!("--> Send file {}", p.display());
     Ok(())
@@ -35,12 +38,21 @@ fn send(p: &Path) -> std::io::Result<()> {
 
 const SAMPLE_WRITE_CALLBACKS: WriteCallbacks = WriteCallbacks {
     record_complete: noop_record_complete,
-    send: send,
+    send,
 };
 
 /// Creates a sample log chain in `dir_name` using the given file-name
-/// `prefix` and `suffix`: a root segment file plus `rollovers` successor
-/// segment files, filled with small ASCII messages.
+/// `prefix` and `suffix`: a root segment file plus successor segment
+/// files, filled with small ASCII messages.
+///
+/// # Errors
+///
+/// Returns any [`LogError`] produced while creating segment files or
+/// writing records.
+///
+/// # Panics
+///
+/// Panics if the system clock is set before the UNIX epoch.
 pub fn create_sample_logs(
     dir_name: &str,
     prefix: &str,
@@ -48,9 +60,12 @@ pub fn create_sample_logs(
     verbose: bool,
 ) -> Result<SampleLogs, LogError> {
     if verbose {
-        println!("Segment file size: {}", SEG_SIZE_MAX);
-        println!("Segment file header length: {}", SEGMENT_FILE_HEADER_LEN);
-        println!("Data section length: {}", SEG_SIZE_MAX - SEGMENT_FILE_HEADER_LEN);
+        println!("Segment file size: {SEG_SIZE_MAX}");
+        println!("Segment file header length: {SEGMENT_FILE_HEADER_LEN}");
+        println!(
+            "Data section length: {}",
+            SEG_SIZE_MAX - SEGMENT_FILE_HEADER_LEN
+        );
         println!();
     }
 
@@ -71,7 +86,7 @@ pub fn create_sample_logs(
             if (i + 1) % 10 == 0 {
                 print!("{}", (i + 1) / 10);
             } else {
-                print!("{}", " ");
+                print!(" ");
             }
         }
         println!();
@@ -88,16 +103,11 @@ pub fn create_sample_logs(
             .duration_since(UNIX_EPOCH)
             .expect("clock is before 1970");
 
-        let secs = dur.as_secs();          // u64, whole seconds
-        let nanos = dur.subsec_nanos();    // u32, 0..1_000_000_000
+        let secs = dur.as_secs(); // u64, whole seconds
+        let nanos = dur.subsec_nanos(); // u32, 0..1_000_000_000
 
-        let content = format!(
-            "time={}.{:09}s message={}",
-            secs,
-            nanos,
-            message_count + 1,
-        );
-        println!("{}", content);
+        let content = format!("time={secs}.{nanos:09}s message={}", message_count + 1,);
+        println!("{content}");
         log.write(content.as_bytes())?;
         message_count += 1;
         if message_count >= MAX_MESSAGES {
