@@ -287,9 +287,16 @@ mod tests {
 
         let mut reader = LogRead::new(&d, "cs-", ".log").unwrap();
         let mut buf = [0u8; 128];
-        // The reader silently skips the corrupt segment. Either the
-        // remaining segment starts with a whole record (in which case
-        // the next read returns that record), or the corrupt segment
+        // The corrupt segment opened the session, so the reader cannot
+        // read it and must say so rather than starting part way in: its
+        // successor's `sequence` is 1, which accounts for exactly one
+        // lost segment.
+        assert!(matches!(
+            reader.read(&mut buf),
+            Err(LogError::ReadTruncated(1))
+        ));
+        // Past the report, the segment that survived is read normally.
+        // Either it starts with a whole record, or the corrupt segment
         // held the only record and we hit Eof cleanly.
         match reader.read(&mut buf) {
             Ok(_) | Err(LogError::Eof) => {}
@@ -594,6 +601,126 @@ mod tests {
     }
 
     #[test]
+    fn lost_start_of_later_session_is_reported() {
+        // The `remaining` and sequence-step checks both run at a
+        // crossing, so neither can see segments lost before a session's
+        // first surviving segment: nothing crosses into it. Without the
+        // sequence-is-zero check the reader would start part way through
+        // the session and report nothing, which breaks the documented
+        // guarantee that no segment in a session is silently dropped.
+        //
+        // Two sessions are written into one directory, then the segment
+        // that opens the second session is removed.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        let write_session = |count: usize, tag: u8| {
+            let mut log = LogWrite::new(
+                &d,
+                "ss-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableSimple,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for _ in 0..count {
+                log.write(&[tag; 30]).unwrap();
+            }
+            log.flush().unwrap();
+        };
+        write_session(2, 0xA0);
+        write_session(2, 0xB0);
+
+        let mut segments: Vec<_> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        segments.sort();
+        // Segment ids are time-ordered, so the second session's files
+        // follow the first's. Find where the session id changes.
+        let session_of = |p: &std::path::Path| {
+            let mut f = std::fs::File::open(p).unwrap();
+            SegmentHeader::read_from(&mut f).unwrap().session_id
+        };
+        let first_session = session_of(&segments[0]);
+        let second_start = segments
+            .iter()
+            .position(|p| session_of(p) != first_session)
+            .expect("the second session must have its own segments");
+        assert_eq!(
+            session_of(&segments[second_start]).to_string(),
+            segments[second_start]
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+                .trim_start_matches("ss-")
+                .trim_end_matches(".log"),
+            "the segment that opens a session is named by the session id"
+        );
+        std::fs::remove_file(&segments[second_start]).unwrap();
+
+        let mut reader = LogRead::new(&d, "ss-", ".log").unwrap();
+        let mut buf = vec![0u8; 4096];
+        let mut reported_lost = 0u64;
+        let mut sessions_ended = 0u32;
+        let mut records = 0u32;
+        loop {
+            match reader.read(&mut buf) {
+                Ok(_) => records += 1,
+                Err(LogError::Eof) => break,
+                Err(LogError::SessionEnd) => sessions_ended += 1,
+                Err(LogError::ReadTruncated(lost)) => reported_lost += lost,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+        }
+        assert_eq!(sessions_ended, 1, "one session boundary was crossed");
+        assert!(records > 0, "the surviving records must still be read");
+        assert_eq!(
+            reported_lost, 1,
+            "losing the segment that opens a session must be reported"
+        );
+    }
+
+    #[test]
+    fn intact_log_reports_no_session_start_loss() {
+        // The other side of the check: a log whose sessions all begin at
+        // sequence zero must report nothing, or every read of a healthy
+        // multi-session log would open with a spurious truncation.
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        for tag in [0xA0u8, 0xB0u8] {
+            let mut log = LogWrite::new(
+                &d,
+                "is-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 40,
+                Format::VariableSimple,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for _ in 0..2 {
+                log.write(&[tag; 30]).unwrap();
+            }
+            log.flush().unwrap();
+        }
+        let mut reader = LogRead::new(&d, "is-", ".log").unwrap();
+        let mut buf = vec![0u8; 4096];
+        let mut records = 0u32;
+        let mut sessions_ended = 0u32;
+        loop {
+            match reader.read(&mut buf) {
+                Ok(_) => records += 1,
+                Err(LogError::Eof) => break,
+                Err(LogError::SessionEnd) => sessions_ended += 1,
+                Err(e) => panic!("intact log must not report {e:?}"),
+            }
+        }
+        assert_eq!(records, 4, "every record of both sessions");
+        assert_eq!(sessions_ended, 1);
+    }
+
+    #[test]
     fn complete_log_still_ends_with_clean_eof() {
         // Guard the other side of the truncation check above: a log that
         // ends exactly on a record boundary must report `Eof`, never
@@ -700,10 +827,12 @@ mod tests {
         let mut reader = LogRead::new(&d, "hs-", ".log").unwrap();
         let mut buf = vec![0u8; 64];
         let mut recovered: Vec<Vec<u8>> = Vec::new();
+        let mut reported_lost = 0u64;
         loop {
             match reader.read(&mut buf) {
                 Ok(res) => recovered.push(buf[..res.n as usize].to_vec()),
                 Err(LogError::Eof) => break,
+                Err(LogError::ReadTruncated(lost)) => reported_lost += lost,
                 Err(e) => panic!("unexpected error: {e:?}"),
             }
         }
@@ -711,6 +840,11 @@ mod tests {
             recovered,
             vec![B.to_vec(), C.to_vec()],
             "every record outside the lost segment must be returned"
+        );
+        assert_eq!(
+            reported_lost, 1,
+            "the lost segment opened the session, so its loss must still \
+             be reported rather than passed over"
         );
     }
 

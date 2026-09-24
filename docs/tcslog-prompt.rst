@@ -247,8 +247,19 @@ sequence
     With a sequence field, the reader also checks that the new
     segment's sequence equals the previous segment's sequence plus
     one. A jump makes the gap visible even when remaining agrees on
-    both sides, and it reports how many segments were lost. The two
-    checks together upgrade the reader's guarantee from "no
+    both sides, and it reports how many segments were lost.
+
+    Both of those checks run at a crossing, so neither can see
+    segments lost before the first segment of a session that
+    survives: nothing crosses into it, and its own remaining field
+    describes a record whose opening segments are gone. The reader
+    therefore also checks that the first segment it opens for a
+    session has sequence = 0. A non-zero value is the count of
+    segments lost ahead of it. Without this check a reader handed a
+    session whose opening segments were lost would begin part way
+    through it and report nothing at all.
+
+    The three checks together upgrade the reader's guarantee from "no
     in-progress record was silently truncated" to "no segment in the
     session was silently dropped."
 
@@ -592,6 +603,16 @@ remaining = 0 whether or not a header is being decoded, and the
 sequence check applies to every crossing, so a header that does span a
 boundary in a foreign or damaged file is caught rather than spliced
 together into a bogus record.
+
+Both checks above run at a crossing and so cannot see segments lost
+before the first segment of a session that survives: no crossing
+reaches it. The reader must therefore also check, when it opens the
+first segment it can read for a session, that that segment's sequence
+field is zero. A non-zero value means that many segments were lost
+ahead of it, and the reader must report the read-truncated error with
+that count before returning any record from the session. The segment
+itself is sound, so the reader keeps it and the records that did
+survive are still returned by subsequent reads.
 
 If the check fails, the reader must:
 

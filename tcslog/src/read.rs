@@ -104,6 +104,11 @@ pub struct LogRead {
     /// Whether to accumulate `opened_headers`. Off by default so a
     /// caller that never drains pays nothing.
     collect_opened_headers: bool,
+    /// Segments lost before the start of the session now being read,
+    /// waiting to be reported. Set when a session's first surviving
+    /// segment carries a non-zero `sequence`, which can only mean the
+    /// segments that should have preceded it are gone.
+    session_start_loss: Option<u64>,
 }
 
 impl LogRead {
@@ -146,6 +151,7 @@ impl LogRead {
             last_opened: None,
             opened_headers: Vec::new(),
             collect_opened_headers: false,
+            session_start_loss: None,
         })
     }
 
@@ -277,6 +283,15 @@ impl LogRead {
             }
         } else if self.current.is_none() && !self.open_next_ready_segment()? {
             return Err(LogError::Eof);
+        }
+
+        // Reported once the segment is open and positioned, so the
+        // records that did survive are still delivered. The resync this
+        // error arms simply re-opens this same segment and locates the
+        // same record start again, and the loss is not re-reported
+        // because it has been taken.
+        if let Some(lost) = self.session_start_loss.take() {
+            return Err(LogError::ReadTruncated(lost));
         }
 
         let format = self.current.as_ref().unwrap().header.format;
@@ -543,6 +558,20 @@ impl LogRead {
             match self.session_id {
                 None => {
                     self.session_id = Some(header.session_id);
+                    // `sequence` is zero for the segment that opens a
+                    // session and steps by one per roll, so a non-zero
+                    // value on the first segment we can read means that
+                    // many segments before it are gone. Nothing crosses
+                    // into this segment, so neither the `remaining` nor
+                    // the sequence-step check at a crossing can see the
+                    // loss -- without this the reader would start
+                    // part way through the session and report nothing,
+                    // breaking the guarantee that no segment in a
+                    // session is silently dropped.
+                    let lost = header.sequence.as_u64();
+                    if lost != 0 {
+                        self.session_start_loss = Some(lost);
+                    }
                 }
                 Some(active) if active == header.session_id => {}
                 Some(_) => {

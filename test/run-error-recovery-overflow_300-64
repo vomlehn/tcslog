@@ -1,0 +1,25 @@
+#!/bin/bash
+#
+# Reads records larger than tcslog-dump's fixed 256-byte buffer, so the
+# reader must report the overflow, hand back the bytes it did capture,
+# and discard the remainder without losing its place in the log. No
+# segment file is damaged: the recovery being checked is the one a
+# caller's undersized buffer forces, which no deletion test can reach.
+
+set -eu
+
+PFX=pfx-
+SFX=.log
+
+test="$(dirname "$0")"
+
+FORMAT="variable-simple:300"
+DATA_SIZE="64"
+NUMBER="3"
+
+$test/error-recovery-common \
+    -e "overflow_300-64.expected" \
+    -f "$FORMAT" \
+    -s "$DATA_SIZE" \
+    -n "$NUMBER" \
+    "$@"

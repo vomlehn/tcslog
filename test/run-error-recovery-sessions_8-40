@@ -1,0 +1,28 @@
+#!/bin/bash
+#
+# Writes three sessions into one directory and loses a segment from the
+# middle one. The reader must end each session before reading the next,
+# so the dump reports a session boundary between each pair, and the
+# recovery after the lost segment must not be confused with one.
+
+set -eu
+
+PFX=pfx-
+SFX=.log
+
+test="$(dirname "$0")"
+
+FORMAT="variable-simple:8"
+DATA_SIZE="40"
+NUMBER="6"
+SESSIONS="3"
+DELETE="3"
+
+$test/error-recovery-common \
+    -e "sessions_8-40.expected" \
+    -f "$FORMAT" \
+    -s "$DATA_SIZE" \
+    -n "$NUMBER" \
+    -S "$SESSIONS" \
+    -d "$DELETE" \
+    "$@"

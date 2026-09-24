@@ -80,22 +80,32 @@ fn main() -> Result<(), Box<dyn Error>> {
             Err(LogError::Eof) => break,
             Err(LogError::ReadTruncated(lost)) => {
                 files_lost += lost;
+                // A gap that falls on a record boundary loses whole
+                // records rather than truncating one, and a gap before a
+                // session's first surviving segment truncates nothing at
+                // all, so the wording reports the loss without claiming
+                // which.
                 if args.verbose {
                     if lost > 0 {
                         println!(
-                            "    -- record truncated by {lost} missing \
-                             segment file(s); resynchronizing --"
+                            "    -- {lost} missing segment file(s); \
+                             resynchronizing --"
                         );
                     } else {
                         println!(
-                            "    -- record truncated by a corrupted \
-                             segment; resynchronizing --"
+                            "    -- corrupted or truncated segment file; \
+                             resynchronizing --"
                         );
                     }
                 }
             }
             Err(LogError::ReadOverflow(n)) => {
                 total += 1;
+                // The captured bytes are real payload. Print them
+                // instead of dropping them on the floor, marked so they
+                // cannot be mistaken for a whole record.
+                print_partial_record(args.text, &buf[..n as usize]);
+                println!();
                 if args.verbose {
                     println!(
                         "    (payload larger than {MAX_MESSAGE_SIZE}-byte buffer; \
@@ -134,6 +144,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 fn print_record(text: bool, meta: Meta, buf: &[u8]) {
     let msg = format_msg(text, buf);
     print!("    {msg} {}", record_trailer(buf.len(), meta));
+}
+
+/// Prints the leading bytes of a record too large for the read buffer.
+/// The record's own length and metadata are not available on this path,
+/// so the trailer states only what was captured.
+fn print_partial_record(text: bool, buf: &[u8]) {
+    let msg = format_msg(text, buf);
+    print!("    {msg} ({} bytes captured, record truncated)", buf.len());
 }
 
 fn format_msg(as_text: bool, buf: &[u8]) -> String {

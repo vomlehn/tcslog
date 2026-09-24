@@ -1,0 +1,32 @@
+#!/bin/bash
+#
+# Loses a segment file that begins exactly on a record boundary, in a
+# variable-length format. Every record here is 4 header + 6 payload =
+# 10 bytes and the data section is 20, so each segment holds exactly two
+# records with no carry-over and no short roll: the previous record ends
+# precisely at the previous segment's end. The fixed-format tests hit
+# this alignment, the other variable-format tests never do.
+#
+# This runs tcslog-gen to generate segment files. It then deletes and
+# corrupts them in various ways and uses tcslog-dump to see whether
+# error recovery works.
+
+set -eu
+
+PFX=pfx-
+SFX=.log
+
+test="$(dirname "$0")"
+
+FORMAT="variable-simple:6"
+DATA_SIZE="20"
+NUMBER="8"
+DELETE="3"
+
+$test/error-recovery-common \
+    -e "variable-exact_6-20.expected" \
+    -f "$FORMAT" \
+    -s "$DATA_SIZE" \
+    -n "$NUMBER" \
+    -d "$DELETE" \
+    "$@"

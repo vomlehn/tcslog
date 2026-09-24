@@ -13,9 +13,12 @@ keep_tmp=0
 actual_file=""
 expected_cmp=""
 actual_cmp=""
+diag_actual=""
+diag_expected_cmp=""
 TMP_DIR=$(mktemp -d -t tcslog.XXXXXXXXXX)
 cleanup() {
-    rm -f "$actual_file" "$expected_cmp" "$actual_cmp"
+    rm -f "$actual_file" "$expected_cmp" "$actual_cmp" \
+        "$diag_actual" "$diag_expected_cmp"
     if [ $keep_tmp -ne 0 ]; then
         echo "Temporary directory kept: $TMP_DIR"
     else
@@ -30,13 +33,20 @@ hexdump_enabled=0
 raw_hexdump_enabled=0
 generate=0
 delete_indices_str=""
+corrupt_indices_str=""
+truncate_indices_str=""
 expected_file=""
 FORMAT="variable-simple:0..10"
 number=20
 data_size=17
+sessions=1
 usage() {
 cat <<-EOF
-Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-d \"idx1 idx2 ...\"] [-f spec] [-n <count>] [-s <bytes>] [-h]
+Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] [-n <count>] [-s <bytes>] [-S <count>] [-h]
+-c idx1 idx2 ...  Indices of files whose header magic to overwrite, so
+                  the segment cannot be opened at all. Unlike -d the
+                  file is still present, which is what a corrupted
+                  rather than a lost segment looks like.
 -d idx1 idx2 ...  Indices of files to delete, starting at 1
 -f spec           Data format in log file
 -g                Overwrite the expected file with this run's output
@@ -48,7 +58,18 @@ Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-d \"idx1 idx2 ...\"] [-f spec
 -r                Hexdump the raw input segment files before any are
                   deleted
 -s size           Maximum of bytes in the data section
+-S count          Number of generation passes to run into the same
+                  directory, each of which starts a new session. The
+                  reader must end one session before reading the next.
+-t idx1 idx2 ...  Indices of files to truncate to half their data
+                  section, leaving the header intact. The segment still
+                  opens and its sequence is still readable, so a record
+                  running off its short end is a truncation with no
+                  sequence gap.
 -x                Perform a hex dump of the output files after deletion
+
+In every index list, the word "last" stands for the highest-numbered
+segment file, whose index depends on the format and sizes in use.
 EOF
     exit 1
 }
@@ -59,8 +80,9 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":gkrxhd:e:f:n:s:" opt; do
+while getopts ":gkrxhc:d:e:f:n:s:t:S:" opt; do
     case "$opt" in
+        c) corrupt_indices_str="$OPTARG" ;;
         d) delete_indices_str="$OPTARG" ;;
         e) expected_file="expected/$OPTARG" ;;
         f) FORMAT="$OPTARG" ;;
@@ -70,6 +92,8 @@ while getopts ":gkrxhd:e:f:n:s:" opt; do
         n) require_uint n "$OPTARG"; number="$OPTARG" ;;
         r) raw_hexdump_enabled=1 ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
+        S) require_uint S "$OPTARG"; sessions="$OPTARG" ;;
+        t) truncate_indices_str="$OPTARG" ;;
         x) hexdump_enabled=1 ;;
         :) echo "Option -$OPTARG requires an argument" 1>&2; usage ;;
         \?) echo "Unknown option: -$OPTARG" 1>&2; usage ;;
@@ -81,19 +105,53 @@ if [ -z "$expected_file" ]; then
     echo "The -e <expected-file> option is required." 1>&2
     usage
 fi
+diag_file="${expected_file%.expected}.diag"
 if [ ! -f "$expected_file" ] && [ $generate -eq 0 ]; then
     echo "Expected results file not found: $expected_file" 1>&2
     echo "Use -g to create it from this run's output." 1>&2
     exit 1
 fi
+if [ ! -f "$diag_file" ] && [ $generate -eq 0 ]; then
+    echo "Expected diagnostics file not found: $diag_file" 1>&2
+    echo "Use -g to create it from this run's output." 1>&2
+    exit 1
+fi
 
+# Index lists accept unsigned integers and the word "last", which
+# stands for the highest-numbered segment file. The count is not known
+# until the log has been generated, so "last" is resolved after that.
+check_indices() {
+    local flag="$1"; shift
+    local idx
+    for idx in "$@"; do
+        if ! [[ "$idx" =~ ^([0-9]+|last)$ ]]; then
+            echo "Invalid index in -$flag list: '$idx' (must be an unsigned integer or 'last')" 1>&2
+            exit 1
+        fi
+    done
+}
 read -r -a delete_indices <<< "$delete_indices_str"
-for idx in "${delete_indices[@]}"; do
-    if ! [[ "$idx" =~ ^[0-9]+$ ]]; then
-        echo "Invalid index in -d list: '$idx' (must be a non-negative integer)" 1>&2
+read -r -a corrupt_indices <<< "$corrupt_indices_str"
+read -r -a truncate_indices <<< "$truncate_indices_str"
+check_indices d ${delete_indices[@]+"${delete_indices[@]}"}
+check_indices c ${corrupt_indices[@]+"${corrupt_indices[@]}"}
+check_indices t ${truncate_indices[@]+"${truncate_indices[@]}"}
+
+# Maps "last" onto the real segment count and rejects an index that
+# names no segment file, which would otherwise pass silently and leave
+# the test asserting less than it looks like it does.
+resolve_index() {
+    local flag="$1" idx="$2" count="$3"
+    if [ "$idx" = last ]; then
+        echo "$count"
+        return
+    fi
+    if [ "$idx" -lt 1 ] || [ "$idx" -gt "$count" ]; then
+        echo "Index $idx in -$flag list is out of range: only $count segment file(s) exist" 1>&2
         exit 1
     fi
-done
+    echo "$idx"
+}
 
 rm_seg() {
     local idx=$1
@@ -101,6 +159,50 @@ rm_seg() {
     local args="$@"
     echo "Remove segment file #$idx: $args"
     rm $args
+}
+
+# Overwrites the eight-byte file-type magic so SegmentHeader::read_from
+# rejects the segment. The file is still there and its neighbours'
+# sequence numbers still step over it, so the reader sees the same
+# sequence gap a deleted file would leave.
+corrupt_seg() {
+    local idx=$1 f=$2
+    echo "Corrupt header magic of segment file #$idx: $f"
+    printf '\0\0\0\0\0\0\0\0' |
+        dd of="$f" bs=1 count=8 conv=notrunc status=none
+}
+
+# Cuts a segment's data section in half, leaving the header intact. The
+# segment still opens and its sequence is still readable, so a record
+# running off the short end is a truncation the sequence cannot explain
+# -- the zero-lost case.
+trunc_seg() {
+    local idx=$1 f=$2
+    local max_size hdr_len target before
+    max_size=$(od -An -tu4 -j28 -N4 "$f" | tr -d ' ')
+    hdr_len=$((max_size - data_size))
+    target=$((hdr_len + data_size / 2))
+    before=$(stat -c%s "$f")
+    echo "Truncate segment file #$idx from $before to $target bytes: $f"
+    truncate -s "$target" "$f"
+}
+
+# Resolves an index list against the generated segment files and
+# applies `action` to each, refusing an index whose file another action
+# already removed.
+apply_to_indices() {
+    local flag="$1" action="$2"
+    shift 2
+    local num idx
+    for num in "$@"; do
+        num=$(resolve_index "$flag" "$num" "${#files[@]}")
+        idx=$((num - 1))
+        if [ ! -f "${files[$idx]}" ]; then
+            echo "Segment file #$num is already gone; -$flag cannot act on it" 1>&2
+            exit 1
+        fi
+        "$action" "$num" "${files[$idx]}"
+    done
 }
 
 # Reject a --format this script does not know about before spending a
@@ -117,11 +219,18 @@ esac
 
 echo "Generating log in $TMP_DIR: prefix $PFX suffix $SFX"
 
-cargo run -p tcslog-gen -- \
-    --data-size $data_size \
-    --format $FORMAT \
-    --number $number \
-    $TMP_DIR $PFX $SFX
+# Each pass writes its own session into the same directory, so -S
+# builds a log the reader has to walk across session boundaries.
+for pass in $(seq 1 "$sessions"); do
+    if [ "$sessions" -gt 1 ]; then
+        echo "-- session $pass of $sessions"
+    fi
+    cargo run -p tcslog-gen -- \
+        --data-size $data_size \
+        --format $FORMAT \
+        --number $number \
+        $TMP_DIR $PFX $SFX
+done
 
 declare -a files
 files=($TMP_DIR/$PFX*$SFX)
@@ -139,16 +248,25 @@ fi
 if [ ${#delete_indices[@]} -gt 0 ]; then
     echo
     echo "Removing segment files"
-    for num in "${delete_indices[@]}"; do
-        idx=$((num - 1))
-        rm_seg $num "${files[$idx]}"
-    done
+    apply_to_indices d rm_seg "${delete_indices[@]}"
+fi
+
+if [ ${#corrupt_indices[@]} -gt 0 ]; then
+    echo
+    echo "Corrupting segment files"
+    apply_to_indices c corrupt_seg "${corrupt_indices[@]}"
+fi
+
+if [ ${#truncate_indices[@]} -gt 0 ]; then
+    echo
+    echo "Truncating segment files"
+    apply_to_indices t trunc_seg "${truncate_indices[@]}"
 fi
 
 if [ $hexdump_enabled -ne 0 ]; then
     echo
     echo "Hexdump of segment files after deletion"
-    for f in ${files[@]}; do
+    for f in "${files[@]}"; do
         if [ -f $f ]; then
             echo $f:
             hexdump -C $f
@@ -164,9 +282,26 @@ echo tcslog-dump output
 actual_file=$(mktemp)
 expected_cmp=$(mktemp)
 actual_cmp=$(mktemp)
+diag_actual=$(mktemp)
+diag_expected_cmp=$(mktemp)
 cargo run --quiet -p tcslog-dump -- \
     "$TMP_DIR" "$PFX" "$SFX" > "$actual_file"
 cat "$actual_file"
+
+# Which records survive is only half of what the reader owes a caller:
+# it must also say what it lost. Those reports are --verbose-only, so
+# take a second pass for them. Only the format-independent diagnostic
+# lines are kept -- the per-segment header blocks name files after the
+# time-derived SegId, which never repeats -- leaving the truncation
+# notices, the lost-segment tally and the record/file totals, all of
+# which are fully determined by the log and the damage done to it.
+extract_diagnostics() {
+    grep -E '^(    -- |    \(payload larger than|--- End of Session|read [0-9]+ message\(s\) across [0-9]+ file\(s\)$|[0-9]+ segment file\(s\) lost$)' \
+        "$1" || true
+}
+cargo run --quiet -p tcslog-dump -- \
+    "$TMP_DIR" "$PFX" "$SFX" --verbose |
+    extract_diagnostics /dev/stdin > "$diag_actual"
 
 # The variable-tsrc format stamps each record with the wall-clock time,
 # so the timestamp differs on every run and cannot be checked against a
@@ -188,18 +323,34 @@ mask_timestamp() {
 if [ $generate -ne 0 ]; then
     mask_timestamp "$actual_file" > "$actual_cmp"
     cp "$actual_cmp" "$expected_file"
+    cp "$diag_actual" "$diag_file"
     echo
     echo "GENERATED: $expected_file (timestamps masked with X)"
+    echo "GENERATED: $diag_file"
     exit 0
 fi
 
 strip_timestamp "$expected_file" > "$expected_cmp"
 strip_timestamp "$actual_file" > "$actual_cmp"
 
+status=0
 echo
 if diff -u "$expected_cmp" "$actual_cmp"; then
     echo "OK: dump output matches $expected_file (timestamps ignored)"
 else
     echo "FAIL: dump output does not match $expected_file" 1>&2
-    exit 1
+    status=1
 fi
+
+echo
+echo "tcslog-dump diagnostics"
+cat "$diag_actual"
+cp "$diag_file" "$diag_expected_cmp"
+echo
+if diff -u "$diag_expected_cmp" "$diag_actual"; then
+    echo "OK: dump diagnostics match $diag_file"
+else
+    echo "FAIL: dump diagnostics do not match $diag_file" 1>&2
+    status=1
+fi
+exit $status
