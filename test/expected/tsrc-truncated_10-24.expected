@@ -1,3 +1,4 @@
+    #1 1234 (7 bytes recovered, rest of record lost)
     #2 1234567 (10 bytes, ts=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX, rc=2)
     #3 1234567 (10 bytes, ts=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX, rc=3)
     #4 1234567 (10 bytes, ts=XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX, rc=4)
