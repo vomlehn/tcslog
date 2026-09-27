@@ -7,6 +7,13 @@
 
 set -eu
 
+dumphdr() {
+    (
+        cargo run -q -p tcslog "$@"
+        hexdump -C --skip 49 "$@"
+    )
+}
+
 # Cleanup runs from a single EXIT trap so that -k, which is not known
 # until the options are parsed, can spare the segment files.
 keep_tmp=0
@@ -25,12 +32,15 @@ cleanup() {
         rm -rf "$TMP_DIR"
     fi
 }
+
 trap cleanup EXIT
+
+
 PFX=pfx-
 SFX=.log
 
-hexdump_enabled=0
-raw_hexdump_enabled=0
+dumphdr_enabled=0
+raw_dumphdr_enabled=0
 generate=0
 delete_indices_str=""
 corrupt_indices_str=""
@@ -103,12 +113,12 @@ while getopts ":gkrxhc:d:e:f:n:s:t:I:O:S:V:" opt; do
         k) keep_tmp=1 ;;
         O) oversize_indices_str="$OPTARG" ;;
         n) require_uint n "$OPTARG"; number="$OPTARG" ;;
-        r) raw_hexdump_enabled=1 ;;
+        r) raw_dumphdr_enabled=1 ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
         S) require_uint S "$OPTARG"; sessions="$OPTARG" ;;
         t) truncate_indices_str="$OPTARG" ;;
         V) version_indices_str="$OPTARG" ;;
-        x) hexdump_enabled=1 ;;
+        x) dumphdr_enabled=1 ;;
         :) echo "Option -$OPTARG requires an argument" 1>&2; usage ;;
         \?) echo "Unknown option: -$OPTARG" 1>&2; usage ;;
     esac
@@ -298,13 +308,13 @@ done
 declare -a files
 files=($TMP_DIR/$PFX*$SFX)
 
-if [ $raw_hexdump_enabled -ne 0 ]; then
+if [ $raw_dumphdr_enabled -ne 0 ]; then
     echo
     echo "Hexdump of segment files before deletion"
     for f in "${files[@]}"; do
         echo
         echo $f
-        hexdump -C $f
+        dumphdr $f
     done
 fi
 
@@ -344,13 +354,13 @@ if [ ${#oversize_indices[@]} -gt 0 ]; then
     apply_to_indices O oversize_seg "${oversize_indices[@]}"
 fi
 
-if [ $hexdump_enabled -ne 0 ]; then
+if [ $dumphdr_enabled -ne 0 ]; then
     echo
     echo "Hexdump of segment files after deletion"
     for f in "${files[@]}"; do
         if [ -f $f ]; then
             echo $f:
-            hexdump -C $f
+            dumphdr $f
         else
             echo $f: deleted
         fi

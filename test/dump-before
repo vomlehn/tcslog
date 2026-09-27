@@ -1,0 +1,40 @@
+#!/bin/sh
+
+# Dump a directory with log segment files. This is helpful when developing
+# the tests in this directory.
+
+set -eu
+
+dumpseg() {
+    (
+        cargo run -q -p tcslog-dumphdr "$@";
+        hexdump -C --skip 49 "$@"
+    )
+}
+
+usage() {
+    cat <<-EOF
+Usage: $0 tmpdir
+EOF
+    exit 2
+}
+
+if [ $# -ne 1 ]; then
+    usage
+fi
+
+tmpdir="$1"
+sep=""
+i=1
+
+for f in $tmpdir/*; do
+    printf "$sep"
+    printf "#%d: %s\n" $i $f
+    dumpseg $f
+    sep="\\n"
+    i=$((i + 1))
+done
+
+echo
+num_files="$(ls $tmpdir/* | wc -l)"
+echo "Number of files: $num_files"
