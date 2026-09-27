@@ -1,0 +1,15 @@
+[package]
+name = "tcslog-dumphdr"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tcslog = { path = "../tcslog", default-features = false }
+clap.workspace = true
+
+[lints]
+workspace = true
