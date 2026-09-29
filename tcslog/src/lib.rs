@@ -784,23 +784,23 @@ mod tests {
     }
 
     #[test]
-    fn record_after_lost_segment_survives_a_header_that_would_not_fit() {
-        // Regression test for a record that was lost even though every
-        // one of its own bytes was on disk. The writer used to fill a
-        // segment to the last byte, so a record's data header could
-        // straddle the boundary. When the segment holding the header's
-        // leading bytes went missing, the next segment's `remaining`
-        // counted the orphaned header bytes together with the payload,
-        // and a reader resyncing there had to skip the whole record:
-        // the low byte of the little-endian length was gone, and the
-        // surviving tail could equally well have belonged to a longer
-        // record. The writer now rolls early rather than split a
-        // header, so the record is readable on its own.
+    fn segments_are_uniform_and_split_headers_cost_their_record() {
+        // The writer fills every segment file to `seg_size_max`, so a
+        // data header may straddle a segment boundary. That is what
+        // makes the files uniform, and it is paid for here: when the
+        // segment holding a header's leading bytes is lost, the next
+        // segment's `remaining` counts those orphaned header bytes
+        // along with the payload, and a reader resyncing there cannot
+        // find where the payload begins -- the low byte of the
+        // little-endian length is gone and the surviving tail could
+        // equally well belong to a longer record. The record goes even
+        // though its payload bytes are on disk. Records whose own
+        // bytes all lie past the gap are unaffected.
         //
         // Sizing: a 10-byte data section and 4-byte VariableSimple
-        // headers. Record A occupies 7 bytes, leaving 3 - too few for
-        // record B's header, so B starts a fresh segment and record C
-        // starts a third.
+        // headers. Record A takes 7 bytes, leaving 3; record B's
+        // 4-byte header therefore splits 3/1 across the first two
+        // segments.
         const A: &[u8] = b"aaa";
         const B: &[u8] = b"bbbbb";
         const C: &[u8] = b"ccc";
@@ -827,20 +827,24 @@ mod tests {
             .filter_map(|e| e.ok().map(|e| e.path()))
             .collect();
         segments.sort();
-        assert_eq!(
-            segments.len(),
-            3,
-            "each record should have started its own segment"
+        let sizes: Vec<u64> = segments
+            .iter()
+            .map(|p| std::fs::metadata(p).unwrap().len())
+            .collect();
+        let (last, full) = sizes.split_last().unwrap();
+        assert!(
+            full.iter()
+                .all(|&n| n == u64::from(SEGMENT_FILE_HEADER_LEN + 10)),
+            "every segment but the session's last must be seg_size_max \
+             bytes; got {sizes:?}"
         );
-        assert_eq!(
-            std::fs::metadata(&segments[0]).unwrap().len(),
-            u64::from(SEGMENT_FILE_HEADER_LEN + 4) + A.len() as u64,
-            "the first segment must end after record A rather than \
-             take the leading bytes of record B's data header"
+        assert!(
+            *last <= u64::from(SEGMENT_FILE_HEADER_LEN + 10),
+            "the last segment may be short but never longer"
         );
 
-        // Lose the segment holding record A. Record B lives entirely
-        // in the next segment and must come back.
+        // Lose the segment holding record A, and with it the leading
+        // three bytes of record B's data header.
         std::fs::remove_file(&segments[0]).unwrap();
 
         let mut reader = LogRead::new(&d, "hs-", ".log").unwrap();
@@ -857,8 +861,9 @@ mod tests {
         }
         assert_eq!(
             recovered,
-            vec![B.to_vec(), C.to_vec()],
-            "every record outside the lost segment must be returned"
+            vec![C.to_vec()],
+            "record B is lost with its split header even though its \
+             payload survived; record C must still be returned"
         );
         assert_eq!(
             reported_lost, 1,
@@ -1406,6 +1411,96 @@ mod tests {
         // The next write must succeed - a fresh segment file has been
         // opened by the recovery path.
         assert!(log.write(&[0x22u8; 5]).is_ok());
+    }
+
+    #[test]
+    fn truncation_inside_a_split_header_is_reported_not_invented() {
+        // A data header that straddles a segment boundary is read in
+        // two pieces. If the segment holding the first piece is cut
+        // short, the second piece comes from bytes that are not this
+        // record's, and decoding them yields a header made of whatever
+        // happened to be there -- in practice a segment identifier read
+        // as a timestamp, giving a record dated decades out with an
+        // absurd record count. The crossing is checked against what the
+        // next segment's `remaining` says the payload length must be,
+        // so this is refused and reported rather than returned.
+        const N: usize = 6;
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        let payloads: Vec<Vec<u8>> = (0..N)
+            .map(|i| format!("#{i} 123456").into_bytes())
+            .collect();
+        {
+            let mut log = LogWrite::new(
+                &d,
+                "th-",
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 24,
+                Format::VariableTsRc,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for p in &payloads {
+                log.write(p).unwrap();
+            }
+            log.flush().unwrap();
+        }
+
+        // Halve the second segment's data section, leaving its header
+        // intact so the sequence stays unbroken and the damage can only
+        // be found by the crossing.
+        let mut segments: Vec<_> = fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        segments.sort();
+        let victim = &segments[1];
+        let len = fs::metadata(victim).unwrap().len();
+        let keep =
+            u64::from(SEGMENT_FILE_HEADER_LEN) + (len - u64::from(SEGMENT_FILE_HEADER_LEN)) / 2;
+        fs::OpenOptions::new()
+            .write(true)
+            .open(victim)
+            .unwrap()
+            .set_len(keep)
+            .unwrap();
+
+        let mut reader = LogRead::new(&d, "th-", ".log").unwrap();
+        let mut buf = vec![0u8; 4096];
+        let mut got: Vec<(Vec<u8>, Meta)> = Vec::new();
+        let mut truncations = 0;
+        loop {
+            match reader.read(&mut buf) {
+                Ok(res) => got.push((buf[..res.n as usize].to_vec(), res.meta)),
+                Err(LogError::Eof) => break,
+                Err(LogError::ReadTruncated { .. }) => truncations += 1,
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+        }
+
+        assert!(
+            truncations > 0,
+            "the cut header must be reported, not passed over"
+        );
+        for (payload, meta) in &got {
+            assert!(
+                payloads.contains(payload),
+                "returned a record the writer never wrote: {payload:?}"
+            );
+            let Meta::VariableTsRc(_, rc) = meta else {
+                panic!("wrong metadata variant for a VariableTsRc log");
+            };
+            assert!(
+                (1..=N as u64).contains(rc),
+                "record count {rc} is outside the {N} records written, so \
+                 the header was decoded from bytes that are not a header"
+            );
+        }
+        // Recovery continues past the damage rather than stopping at it.
+        assert!(
+            got.len() >= 2,
+            "records beyond the damaged segment must still be recovered"
+        );
     }
 
     /// Segment files of this log present in `dir`, by name.

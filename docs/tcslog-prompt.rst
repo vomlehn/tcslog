@@ -50,6 +50,11 @@ relying instead of periodic checking.
 Since error recovery is done on a segment file basis, the smaller the
 segment file, the less telemetry data will be lost.
 
+Every segment file but the last one of a session is exactly
+seg_size\ :sub:`max` bytes. The storage a log occupies is therefore the
+number of segment files multiplied by that size, give or take the last
+one, with no per-file shortfall to account for.
+
 There are several log formats, trading storage efficiency for automatic
 recording of meta data.
 
@@ -189,12 +194,18 @@ remaining
     continuing record extends into one or more later segment files and
     no fresh record begins in this segment.
 
+    The count covers every byte of that record still to come, its data
+    header included. A header that straddles the boundary has its
+    leading bytes in the earlier segment file and its tail among these,
+    so some of the bytes counted here may be header rather than payload.
+
     The reader uses this field to locate the start of the first fresh
     record in a segment it has just opened during resync: the first
-    ``remaining`` bytes of the data section belong to a record whose
-    header lives in an earlier (possibly missing) segment file and can
-    therefore not be reassembled, so they are skipped; the next byte
-    begins a fresh record.
+    ``remaining`` bytes of the data section belong to a record that
+    began in an earlier, possibly missing, segment file and cannot be
+    reassembled from this one alone, so they are skipped; the next byte
+    begins a fresh record. That holds however the earlier record was
+    split, which is why the skip needs no knowledge of the format.
 
 data format
     Several formats are supported for storing data, which have different 
@@ -382,19 +393,25 @@ telemetry data is logically appended to the data header to form a logical data
 record. The data header
 depends on the format and may be zero length.
 
-A logical data record's data header must be written entirely within
-one segment file. Before starting a record, if the space left in the
-current segment file is smaller than the data header for the format,
-close the current segment file, call the send() function, and create a
-new segment file; the closed file is simply shorter than
-seg_size\ :sub:`max`
-and no padding is written. A data header split across a segment
-boundary cannot be decoded once the segment holding its leading bytes
-is lost, because the surviving tail of the payload length is
-indistinguishable from the tail of some longer record. Keeping the
-header whole means the remaining field always points at a complete
-data header, so a lost segment file costs only the records whose own
-bytes it held.
+A logical data record's data header may be split across two segment
+files. The writer starts a record wherever the current segment file has
+room for even one byte, and rolls only when the file is exactly full, so
+every segment file but a session's last is exactly
+seg_size\ :sub:`max` bytes. No padding is ever written, because none is
+needed to reach that size.
+
+The cost is paid when a segment file is lost or cut short part way
+through a header: the payload length is spread across two files, and the
+surviving tail of a little-endian length cannot be told from the tail of
+a longer one, so the reader cannot find where the payload begins. That
+record is lost even though its payload bytes may be intact, and the
+reader must report the loss rather than return anything for it. Losing
+one segment file therefore costs the records whose bytes it held and, if
+a header straddles its boundary, the one record that straddled. A
+uniform file length is worth that: it lets a caller compute the storage
+a log occupies from the number of segment files alone, and it makes a
+short file unambiguous evidence of damage rather than something the
+writer does in the ordinary course of events.
 
 If writing the remaining bytes in the logical data record would cause the segment
 file to grow longer than
@@ -448,25 +465,18 @@ written to the previous segment); the writer must roll first, then
 begin the record in the new segment, so that the fresh-record start
 is unambiguously encoded as ``remaining = 0``.
 
-A record must also not begin in a segment file with too little room
-left for its whole data header, so before starting one the writer rolls
-whenever the bytes left are fewer than the data header size -- or fewer
-than one byte, for a format whose data header is empty. A data header
-split across a boundary cannot be recovered if the segment holding its
-leading bytes is lost: the payload length is spread across both files,
-and the surviving tail of a little-endian length cannot be told from
-the tail of a longer one, so the reader cannot find where the payload
-begins. ``remaining`` would then count bytes belonging to a record that
-has to be skipped even though its payload survived whole. Keeping each
-header intact means ``remaining`` always points at the first byte of a
-complete data header, so a record is lost only when its own bytes are.
+That is the only roll the writer performs before a record. It does not
+roll to keep a data header whole: a record begins wherever there is room
+for a byte of it, and its header runs into the next segment file if the
+current one fills first.
 
-The segment file is closed short in that case, leaving at most one byte
-fewer than the data header size unused, and no padding is written to
-make up the difference. A segment file shorter than
-seg_size\ :sub:`max` is therefore normal rather than evidence of a
-fault, and a reader must take the file's own length as the end of its
-data section.
+Every segment file but a session's last is therefore exactly
+seg_size\ :sub:`max` bytes. A shorter one is either the segment the
+writer is still filling, which is the last of its session, or a file
+damaged after it was written. A reader must still take the file's own
+length as the end of its data section, since it cannot tell those two
+apart by length alone; what the length no longer does is describe a
+segment the writer closed early of its own accord.
 
 Error Handling
 ^^^^^^^^^^^^^^
@@ -620,11 +630,17 @@ o   If that room equals the format's data header size exactly, the gap
 Any other value for that room leaves a choice between payload bytes
 lost from the front of the continuing record and whole records lost
 ahead of it, which nothing on disk resolves; the record must then be
-discarded as described above. With more than one segment file missing,
-the size of the gap is itself unknown -- only the last of them is known
-to have been full, and any earlier one may have been closed short of
-``seg_size_max`` to keep a data header whole -- so no arithmetic may be
-attempted.
+discarded as described above. Room smaller than a data header is one of
+those values: the gap held the leading bytes of a header whose tail
+begins this segment, and neither piece can be read without the other.
+
+The recovery is attempted only when exactly one segment file is
+missing. The size of a larger gap is no longer the obstacle -- every
+segment file but a session's last is exactly ``seg_size_max`` bytes, so
+a gap of *k* files held exactly *k* data sections -- but reaching the
+record that continues out of such a gap means accounting for the whole
+records that lay within it, which this specification does not require.
+A reader may implement it; none is obliged to.
 
 This recovery applies only to the ``VariableSimple`` format, whose data
 header holds nothing but the payload length that ``remaining``
@@ -732,20 +748,50 @@ o   The new segment's sequence field equals the previous segment's
 
 The number of bytes still owed to the in-progress record cannot be
 computed until the current record's data header has been fully decoded,
-since Variable* record sizes come from the header itself. Because the
-writer never splits a data header across a segment boundary, no
-crossing can happen part way through one: either no byte of the record
-has been consumed yet, in which case the previous segment ended on a
-record boundary and the new segment's remaining field must be zero, or
-the header has been decoded in full and the owed-byte count is known.
-Both cases are therefore checked at the crossing itself.
+since Variable* record sizes come from the header itself. A crossing
+part way through a header therefore has no owed-byte count to check
+against, and that is the one case the writer does produce.
 
-A reader must still not assume a header is whole in a file it did not
-write. A crossing with no bytes consumed is validated against
-remaining = 0 whether or not a header is being decoded, and the
-sequence check applies to every crossing, so a header that does span a
-boundary in a foreign or damaged file is caught rather than spliced
-together into a bogus record.
+It must not be let through unchecked. The bytes after the boundary
+would be spliced onto the partial header and whatever they decode to
+returned as a record: in practice a segment identifier read as a
+timestamp, giving a record dated decades away carrying a payload of
+bytes that were never one. The check is deferred rather than skipped.
+
+Every byte of the record consumed so far is a header byte, so the rest
+of the header is its length less what has been read, and the new
+segment's remaining field must cover at least that much. Whatever it
+holds beyond that is the payload, which fixes the payload length
+exactly. An intact log satisfies this by construction, remaining being
+the writer's own count of the bytes of this record still to come. The
+reader therefore:
+
+o   Rejects the crossing at once if remaining is too small to hold the
+    rest of the header.
+
+o   Otherwise records the payload length that remaining implies, and
+    checks it against the length the completed header decodes to. A
+    disagreement means the bytes that finished the header were not this
+    record's, and the crossing is rejected.
+
+o   Rejects the crossing if a second crossing inside the same header
+    implies a different payload length.
+
+A rejection is handled exactly as any other failed crossing: the
+offending segment is pushed back, resync is armed, and the read-
+truncated error is returned. The record is lost and the resync picks up
+at the next record the surviving segment can offer, which may be several
+records further on.
+
+This check is weaker than the others in one respect, and a reader should
+not be written as though it were not. Every other crossing is validated
+against a total learned from a header read before the gap, which is
+evidence from the intact side of the damage. This one compares a value
+derived from the damaged side against a header decoded from the damaged
+side, so a garbage header that happens to decode to exactly the implied
+length is accepted. That is a numeric coincidence rather than anything
+an intact log can produce, but it is not the structural impossibility
+the other checks rest on.
 
 Both checks above run at a crossing and so cannot see segments lost
 before the first segment of a session that survives: no crossing
@@ -1247,6 +1293,14 @@ SegmentHeader
     section length implied by a given maximum size, so that callers need
     not repeat the subtraction.
 
+Version Constants
+-----------------
+    The major and minor numbers of the on-disk format this build writes
+    and reads are public, so that a caller can report them or refuse a
+    log it was not built for without parsing a segment file itself. They
+    are the two numbers the compatibility rule under "Segment Header
+    Format" compares against.
+
 RecSize, Timestamp, and RecordCount
 -----------------------------------
     RecSize is the type used to contain the size of the telemetry portion
@@ -1500,6 +1554,17 @@ o   Ensure the callback function record_complete() is called each time
 o   Verify that the user callback function sent() is called when the LogWrite
     drop() function is invoked.
 
+o   Check that every segment file but a session's last is exactly
+    seg_size\ :sub:`max` bytes, for each of the variable formats, and
+    that a data header does straddle a boundary when one falls inside it.
+
+o   Check that a segment file cut short part way through a data header
+    yields the read-truncated error rather than a record, and that the
+    reader then recovers and returns the records after it. A reader that
+    spliced the bytes after the boundary onto the partial header would
+    return a record the writer never wrote, so assert that every record
+    returned is one that was written.
+
 o   Check that clear() leaves no segment file in the directory, starting
     from a log whose segment files include both a closed one and the one
     still open, and that a reader then finds no log there at all.
@@ -1580,7 +1645,8 @@ o   ``-g`` writes the stored file from this run instead of comparing
 
 o   ``-k`` keeps the temporary directory and prints its path, and ``-r``
     and ``-x`` hexdump the segment files before and after the damage.
-    These are for working on a case by hand.
+    These are for working on a case by hand, as is ``-h``, which prints
+    the option summary.
 
 Indices start at one, and the word ``last`` stands for the
 highest-numbered segment file. How many files a run produces depends on
@@ -1602,7 +1668,7 @@ o   ``-c`` overwrites the eight-byte file-type magic with zeros. The file
 
 o   ``-t`` cuts the file to the header plus half of the data bytes the
     file actually holds. Half of the nominal data section is wrong: a
-    segment the writer rolled early is shorter than
+    session's last segment file is shorter than
     seg_size\ :sub:`max`, and truncating to a larger size would pad it
     with zeros instead of cutting it, quietly substituting a different
     kind of damage for the one the case asked for. The header survives,

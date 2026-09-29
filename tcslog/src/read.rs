@@ -141,6 +141,18 @@ pub struct LogRead {
     /// uses it to recover a record whose data header was lost with that
     /// segment. See [`LogRead::header_lost_payload_len`].
     single_segment_gap: Option<SingleSegmentGap>,
+    /// Payload length that a crossing taken part way through a data
+    /// header says this record must have, to be checked against the
+    /// length the completed header decodes to.
+    ///
+    /// A crossing is normally validated against the record's total
+    /// size, which is known because its header was read before the
+    /// crossing. A header that straddles the boundary has no such
+    /// total yet, so the check is deferred instead of skipped: see
+    /// [`LogRead::cross_to_next_in_record`]. `None` whenever no
+    /// crossing mid-header is outstanding, which is every record whose
+    /// header lies in one segment.
+    header_crossing_payload_len: Option<RecSize>,
 }
 
 impl LogRead {
@@ -186,6 +198,7 @@ impl LogRead {
             spanning_filled: 0,
             session_start_loss: None,
             single_segment_gap: None,
+            header_crossing_payload_len: None,
         })
     }
 
@@ -303,6 +316,7 @@ impl LogRead {
 
         self.record_bytes_consumed = 0;
         self.record_total_bytes = None;
+        self.header_crossing_payload_len = None;
 
         // A single-segment gap is worth only the one resynchronization
         // that follows it: take it here so that whatever this read
@@ -423,6 +437,19 @@ impl LogRead {
                 (n, Meta::VariableTsRc(ts, rc), 20u64)
             }
         };
+        // A crossing taken part way through this header could not be
+        // validated at the time; `remaining` said what the payload
+        // length would have to be, and now the header says what it is.
+        // Disagreement means the bytes that completed the header came
+        // from somewhere other than the continuation of this record,
+        // which is what a segment lost or truncated mid-header leaves
+        // behind. The record goes, and the resync that follows picks up
+        // at the next one the surviving segment can offer.
+        if let Some(implied) = self.header_crossing_payload_len.take() {
+            if implied != payload_len {
+                return Err(self.reject_crossing(0));
+            }
+        }
         self.record_total_bytes = Some(header_size + u64::from(payload_len));
         Ok((payload_len, meta))
     }
@@ -579,7 +606,43 @@ impl LogRead {
             if cur.header.remaining != expected {
                 return Err(self.reject_crossing(0));
             }
+            return Ok(());
         }
+
+        // Crossed part way through a data header, so the record's total
+        // size is not known yet and there is nothing to compare
+        // `remaining` against. Letting the crossing through unchecked
+        // would splice the next segment's opening bytes onto a partial
+        // header and hand back whatever they decode to as a record, so
+        // derive what `remaining` implies and check it once the header
+        // is whole.
+        //
+        // Every byte of this record consumed so far is a header byte,
+        // so `header_left` is the rest of the header and `remaining`
+        // must cover at least that much. What it holds beyond that is
+        // the payload, which fixes the payload length: an intact log
+        // satisfies this by construction, since `remaining` is the
+        // writer's own count of the bytes of this record still to come.
+        let consumed = self.record_bytes_consumed;
+        let cur = self.current.as_ref().unwrap();
+        let header_len = u64::from(cur.header.format.data_header_len());
+        let remaining = cur.header.remaining;
+        let implied = header_len
+            .checked_sub(consumed)
+            .and_then(|header_left| remaining.checked_sub(header_left))
+            .and_then(|payload| RecSize::try_from(payload).ok());
+        let Some(payload_len) = implied else {
+            return Err(self.reject_crossing(0));
+        };
+        // A second crossing inside the same header must agree with the
+        // first; segments small enough for that are unusual but legal.
+        if self
+            .header_crossing_payload_len
+            .is_some_and(|earlier| earlier != payload_len)
+        {
+            return Err(self.reject_crossing(0));
+        }
+        self.header_crossing_payload_len = Some(payload_len);
         Ok(())
     }
 

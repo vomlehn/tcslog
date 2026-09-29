@@ -10,7 +10,7 @@
     segment_id: <id2>
     session_id: <id1>
     max_size:   77
-    remaining:  0
+    remaining:  12
     format:     VariableTsRc
     sequence:   2
     #1 1 (4 bytes recovered, rest of record lost)
@@ -20,78 +20,45 @@
     segment_id: <id3>
     session_id: <id1>
     max_size:   77
-    remaining:  6
+    remaining:  18
     format:     VariableTsRc
     sequence:   3
-    #2 1234567 (10 bytes, ts=<ts>, rc=2)
+    #3 1234567 (10 bytes, ts=<ts>, rc=3)
 
 === segment file: pfx-<id4>.log ===
     segment_id: <id4>
     session_id: <id1>
     max_size:   77
-    remaining:  0
+    remaining:  24
     format:     VariableTsRc
     sequence:   4
+    #4 1234567 (10 bytes, ts=<ts>, rc=4)
 
 === segment file: pfx-<id5>.log ===
     segment_id: <id5>
     session_id: <id1>
     max_size:   77
-    remaining:  6
+    remaining:  0
     format:     VariableTsRc
     sequence:   5
-    #3 1234567 (10 bytes, ts=<ts>, rc=3)
 
 === segment file: pfx-<id6>.log ===
     segment_id: <id6>
     session_id: <id1>
     max_size:   77
-    remaining:  0
+    remaining:  6
     format:     VariableTsRc
     sequence:   6
+    #5 1234567 (10 bytes, ts=<ts>, rc=5)
 
 === segment file: pfx-<id7>.log ===
     segment_id: <id7>
     session_id: <id1>
     max_size:   77
-    remaining:  6
+    remaining:  12
     format:     VariableTsRc
     sequence:   7
-    #4 1234567 (10 bytes, ts=<ts>, rc=4)
-
-=== segment file: pfx-<id8>.log ===
-    segment_id: <id8>
-    session_id: <id1>
-    max_size:   77
-    remaining:  0
-    format:     VariableTsRc
-    sequence:   8
-
-=== segment file: pfx-<id9>.log ===
-    segment_id: <id9>
-    session_id: <id1>
-    max_size:   77
-    remaining:  6
-    format:     VariableTsRc
-    sequence:   9
-    #5 1234567 (10 bytes, ts=<ts>, rc=5)
-
-=== segment file: pfx-<id10>.log ===
-    segment_id: <id10>
-    session_id: <id1>
-    max_size:   77
-    remaining:  0
-    format:     VariableTsRc
-    sequence:   10
-
-=== segment file: pfx-<id11>.log ===
-    segment_id: <id11>
-    session_id: <id1>
-    max_size:   77
-    remaining:  6
-    format:     VariableTsRc
-    sequence:   11
     #6 1234567 (10 bytes, ts=<ts>, rc=6)
 
-read 6 message(s) across 11 file(s)
+read 5 message(s) across 7 file(s)
 1 segment file(s) lost

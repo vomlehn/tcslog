@@ -330,36 +330,32 @@ impl LogWrite {
         let total = header_len + msg.len();
         let total_u32 = RecSize::try_from(total).map_err(|_| LogError::PayloadTooLarge)?;
 
-        // Roll before starting the record if what is left of the
-        // current segment cannot hold the whole data header.
+        // Roll only when the current segment is exactly full, never
+        // merely because too little is left for a whole data header. A
+        // header is allowed to straddle the boundary, which is what
+        // keeps every segment file but a session's last one exactly
+        // `seg_size_max` bytes long: rolling early to keep a header
+        // whole would close the file up to `data_header_len() - 1`
+        // bytes short instead.
         //
-        // A data header that straddles a segment boundary cannot be
-        // recovered if the segment holding its leading bytes is lost:
-        // the payload length is spread across both segments, and the
-        // surviving tail of a little-endian length is indistinguishable
-        // from the tail of a longer record, so the reader has no way to
-        // tell where the record's payload begins. The `remaining` field
-        // then counts those orphaned bytes and every reader that
-        // resyncs here must skip the record, even though its payload
-        // survived intact. Keeping each header whole means `remaining`
-        // always lands on the first byte of a complete data header, so
-        // a record is lost only when its own bytes are.
+        // The price is a record whose header spans two segments and
+        // whose first segment is later lost. Its payload length is
+        // spread across both files, and the surviving tail of a
+        // little-endian length cannot be told from the tail of a longer
+        // one, so the reader cannot find where the payload begins and
+        // must skip the record even though those payload bytes are
+        // intact. A uniform file length is worth that here.
         //
-        // The segment is simply closed short of `seg_size_max` - at
-        // most `data_header_len() - 1` bytes go unused, and no padding
-        // is written, so the reader sees the shorter file length and
-        // stops there.
-        //
-        // Rolling here also happens BEFORE arming `record_bytes_left`
-        // so the new segment's header records `remaining = 0`. That
-        // value is the reader's "no prior record continues into this
-        // segment" signal and is what lets a resync recover records
-        // after a missing predecessor when a record exactly fills a
-        // segment's data section. Rolling after `record_bytes_left` is
-        // set would instead stamp `remaining = total`, which the reader
-        // interprets as a continuation and skips.
-        let header_room = self.format.data_header_len().max(1);
-        if self.seg_size_max.saturating_sub(self.file_pos) < header_room {
+        // The roll that remains has to happen BEFORE `record_bytes_left`
+        // is armed, so the new segment's header records `remaining = 0`.
+        // That is the reader's "no prior record continues into this
+        // segment" signal, and it is what lets a resync pick up records
+        // after a missing predecessor when a record ends exactly on a
+        // segment boundary. Letting `write_bytes` roll instead, with
+        // the count already armed, would stamp `remaining = total` on a
+        // segment where the record in fact begins, and the reader would
+        // skip that many bytes as an orphaned continuation.
+        if self.seg_size_max.saturating_sub(self.file_pos) == 0 {
             self.roll_segment()?;
         }
         self.record_bytes_left = total as u64;

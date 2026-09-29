@@ -45,7 +45,7 @@
     segment_id: <id6>
     session_id: <id1>
     max_size:   63
-    remaining:  0
+    remaining:  14
     format:     VariableSimple
     sequence:   5
 
@@ -53,7 +53,7 @@
     segment_id: <id7>
     session_id: <id1>
     max_size:   63
-    remaining:  6
+    remaining:  4
     format:     VariableSimple
     sequence:   6
     #4 123456789 (12 bytes)
@@ -62,17 +62,9 @@
     segment_id: <id8>
     session_id: <id1>
     max_size:   63
-    remaining:  12
+    remaining:  10
     format:     VariableSimple
     sequence:   7
-
-=== segment file: pfx-<id9>.log ===
-    segment_id: <id9>
-    session_id: <id1>
-    max_size:   63
-    remaining:  2
-    format:     VariableSimple
-    sequence:   8
     #5 123456789 (12 bytes)
 
-read 4 message(s) across 9 file(s)
+read 4 message(s) across 8 file(s)

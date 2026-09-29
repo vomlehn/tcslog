@@ -11,7 +11,7 @@
     segment_id: <id3>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  23
     format:     VariableTsRc
     sequence:   4
     -- 2 missing segment file(s); resynchronizing --
@@ -20,127 +20,130 @@
     segment_id: <id4>
     session_id: <id2>
     max_size:   74
-    remaining:  7
+    remaining:  2
     format:     VariableTsRc
     sequence:   5
-    #3 12345 (8 bytes, ts=<ts>, rc=3)
 
 === segment file: pfx-<id5>.log ===
     segment_id: <id5>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  11
     format:     VariableTsRc
     sequence:   6
+    #5 1234567 (10 bytes, ts=<ts>, rc=5)
 
 === segment file: pfx-<id6>.log ===
     segment_id: <id6>
     session_id: <id2>
     max_size:   74
-    remaining:  5
+    remaining:  16
     format:     VariableTsRc
     sequence:   7
-    #4 123 (6 bytes, ts=<ts>, rc=4)
+    #6 123 (6 bytes, ts=<ts>, rc=6)
 
 === segment file: pfx-<id7>.log ===
     segment_id: <id7>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  18
     format:     VariableTsRc
     sequence:   8
+    #7  (3 bytes, ts=<ts>, rc=7)
 
 === segment file: pfx-<id8>.log ===
     segment_id: <id8>
     session_id: <id2>
     max_size:   74
-    remaining:  9
+    remaining:  22
     format:     VariableTsRc
     sequence:   9
-    #5 1234567 (10 bytes, ts=<ts>, rc=5)
 
 === segment file: pfx-<id9>.log ===
     segment_id: <id9>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  1
     format:     VariableTsRc
     sequence:   10
+    #8 12 (5 bytes, ts=<ts>, rc=8)
 
 === segment file: pfx-<id10>.log ===
     segment_id: <id10>
     session_id: <id2>
     max_size:   74
-    remaining:  5
+    remaining:  2
     format:     VariableTsRc
     sequence:   11
-    #6 123 (6 bytes, ts=<ts>, rc=6)
+    #9 (2 bytes, ts=<ts>, rc=9)
 
 === segment file: pfx-<id11>.log ===
     segment_id: <id11>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  5
     format:     VariableTsRc
     sequence:   12
+    #10  (4 bytes, ts=<ts>, rc=10)
 
 === segment file: pfx-<id12>.log ===
     segment_id: <id12>
     session_id: <id2>
     max_size:   74
-    remaining:  2
+    remaining:  12
     format:     VariableTsRc
     sequence:   13
-    #7  (3 bytes, ts=<ts>, rc=7)
+    #11 1234 (8 bytes, ts=<ts>, rc=11)
 
 === segment file: pfx-<id13>.log ===
     segment_id: <id13>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  17
     format:     VariableTsRc
     sequence:   14
+    #12 12 (6 bytes, ts=<ts>, rc=12)
 
 === segment file: pfx-<id14>.log ===
     segment_id: <id14>
     session_id: <id2>
     max_size:   74
-    remaining:  4
+    remaining:  25
     format:     VariableTsRc
     sequence:   15
-    #8 12 (5 bytes, ts=<ts>, rc=8)
 
 === segment file: pfx-<id15>.log ===
     segment_id: <id15>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  4
     format:     VariableTsRc
     sequence:   16
+    #13 12345 (9 bytes, ts=<ts>, rc=13)
 
 === segment file: pfx-<id16>.log ===
     segment_id: <id16>
     session_id: <id2>
     max_size:   74
-    remaining:  1
+    remaining:  10
     format:     VariableTsRc
     sequence:   17
-    #9 (2 bytes, ts=<ts>, rc=9)
+    #14 123 (7 bytes, ts=<ts>, rc=14)
 
 === segment file: pfx-<id17>.log ===
     segment_id: <id17>
     session_id: <id2>
     max_size:   74
-    remaining:  4
+    remaining:  18
     format:     VariableTsRc
     sequence:   18
-    #10  (4 bytes, ts=<ts>, rc=10)
+    #15 12345 (9 bytes, ts=<ts>, rc=15)
 
 === segment file: pfx-<id18>.log ===
     segment_id: <id18>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  24
     format:     VariableTsRc
     sequence:   19
 
@@ -148,155 +151,54 @@
     segment_id: <id19>
     session_id: <id2>
     max_size:   74
-    remaining:  7
+    remaining:  3
     format:     VariableTsRc
     sequence:   20
-    #11 1234 (8 bytes, ts=<ts>, rc=11)
+    #16 123 (7 bytes, ts=<ts>, rc=16)
 
 === segment file: pfx-<id20>.log ===
     segment_id: <id20>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  2
     format:     VariableTsRc
     sequence:   21
+     (0 bytes, ts=<ts>, rc=17)
 
 === segment file: pfx-<id21>.log ===
     segment_id: <id21>
     session_id: <id2>
     max_size:   74
-    remaining:  5
+    remaining:  7
     format:     VariableTsRc
     sequence:   22
-    #12 12 (6 bytes, ts=<ts>, rc=12)
+    #18 12 (6 bytes, ts=<ts>, rc=18)
 
 === segment file: pfx-<id22>.log ===
     segment_id: <id22>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  16
     format:     VariableTsRc
     sequence:   23
+    #19 123456 (10 bytes, ts=<ts>, rc=19)
 
 === segment file: pfx-<id23>.log ===
     segment_id: <id23>
     session_id: <id2>
     max_size:   74
-    remaining:  8
+    remaining:  24
     format:     VariableTsRc
     sequence:   24
-    #13 12345 (9 bytes, ts=<ts>, rc=13)
 
 === segment file: pfx-<id24>.log ===
     segment_id: <id24>
     session_id: <id2>
     max_size:   74
-    remaining:  0
+    remaining:  3
     format:     VariableTsRc
     sequence:   25
-
-=== segment file: pfx-<id25>.log ===
-    segment_id: <id25>
-    session_id: <id2>
-    max_size:   74
-    remaining:  6
-    format:     VariableTsRc
-    sequence:   26
-    #14 123 (7 bytes, ts=<ts>, rc=14)
-
-=== segment file: pfx-<id26>.log ===
-    segment_id: <id26>
-    session_id: <id2>
-    max_size:   74
-    remaining:  0
-    format:     VariableTsRc
-    sequence:   27
-
-=== segment file: pfx-<id27>.log ===
-    segment_id: <id27>
-    session_id: <id2>
-    max_size:   74
-    remaining:  8
-    format:     VariableTsRc
-    sequence:   28
-    #15 12345 (9 bytes, ts=<ts>, rc=15)
-
-=== segment file: pfx-<id28>.log ===
-    segment_id: <id28>
-    session_id: <id2>
-    max_size:   74
-    remaining:  0
-    format:     VariableTsRc
-    sequence:   29
-
-=== segment file: pfx-<id29>.log ===
-    segment_id: <id29>
-    session_id: <id2>
-    max_size:   74
-    remaining:  6
-    format:     VariableTsRc
-    sequence:   30
-    #16 123 (7 bytes, ts=<ts>, rc=16)
-
-=== segment file: pfx-<id30>.log ===
-    segment_id: <id30>
-    session_id: <id2>
-    max_size:   74
-    remaining:  0
-    format:     VariableTsRc
-    sequence:   31
-     (0 bytes, ts=<ts>, rc=17)
-
-=== segment file: pfx-<id31>.log ===
-    segment_id: <id31>
-    session_id: <id2>
-    max_size:   74
-    remaining:  0
-    format:     VariableTsRc
-    sequence:   32
-
-=== segment file: pfx-<id32>.log ===
-    segment_id: <id32>
-    session_id: <id2>
-    max_size:   74
-    remaining:  5
-    format:     VariableTsRc
-    sequence:   33
-    #18 12 (6 bytes, ts=<ts>, rc=18)
-
-=== segment file: pfx-<id33>.log ===
-    segment_id: <id33>
-    session_id: <id2>
-    max_size:   74
-    remaining:  0
-    format:     VariableTsRc
-    sequence:   34
-
-=== segment file: pfx-<id34>.log ===
-    segment_id: <id34>
-    session_id: <id2>
-    max_size:   74
-    remaining:  9
-    format:     VariableTsRc
-    sequence:   35
-    #19 123456 (10 bytes, ts=<ts>, rc=19)
-
-=== segment file: pfx-<id35>.log ===
-    segment_id: <id35>
-    session_id: <id2>
-    max_size:   74
-    remaining:  0
-    format:     VariableTsRc
-    sequence:   36
-
-=== segment file: pfx-<id36>.log ===
-    segment_id: <id36>
-    session_id: <id2>
-    max_size:   74
-    remaining:  8
-    format:     VariableTsRc
-    sequence:   37
     #20 12345 (9 bytes, ts=<ts>, rc=20)
 
-read 18 message(s) across 35 file(s)
+read 16 message(s) across 23 file(s)
 3 segment file(s) lost
