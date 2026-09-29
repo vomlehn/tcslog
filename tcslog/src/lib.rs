@@ -60,9 +60,9 @@ pub use write::{LogWrite, WriteCallbacks};
 #[cfg(all(test, feature = "write"))]
 mod tests {
     use super::*;
-    use std::fs::File;
+    use std::fs::{self, File};
     use std::io::Write as _;
-    use std::path::Path;
+    use std::path::{Path, PathBuf};
     use tempfile::TempDir;
 
     fn dir_str(d: &TempDir) -> String {
@@ -293,7 +293,7 @@ mod tests {
         // lost segment.
         assert!(matches!(
             reader.read(&mut buf),
-            Err(LogError::ReadTruncated(1))
+            Err(LogError::ReadTruncated { lost: 1, n: 0 })
         ));
         // Past the report, the segment that survived is read normally.
         // Either it starts with a whole record, or the corrupt segment
@@ -360,6 +360,7 @@ mod tests {
         // segment gap must surface as ReadTruncated.
         let mut saw_truncation = false;
         let mut lost_reported = None;
+        let mut truncated_payload = None;
         let mut saw_c2 = false;
         loop {
             match reader.read(&mut buf) {
@@ -376,9 +377,12 @@ mod tests {
                         "record 1 read succeeded despite missing segment"
                     );
                 }
-                Err(LogError::ReadTruncated(lost)) => {
+                Err(LogError::ReadTruncated { lost, n }) => {
                     saw_truncation = true;
                     lost_reported = Some(lost);
+                    // Copied out here: later reads overwrite the
+                    // buffer the truncation left them in.
+                    truncated_payload = Some(buf[..n as usize].to_vec());
                 }
                 Err(LogError::Eof) => break,
                 Err(e) => panic!("unexpected error: {e:?}"),
@@ -393,6 +397,21 @@ mod tests {
             Some(1),
             "one segment was deleted, so the truncation must report one \
              lost segment file"
+        );
+        // The bytes of record 1 that lived in the segments before the
+        // gap are payload the reader did recover, so the truncation
+        // must hand them back rather than drop them. They are part of
+        // a 200-byte record, so there is at least one of them and
+        // fewer than the whole record.
+        let got = truncated_payload.expect("truncation must report its recovered payload");
+        assert!(
+            !got.is_empty() && got.len() < 200,
+            "expected part of record 1 to be recovered, got {} byte(s)",
+            got.len()
+        );
+        assert!(
+            got.iter().all(|b| *b == 0xB1),
+            "the recovered bytes must be record 1's payload"
         );
         assert!(saw_c2, "expected record 2 to be recovered after the gap");
     }
@@ -454,7 +473,7 @@ mod tests {
         // Record B ran off the end of the surviving segments. That is a
         // truncation, not the end of the log.
         match reader.read(&mut buf) {
-            Err(LogError::ReadTruncated(lost)) => assert_eq!(
+            Err(LogError::ReadTruncated { lost, .. }) => assert_eq!(
                 lost, 0,
                 "with no following segment there is no sequence field to \
                  measure the gap against, so no count can be reported"
@@ -670,7 +689,7 @@ mod tests {
                 Ok(_) => records += 1,
                 Err(LogError::Eof) => break,
                 Err(LogError::SessionEnd) => sessions_ended += 1,
-                Err(LogError::ReadTruncated(lost)) => reported_lost += lost,
+                Err(LogError::ReadTruncated { lost, .. }) => reported_lost += lost,
                 Err(e) => panic!("unexpected error: {e:?}"),
             }
         }
@@ -832,7 +851,7 @@ mod tests {
             match reader.read(&mut buf) {
                 Ok(res) => recovered.push(buf[..res.n as usize].to_vec()),
                 Err(LogError::Eof) => break,
-                Err(LogError::ReadTruncated(lost)) => reported_lost += lost,
+                Err(LogError::ReadTruncated { lost, .. }) => reported_lost += lost,
                 Err(e) => panic!("unexpected error: {e:?}"),
             }
         }
@@ -846,6 +865,139 @@ mod tests {
             "the lost segment opened the session, so its loss must still \
              be reported rather than passed over"
         );
+    }
+
+    /// Writes `count` 12-byte `VariableSimple` records into a log whose
+    /// data section holds 10 bytes, and returns the directory and the
+    /// segment paths in write order.
+    ///
+    /// Each record is 16 bytes -- a 4-byte header and a 12-byte payload
+    /// -- so the boundaries fall inside segments rather than on them:
+    /// segment 0 holds record 1's header and its first 6 payload bytes,
+    /// segment 1 the other 6 plus the whole of record 2's header, and
+    /// segment 2 the first 10 bytes of record 2's payload. Losing
+    /// segment 1 therefore loses record 2's header and not one byte of
+    /// its payload, which is the shape the gap arithmetic has to place.
+    fn write_split_header_log(dir: &TempDir, prefix: &str, payloads: &[&[u8]]) -> Vec<PathBuf> {
+        let d = dir_str(dir);
+        {
+            let mut log = LogWrite::new(
+                &d,
+                prefix,
+                ".log",
+                SEGMENT_FILE_HEADER_LEN + 10,
+                Format::VariableSimple,
+                WriteCallbacks::default(),
+            )
+            .unwrap();
+            for p in payloads {
+                assert_eq!(p.len(), 12, "each payload must be 12 bytes");
+                log.write(p).unwrap();
+            }
+            log.flush().unwrap();
+        }
+        let mut segments: Vec<PathBuf> = std::fs::read_dir(dir.path())
+            .unwrap()
+            .filter_map(|e| e.ok().map(|e| e.path()))
+            .collect();
+        segments.sort();
+        segments
+    }
+
+    /// Reads a log to its end, returning the payloads that came back,
+    /// the segment files reported lost, and the payload bytes handed
+    /// back with each truncation.
+    fn drain_log(reader: &mut LogRead) -> (Vec<Vec<u8>>, u64, Vec<Vec<u8>>) {
+        let mut buf = vec![0u8; 64];
+        let mut recovered = Vec::new();
+        let mut lost = 0u64;
+        let mut partials = Vec::new();
+        loop {
+            match reader.read(&mut buf) {
+                Ok(res) => recovered.push(buf[..res.n as usize].to_vec()),
+                Err(LogError::Eof) => break,
+                Err(LogError::ReadTruncated { lost: l, n }) => {
+                    lost += l;
+                    if n > 0 {
+                        partials.push(buf[..n as usize].to_vec());
+                    }
+                }
+                Err(e) => panic!("unexpected error: {e:?}"),
+            }
+        }
+        (recovered, lost, partials)
+    }
+
+    #[test]
+    fn record_whose_header_was_lost_with_one_segment_is_reconstructed() {
+        // A gap of exactly one segment file is the one gap whose size is
+        // known: the segment after it continues a record, so the missing
+        // one ended mid-record, and the writer only rolls mid-record on
+        // reaching `max_size`. Here the missing segment held record 1's
+        // last 6 bytes and record 2's 4-byte header -- 10 bytes, all
+        // accounted for -- which leaves record 2's payload beginning at
+        // the first byte of the next segment and running for the
+        // `remaining` bytes that segment declares. Every byte of record
+        // 2's payload is on disk, so the reader must hand it back rather
+        // than discard the record along with its header.
+        const A: &[u8] = b"AAAAAAAAAAAA";
+        const B: &[u8] = b"BBBBBBBBBBBB";
+        const C: &[u8] = b"CCCCCCCCCCCC";
+        let dir = tempfile::tempdir().unwrap();
+        let segments = write_split_header_log(&dir, "hl-", &[A, B, C]);
+        assert!(
+            segments.len() >= 3,
+            "three 16-byte records need at least three 10-byte data \
+             sections, got {}",
+            segments.len()
+        );
+        std::fs::remove_file(&segments[1]).unwrap();
+
+        let mut reader = LogRead::new(&dir_str(&dir), "hl-", ".log").unwrap();
+        let (recovered, lost, partials) = drain_log(&mut reader);
+        assert_eq!(
+            recovered,
+            vec![B.to_vec(), C.to_vec()],
+            "record 2's payload survived the gap whole, so it must be \
+             returned with the length its continuation count gives it"
+        );
+        assert_eq!(lost, 1, "one segment file was removed");
+        assert_eq!(
+            partials,
+            vec![A[..6].to_vec()],
+            "record 1 ran into the gap, so only the bytes ahead of it \
+             can come back"
+        );
+    }
+
+    #[test]
+    fn record_whose_header_was_lost_with_two_segments_stays_lost() {
+        // The counterpart to the single-segment case: with two segments
+        // gone, only the last of them is known to have been full. Any
+        // earlier one may have been closed short of `max_size` to keep a
+        // data header whole, and the shortfall is recorded nowhere, so
+        // the bytes the gap held cannot be accounted for and nothing in
+        // it can be placed. A reader that guessed anyway would hand back
+        // a record assembled from the wrong offset, which is worse than
+        // reporting the loss.
+        const A: &[u8] = b"AAAAAAAAAAAA";
+        const B: &[u8] = b"BBBBBBBBBBBB";
+        const C: &[u8] = b"CCCCCCCCCCCC";
+        let dir = tempfile::tempdir().unwrap();
+        let segments = write_split_header_log(&dir, "hl2-", &[A, B, C]);
+        assert!(segments.len() >= 4, "expected at least four segments");
+        std::fs::remove_file(&segments[1]).unwrap();
+        std::fs::remove_file(&segments[2]).unwrap();
+
+        let mut reader = LogRead::new(&dir_str(&dir), "hl2-", ".log").unwrap();
+        let (recovered, lost, _) = drain_log(&mut reader);
+        assert_eq!(
+            recovered,
+            vec![C.to_vec()],
+            "record 2 lost its header to a gap of unknown size, so it \
+             must be dropped rather than guessed at"
+        );
+        assert_eq!(lost, 2, "two segment files were removed");
     }
 
     #[test]
@@ -907,6 +1059,7 @@ mod tests {
         let mut buf = vec![0u8; 4096];
         let mut saw_truncation = false;
         let mut lost_reported = None;
+        let mut truncated_payload = None;
         let mut recovered = Vec::new();
         loop {
             match reader.read(&mut buf) {
@@ -939,9 +1092,10 @@ mod tests {
                     }
                     recovered.push(idx);
                 }
-                Err(LogError::ReadTruncated(lost)) => {
+                Err(LogError::ReadTruncated { lost, n }) => {
                     saw_truncation = true;
                     lost_reported = Some(lost);
+                    truncated_payload = Some(n);
                 }
                 Err(LogError::Eof) => break,
                 Err(e) => panic!("unexpected error: {e:?}"),
@@ -968,6 +1122,14 @@ mod tests {
             recovered.len() > 1,
             "the reader must resynchronize and recover records after \
              the gap, got {recovered:?}"
+        );
+        // The gap fell inside record 2's data header, so the read died
+        // before it reached any payload: there is nothing of the record
+        // to hand back.
+        assert_eq!(
+            truncated_payload,
+            Some(0),
+            "a gap that splits a data header recovers no payload"
         );
     }
 
@@ -1022,7 +1184,7 @@ mod tests {
                     assert_eq!(res.n, 1);
                     recovered.push(buf[0]);
                 }
-                Err(LogError::ReadTruncated(_)) => {}
+                Err(LogError::ReadTruncated { .. }) => {}
                 Err(LogError::Eof) => break,
                 Err(e) => panic!("unexpected error: {e:?}"),
             }
@@ -1246,32 +1408,83 @@ mod tests {
         assert!(log.write(&[0x22u8; 5]).is_ok());
     }
 
+    /// Segment files of this log present in `dir`, by name.
+    fn segment_files(dir: &TempDir, prefix: &str, suffix: &str) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(dir.path())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(prefix) && n.ends_with(suffix))
+            .collect();
+        names.sort();
+        names
+    }
+
     #[test]
-    fn clear_removes_prior_segments_only() {
+    fn clear_removes_every_segment_file() {
         let dir = tempfile::tempdir().unwrap();
         let d = dir_str(&dir);
-        {
-            let mut log = LogWrite::new(
-                &d,
-                "cl-",
-                ".log",
-                SEGMENT_FILE_HEADER_LEN + 40,
-                Format::VariableTsRc,
-                WriteCallbacks::default(),
-            )
-            .unwrap();
-            // Force at least one rollover.
-            for _ in 0..3 {
-                log.write(&[0xFFu8; 100]).unwrap();
-            }
-            log.clear().unwrap();
+        let mut log = LogWrite::new(
+            &d,
+            "cl-",
+            ".log",
+            SEGMENT_FILE_HEADER_LEN + 40,
+            Format::VariableTsRc,
+            WriteCallbacks::default(),
+        )
+        .unwrap();
+        // Force at least one rollover, so that the log holds both a
+        // segment file that has been closed and one still open.
+        for _ in 0..3 {
+            log.write(&[0xFFu8; 100]).unwrap();
         }
-        // The current file at drop time survives clear(); everything
-        // else is gone. Reading should therefore succeed but consume
-        // just the tail record.
-        let mut reader = LogRead::new(&d, "cl-", ".log").unwrap();
+        assert!(segment_files(&dir, "cl-", ".log").len() > 1);
+
+        log.clear().unwrap();
+
+        // Nothing survives, the segment that was open included. A log
+        // cleared down to its last segment would still read back as a
+        // log, which is the outcome this guards against.
+        assert!(segment_files(&dir, "cl-", ".log").is_empty());
+        assert!(matches!(
+            LogRead::new(&d, "cl-", ".log"),
+            Err(LogError::NoSegmentFiles)
+        ));
+    }
+
+    #[test]
+    fn write_after_clear_starts_a_new_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let d = dir_str(&dir);
+        let mut log = LogWrite::new(
+            &d,
+            "cs-",
+            ".log",
+            SEGMENT_FILE_HEADER_LEN + 40,
+            Format::VariableTsRc,
+            WriteCallbacks::default(),
+        )
+        .unwrap();
+        for _ in 0..3 {
+            log.write(&[0xFFu8; 100]).unwrap();
+        }
+        let old_session = log.session_id();
+
+        log.clear().unwrap();
+        log.write(b"after").unwrap();
+        assert_ne!(log.session_id(), old_session);
+        // The record count restarts with the session; a record numbered
+        // from the cleared session would misreport the log's contents.
+        assert!(matches!(log.last_meta(), Meta::VariableTsRc(_, 1)));
+        drop(log);
+
+        // The log now holds exactly the one record written after the
+        // clear, read back without any report of a loss: the new
+        // session's first segment carries sequence zero, so the reader
+        // has no missing predecessors to account for.
+        let mut reader = LogRead::new(&d, "cs-", ".log").unwrap();
         let mut buf = vec![0u8; 4096];
-        // Any read should either succeed or hit Eof gracefully.
-        let _ = reader.read(&mut buf);
+        let res = reader.read(&mut buf).unwrap();
+        assert_eq!(&buf[..res.n as usize], b"after");
+        assert!(matches!(reader.read(&mut buf), Err(LogError::Eof)));
     }
 }

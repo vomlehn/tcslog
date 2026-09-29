@@ -18,7 +18,7 @@ use crate::format::{Format, Meta, RecSize};
 use crate::header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN};
 use crate::segid::SegId;
 use crate::seq_id::SeqId;
-use crate::util::{check_no_path_delim, enumerate_segments, segment_file_name, segment_path};
+use crate::util::{check_no_path_delim, enumerate_segments, segment_path};
 use crate::TIMER_RESOLUTION_NS;
 
 /// Largest per-record data header any [`Format`] produces. Sized to the
@@ -173,42 +173,70 @@ impl LogWrite {
             (callbacks.send)(&path).map_err(LogError::IoError)?;
         }
 
-        let (segment_id, current_path, mut file) = create_segment_file(&dir_path, prefix, suffix)?;
-        let session_id = segment_id;
-
-        let header = SegmentHeader {
-            segment_id,
-            session_id,
-            max_size: seg_size_max,
-            remaining: 0,
-            format,
-            sequence: SeqId::ZERO,
-        };
-        header.write_to(&mut file)?;
-
-        Ok(LogWrite {
+        // Built with no segment file so that `start_session` is the one
+        // place a session's first segment is created, shared with the
+        // restart after `clear`. The identifiers below are placeholders
+        // that `start_session` overwrites; if it fails, the half-built
+        // writer is dropped here rather than returned.
+        let mut log = LogWrite {
             dir: dir_path,
             prefix: prefix.to_string(),
             suffix: suffix.to_string(),
             seg_size_max,
             format,
             callbacks,
-            session_id,
-            segment_id,
-            current_path,
-            file: Some(file),
-            file_pos: SEGMENT_FILE_HEADER_LEN,
+            session_id: SegId::from_u64(0),
+            segment_id: SegId::from_u64(0),
+            current_path: PathBuf::new(),
+            file: None,
+            file_pos: 0,
             record_bytes_left: 0,
             record_count: 0,
             session_sequence: SeqId::ZERO,
-            last_meta: match format {
-                Format::Fixed(_) => Meta::Fixed,
-                Format::VariableSimple => Meta::VariableSimple,
-                // Replaced by the real timestamp and record count on the
-                // first successful `write`.
-                Format::VariableTsRc => Meta::VariableTsRc(0, 0),
-            },
-        })
+            last_meta: initial_meta(format),
+        };
+        log.start_session()?;
+        Ok(log)
+    }
+
+    /// Creates the first segment file of a new session and makes it
+    /// current.
+    ///
+    /// The new segment names itself as the session, carries
+    /// `sequence` zero and `remaining` zero, and resets the record
+    /// count, because a session's records are numbered from one. Used
+    /// both to open a writer and to resume one after [`LogWrite::clear`]
+    /// has removed every segment file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::ClockError`] or [`LogError::IoError`] if the
+    /// segment file cannot be created, or [`LogError::IoError`] if its
+    /// header cannot be written.
+    fn start_session(&mut self) -> Result<(), LogError> {
+        let (segment_id, current_path, mut file) =
+            create_segment_file(&self.dir, &self.prefix, &self.suffix)?;
+
+        let header = SegmentHeader {
+            segment_id,
+            session_id: segment_id,
+            max_size: self.seg_size_max,
+            remaining: 0,
+            format: self.format,
+            sequence: SeqId::ZERO,
+        };
+        header.write_to(&mut file)?;
+
+        self.session_id = segment_id;
+        self.segment_id = segment_id;
+        self.current_path = current_path;
+        self.file = Some(file);
+        self.file_pos = SEGMENT_FILE_HEADER_LEN;
+        self.record_bytes_left = 0;
+        self.record_count = 0;
+        self.session_sequence = SeqId::ZERO;
+        self.last_meta = initial_meta(self.format);
+        Ok(())
     }
 
     /// The session identifier of this writer. Equals the segment
@@ -282,6 +310,16 @@ impl LogWrite {
             }
         }
         let payload_len = RecSize::try_from(msg.len()).map_err(|_| LogError::PayloadTooLarge)?;
+
+        // `clear` leaves no segment file behind, so one is created here
+        // for the first record written after it. This precedes building
+        // the data header because starting a session resets the record
+        // count, which the header about to be built draws from: the
+        // other order would stamp this record with the cleared
+        // session's count and then hand the same number out again.
+        if self.file.is_none() {
+            self.start_session()?;
+        }
 
         let mut header_buf = [0u8; MAX_DATA_HEADER_LEN];
         let header_len = self.build_data_header(payload_len, &mut header_buf)?;
@@ -373,24 +411,49 @@ impl LogWrite {
         Ok(())
     }
 
-    /// Removes every segment file for this log from `dir` except the
-    /// current one. The current segment is preserved because the file
-    /// handle is still open; on platforms that do not permit deleting
-    /// an open file, removing it would fail and leave the writer in an
-    /// inconsistent state.
+    /// Removes every segment file for this log from `dir`, the one
+    /// being written included.
+    ///
+    /// The current segment file is closed first, since a file still
+    /// open cannot be removed on every platform this library targets.
+    /// Closing it is what allows the log to be cleared completely
+    /// rather than down to its last segment: a segment left behind
+    /// would still be read back as a log, which is not what a caller
+    /// reclaiming storage asked for.
+    ///
+    /// The records in those files are discarded, a record part way
+    /// through being written among them. `send` is not called for any
+    /// of them: it hands a segment file to user code, and these are
+    /// being thrown away rather than handed anywhere.
+    ///
+    /// The writer is left with no current segment file and stays
+    /// usable. The next [`LogWrite::write`] begins a new session, whose
+    /// first segment file carries `sequence` zero and numbers its
+    /// records from one. A new session is required rather than tidier:
+    /// continuing this one's sequence would leave a lone segment
+    /// claiming a position that the reader, finding nothing before it,
+    /// must report as that many segment files lost.
+    ///
+    /// Until that write, [`LogWrite::current_segment_id`] and
+    /// [`LogWrite::session_id`] still report the cleared session's
+    /// identifiers, which now name files that no longer exist.
     ///
     /// # Errors
     ///
     /// Returns [`LogError::IoError`] if directory enumeration or file
-    /// removal fails.
+    /// removal fails. The current segment file is closed before either
+    /// is attempted, so it is closed even when the removal that follows
+    /// fails.
     pub fn clear(&mut self) -> Result<(), LogError> {
-        let current_name = segment_file_name(&self.prefix, self.segment_id, &self.suffix);
+        // Dropping the handle closes the file. Done before the removal
+        // loop rather than within it so that the current segment is no
+        // more special than any other by the time names are unlinked.
+        self.file = None;
+        self.file_pos = 0;
+        self.record_bytes_left = 0;
+
         for id in enumerate_segments(&self.dir, &self.prefix, &self.suffix)? {
-            let name = segment_file_name(&self.prefix, id, &self.suffix);
-            if name == current_name {
-                continue;
-            }
-            let path = self.dir.join(&name);
+            let path = segment_path(&self.dir, &self.prefix, id, &self.suffix);
             fs::remove_file(&path).map_err(LogError::IoError)?;
         }
         Ok(())
@@ -505,6 +568,19 @@ impl Drop for LogWrite {
 /// Repeatedly reads the wall clock and attempts to create a segment
 /// file whose name derives from the current time. Retries until an
 /// unused name is found or a non-`AlreadyExists` error is returned.
+/// The metadata a session reports before any of its records has been
+/// written. For the formats carrying no per-record metadata this is
+/// simply the variant matching the log's format; for
+/// [`Format::VariableTsRc`] the real timestamp and record count replace
+/// it on the first successful write.
+fn initial_meta(format: Format) -> Meta {
+    match format {
+        Format::Fixed(_) => Meta::Fixed,
+        Format::VariableSimple => Meta::VariableSimple,
+        Format::VariableTsRc => Meta::VariableTsRc(0, 0),
+    }
+}
+
 fn create_segment_file(
     dir: &Path,
     prefix: &str,

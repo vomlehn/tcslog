@@ -3,6 +3,8 @@
 use std::io;
 use thiserror::Error;
 
+use crate::format::RecSize;
+
 /// Errors returned by any tcslog operation.
 #[derive(Debug, Error)]
 pub enum LogError {
@@ -64,17 +66,26 @@ pub enum LogError {
     /// does not match the bytes still owed to the current record. The
     /// record was truncated; the next call to read will resynchronize
     /// on the next available segment file.
-    ///
-    /// The wrapped value is the number of segment files missing from
-    /// the session at that crossing, derived from the gap in the
-    /// `sequence` counter. It is zero when the sequence is intact and
-    /// the crossing was rejected because the surviving segment is
-    /// corrupt or truncated rather than because one was lost.
     #[error(
         "read truncated by missing or corrupted segment file \
-             ({0} segment file(s) lost)"
+             ({lost} segment file(s) lost, {n} payload byte(s) recovered)"
     )]
-    ReadTruncated(u64),
+    ReadTruncated {
+        /// Number of segment files missing from the session at that
+        /// crossing, derived from the gap in the `sequence` counter.
+        /// Zero when the sequence is intact and the crossing was
+        /// rejected because the surviving segment is corrupt or
+        /// truncated rather than because one was lost.
+        lost: u64,
+        /// Number of payload bytes of the truncated record that were
+        /// read before the crossing failed, left at the front of the
+        /// caller's buffer. Those bytes are real payload and the
+        /// caller may use them; the rest of the record is gone. Zero
+        /// when the record was cut short before any of its payload was
+        /// reached -- while its data header was being decoded, or
+        /// ahead of a session's first surviving segment.
+        n: RecSize,
+    },
 
     /// The segment file's stored `segment_id` did not match the value
     /// encoded in its file name.

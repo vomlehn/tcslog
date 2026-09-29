@@ -78,8 +78,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                 println!();
             }
             Err(LogError::Eof) => break,
-            Err(LogError::ReadTruncated(lost)) => {
+            Err(LogError::ReadTruncated { lost, n }) => {
                 files_lost += lost;
+                // Whatever of the record reached the buffer before the
+                // gap is real payload, so print it rather than dropping
+                // it on the floor, marked so a record cut short cannot
+                // be mistaken for a whole one. `n` is zero when the gap
+                // fell on a record boundary or ahead of a session's
+                // first surviving segment, where no record was cut
+                // short and there is nothing to print.
+                if n > 0 {
+                    total += 1;
+                    print_truncated_record(args.text, &buf[..n as usize]);
+                    println!();
+                }
                 // A gap that falls on a record boundary loses whole
                 // records rather than truncating one, and a gap before a
                 // session's first surviving segment truncates nothing at
@@ -152,6 +164,19 @@ fn print_record(text: bool, meta: Meta, buf: &[u8]) {
 fn print_partial_record(text: bool, buf: &[u8]) {
     let msg = format_msg(text, buf);
     print!("    {msg} ({} bytes captured, record truncated)", buf.len());
+}
+
+/// Prints the leading bytes of a record whose tail was in a segment
+/// file that was lost or corrupt. Unlike an overflow, the missing
+/// bytes are gone from the log rather than merely from this buffer, so
+/// the trailer says the record was cut short rather than that this
+/// reader could not hold it.
+fn print_truncated_record(text: bool, buf: &[u8]) {
+    let msg = format_msg(text, buf);
+    print!(
+        "    {msg} ({} bytes recovered, rest of record lost)",
+        buf.len()
+    );
 }
 
 fn format_msg(as_text: bool, buf: &[u8]) -> String {

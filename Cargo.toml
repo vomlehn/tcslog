@@ -4,6 +4,7 @@ resolver = "2"
 members = [
     "tcslog",
     "tcslog-dump",
+    "tcslog-dumphdr",
     "tcslog-gen",
     "tcslog-sample",
 ]

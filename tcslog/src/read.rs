@@ -68,6 +68,29 @@ impl OpenSegment {
     }
 }
 
+/// What the reader worked out about a gap of exactly one missing
+/// segment file, kept from the crossing that found the gap until the
+/// resynchronization that follows it.
+///
+/// A missing segment whose successor declares `remaining != 0` ended
+/// part way through a data record, and the writer only rolls
+/// mid-record when a segment file has reached `max_size`, so such a
+/// segment held a full data section. That makes the size of a
+/// single-segment gap known exactly, which is what lets
+/// [`LogRead::header_lost_payload_len`] place the record that continues
+/// out of the gap.
+#[derive(Debug, Clone, Copy)]
+struct SingleSegmentGap {
+    /// Identifier of the segment the rejected crossing opened, the one
+    /// immediately after the gap. The deduction describes that segment
+    /// and no other, so a resync that lands anywhere else discards it.
+    next_id: SegId,
+    /// Bytes of the missing segment's data section that the record
+    /// interrupted by the gap did not owe -- the bytes the records
+    /// beginning inside the gap had to themselves.
+    unaccounted: u64,
+}
+
 /// Handle for reading records back out of a segmented log.
 #[derive(Debug)]
 pub struct LogRead {
@@ -104,11 +127,20 @@ pub struct LogRead {
     /// Whether to accumulate `opened_headers`. Off by default so a
     /// caller that never drains pays nothing.
     collect_opened_headers: bool,
+    /// Payload bytes the most recent spanning read placed at the front
+    /// of the caller's buffer before it failed. Meaningless after a
+    /// successful read, which always fills the buffer it was given.
+    spanning_filled: RecSize,
     /// Segments lost before the start of the session now being read,
     /// waiting to be reported. Set when a session's first surviving
     /// segment carries a non-zero `sequence`, which can only mean the
     /// segments that should have preceded it are gone.
     session_start_loss: Option<u64>,
+    /// Set by a crossing rejected for a gap of exactly one segment
+    /// file, and consumed by the resynchronization that follows, which
+    /// uses it to recover a record whose data header was lost with that
+    /// segment. See [`LogRead::header_lost_payload_len`].
+    single_segment_gap: Option<SingleSegmentGap>,
 }
 
 impl LogRead {
@@ -151,7 +183,9 @@ impl LogRead {
             last_opened: None,
             opened_headers: Vec::new(),
             collect_opened_headers: false,
+            spanning_filled: 0,
             session_start_loss: None,
+            single_segment_gap: None,
         })
     }
 
@@ -245,7 +279,9 @@ impl LogRead {
     /// * [`LogError::ReadOverflow`] when the record's payload is
     ///   larger than `buf`.
     /// * [`LogError::ReadTruncated`] when a mid-record segment gap or
-    ///   corruption is detected. The reader recovers on the next call.
+    ///   corruption is detected. Its `n` is the number of payload bytes
+    ///   of the cut-short record left at the front of `buf`, which the
+    ///   caller may keep. The reader recovers on the next call.
     /// * [`LogError::IoError`] on underlying I/O failure.
     pub fn read(&mut self, buf: &mut [u8]) -> Result<ReadResult, LogError> {
         let result = self.read_inner(buf);
@@ -268,10 +304,28 @@ impl LogRead {
         self.record_bytes_consumed = 0;
         self.record_total_bytes = None;
 
+        // A single-segment gap is worth only the one resynchronization
+        // that follows it: take it here so that whatever this read
+        // does, the next one starts with no stale arithmetic.
+        let gap = self.single_segment_gap.take();
+        // Payload length of a record whose data header was lost with a
+        // missing segment, worked out rather than read. `None` for every
+        // record whose own header is on disk, which is all of them
+        // except the one a single-segment gap can account for.
+        let mut header_lost_len = None;
+
         if self.resync {
             loop {
                 if self.current.is_none() && !self.open_next_ready_segment()? {
                     return Err(LogError::Eof);
+                }
+                // Checked before the data section is skipped as an
+                // unrecoverable tail, since this is exactly the case
+                // where that tail is the whole of a record's payload.
+                if let Some(len) = self.header_lost_payload_len(gap) {
+                    header_lost_len = Some(len);
+                    self.resync = false;
+                    break;
                 }
                 if let Some(offset) = self.locate_first_record_offset()? {
                     let cur = self.current.as_mut().unwrap();
@@ -291,18 +345,33 @@ impl LogRead {
         // same record start again, and the loss is not re-reported
         // because it has been taken.
         if let Some(lost) = self.session_start_loss.take() {
-            return Err(LogError::ReadTruncated(lost));
+            return Err(LogError::ReadTruncated { lost, n: 0 });
         }
 
-        let format = self.current.as_ref().unwrap().header.format;
-        let (payload_len, meta) = self.read_data_header(format)?;
+        // A header-lost record has nothing to read here: the payload
+        // begins at the first byte of this data section and its length
+        // is the continuation count. `VariableSimple` carries no other
+        // per-record metadata, which is why only it can be
+        // reconstructed this way.
+        let (payload_len, meta) = if let Some(len) = header_lost_len {
+            self.record_total_bytes = Some(u64::from(len));
+            (len, Meta::VariableSimple)
+        } else {
+            let format = self.current.as_ref().unwrap().header.format;
+            self.read_data_header(format)?
+        };
 
         // Clamp the caller's capacity into `RecSize` so the comparison
         // below happens entirely in the payload-length type. A buffer
         // longer than `RecSize::MAX` can always hold any record.
         let cap = RecSize::try_from(buf.len()).unwrap_or(RecSize::MAX);
         let take = payload_len.min(cap);
-        self.read_exact_spanning(&mut buf[..take as usize])?;
+        // The bytes of a record that was cut short are still the
+        // caller's payload, so a truncation here carries out however
+        // many of them reached the buffer rather than dropping them.
+        if let Err(e) = self.read_exact_spanning(&mut buf[..take as usize]) {
+            return Err(self.with_recovered_payload(e));
+        }
         if payload_len > cap {
             let extra = u64::from(payload_len - cap);
             if self.skip_spanning(extra).is_err() {
@@ -374,9 +443,22 @@ impl LogRead {
     /// boundaries as needed. Every mid-record crossing is validated
     /// against the new segment's `remaining` field; a mismatch arms
     /// resync and returns [`LogError::ReadTruncated`].
+    ///
+    /// On failure the bytes that did reach the front of `buf` are left
+    /// in `spanning_filled`, so a caller reading a payload can report
+    /// the part of the record it recovered. The count is bounded by
+    /// `buf.len()`, which for a payload read is bounded by `RecSize`.
     fn read_exact_spanning(&mut self, buf: &mut [u8]) -> Result<(), LogError> {
         let mut filled = 0usize;
-        while filled < buf.len() {
+        let result = self.fill_spanning(buf, &mut filled);
+        self.spanning_filled = RecSize::try_from(filled).unwrap_or(RecSize::MAX);
+        result
+    }
+
+    /// Body of [`read_exact_spanning`], with `filled` handed in so the
+    /// count survives an early return.
+    fn fill_spanning(&mut self, buf: &mut [u8], filled: &mut usize) -> Result<(), LogError> {
+        while *filled < buf.len() {
             if self.current.is_none() && !self.open_next_ready_segment()? {
                 return Err(self.exhausted_mid_record());
             }
@@ -386,15 +468,29 @@ impl LogRead {
                 self.cross_to_next_in_record()?;
                 continue;
             }
-            let want = (buf.len() - filled).min(avail);
+            let want = (buf.len() - *filled).min(avail);
             cur.file
-                .read_exact(&mut buf[filled..filled + want])
+                .read_exact(&mut buf[*filled..*filled + want])
                 .map_err(LogError::IoError)?;
             cur.file_pos += want as u32;
-            filled += want;
+            *filled += want;
             self.record_bytes_consumed += want as u64;
         }
         Ok(())
+    }
+
+    /// Fills in the recovered-payload count of a truncation raised by
+    /// the payload read of [`read_inner`]. Every site that raises the
+    /// error reports zero, because only this one knows how much of the
+    /// caller's buffer holds payload; other errors pass through.
+    fn with_recovered_payload(&self, e: LogError) -> LogError {
+        match e {
+            LogError::ReadTruncated { lost, .. } => LogError::ReadTruncated {
+                lost,
+                n: self.spanning_filled,
+            },
+            other => other,
+        }
     }
 
     /// Skips exactly `count` bytes, moving forward across segment
@@ -504,7 +600,7 @@ impl LogRead {
         if self.record_bytes_consumed == 0 {
             LogError::Eof
         } else {
-            LogError::ReadTruncated(0)
+            LogError::ReadTruncated { lost: 0, n: 0 }
         }
     }
 
@@ -514,16 +610,90 @@ impl LogRead {
     /// error to report. `lost` is the number of segment files the
     /// sequence gap accounts for, or zero when the sequence is intact.
     fn reject_crossing(&mut self, lost: u64) -> LogError {
-        let bad_id = self
-            .current
-            .as_ref()
-            .expect("segment open")
-            .header
-            .segment_id;
+        let cur = self.current.as_ref().expect("segment open");
+        let bad_id = cur.header.segment_id;
+        // A gap of exactly one segment file is the one gap whose size is
+        // known, so note what the missing segment held that no earlier
+        // record owed. With more than one missing, only the last of them
+        // is known to have been full: any earlier one may have been
+        // closed short of `max_size` to keep a data header whole, and
+        // the shortfall is not recorded anywhere, so nothing can be
+        // placed within the gap.
+        self.single_segment_gap = if lost == 1 {
+            let owed = self
+                .record_total_bytes
+                .map_or(0, |total| total - self.record_bytes_consumed);
+            u64::from(cur.header.data_capacity())
+                .checked_sub(owed)
+                .map(|unaccounted| SingleSegmentGap {
+                    next_id: bad_id,
+                    unaccounted,
+                })
+        } else {
+            None
+        };
         self.current = None;
         self.pending.push_front(bad_id);
         self.resync = true;
-        LogError::ReadTruncated(lost)
+        LogError::ReadTruncated { lost, n: 0 }
+    }
+
+    /// Works out whether the segment just opened for resynchronization
+    /// begins the payload of a record whose data header was lost with a
+    /// single missing segment file, and returns that payload's length if
+    /// it does.
+    ///
+    /// The segment's continuation count says a record began earlier and
+    /// still owes this many bytes, but not where that record started, so
+    /// "Find the Next Data Record Start" normally discards those bytes:
+    /// without the header they could be anything from a whole payload to
+    /// the tail of one whose first half is gone. A single-segment gap
+    /// closes that hole, because everything the missing segment held is
+    /// then accounted for:
+    ///
+    /// * The missing segment held a full data section, since it ended
+    ///   part way through a record -- this segment's non-zero
+    ///   continuation count proves it -- and the writer rolls mid-record
+    ///   only on reaching `max_size`.
+    /// * Of that, the record interrupted by the gap owed a known
+    ///   number of bytes; `unaccounted` is the rest.
+    /// * If `unaccounted` is exactly one data header, the gap had room
+    ///   for the header of the record that continues into this segment
+    ///   and for nothing else of it: no payload byte of that record, and
+    ///   no whole record ahead of it, since even an empty record costs a
+    ///   header of its own. The payload therefore begins at the first
+    ///   byte of this data section and runs for `remaining` bytes.
+    ///
+    /// Any other `unaccounted` value leaves a choice between payload
+    /// bytes lost from the front of this record and whole records lost
+    /// ahead of it, which nothing on disk resolves, so the record is
+    /// discarded as before.
+    ///
+    /// Only [`Format::VariableSimple`] qualifies. Its header holds
+    /// nothing but the payload length, which `remaining` supplies, so a
+    /// reconstructed record is indistinguishable from one read off the
+    /// disk. A [`Format::VariableTsRc`] header also carries the
+    /// timestamp and record count, which no arithmetic can recover, and
+    /// a [`Format::Fixed`] log has no header for a gap to swallow: its
+    /// `unaccounted` would have to be zero, and a gap that ends on a
+    /// record boundary leaves a zero continuation count and needs none
+    /// of this.
+    fn header_lost_payload_len(&self, gap: Option<SingleSegmentGap>) -> Option<RecSize> {
+        let gap = gap?;
+        let cur = self.current.as_ref()?;
+        if cur.header.segment_id != gap.next_id || cur.header.format != Format::VariableSimple {
+            return None;
+        }
+        if gap.unaccounted != u64::from(cur.header.format.data_header_len()) {
+            return None;
+        }
+        // Zero means no record continues into this segment, so there is
+        // no header-lost record to place; a count too large for
+        // `RecSize` cannot be a payload length this build can produce.
+        match RecSize::try_from(cur.header.remaining) {
+            Ok(0) | Err(_) => None,
+            Ok(len) => Some(len),
+        }
     }
 
     /// Opens the next segment whose header we can read and whose

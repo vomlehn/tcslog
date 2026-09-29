@@ -11,6 +11,13 @@ Create a Rust library named Tcslog for onboard logging of telemetry data
 for systems such as as spacecraft and autonomous underwater vehicles that
 must store telemetry onboard until opportunies arise for transmission.
 
+The deliverable is a Cargo workspace of five crates: ``tcslog``, the
+library, and four binaries -- ``tcslog-dump``, ``tcslog-dumphdr``,
+``tcslog-gen``, and ``tcslog-sample`` -- specified under "Support
+Binaries". The workspace shares one version, which is the version of the
+on-disk format described here. The build-time timer resolution is
+supplied to every crate as described under "Segment IDs".
+
 It can be used in conjunction with live transmission of telemetry data
 to ensure data from corrupted live transmission can be recovered. It
 divides log storage into segment files to allow downlinking in small
@@ -114,11 +121,27 @@ segment files to have a uniform size of seg_size\ :sub:`max` bytes.
 
 Segment Header Format
 ---------------------
-The segment file header length is the same for all formats.
-The total length of a segment file must
-be less than or equal to seg_size\ :sub:`max`. 
+The segment file header length is the same for all formats, and is 53
+bytes. The total length of a segment file must
+be less than or equal to seg_size\ :sub:`max`.
 
-The segment file header contains the following:
+The fields are packed in this order, with no padding between them, at
+these offsets and lengths in bytes::
+
+    offset  length  field
+         0       8  type
+         8       4  version
+        12       8  segment ID
+        20       8  session ID
+        28       4  max size
+        32       8  remaining
+        40       1  data format tag
+        41       4  data format argument
+        45       8  sequence
+
+The format tag is one byte and the argument that follows it is the n of
+Fixed, unused by the other formats. The segment file header contains the
+following:
 
 type
     This is an ASCII string that identifies this as a TcsLog file. It has the
@@ -128,17 +151,18 @@ version
     This is a four-character ASCII string. All characters must be in the range
     from '0' to '9'. The first two characters are the major version number, the
     next character is the minor version number, and the last character is the
-    patch number. The file format is compatible if the major and minor
-    verson numbers match. This must follow the type field.
+    patch number. This must follow the type field.
 
-    Following a common software convention, a given version of Tcslog can
-    be used with any segment file whose major and minor version numbers
-    match. 
-    A given version of Tcslog can also be used with any segment file whose
-    major version number matches and whose minor version is less that the
-    Tcslog minor version.
-    Major versions of Tcslog and a given segment file must match to be used
-    together.
+    A given version of Tcslog can read a segment file whose major version
+    number equals its own and whose minor version number is less than or
+    equal to its own. Major versions must match: a differing major means
+    the layout itself differs. A greater minor version means the file may
+    use something this build does not know about, so it is refused, while
+    a lesser or equal one is readable by the usual software convention. A
+    character outside '0' to '9' anywhere in the field is refused as well,
+    since a field that does not parse cannot be compared. The patch number
+    takes no part in the decision. A file this build cannot read yields
+    VersionMismatch.
 
 segment ID
     Segment ID for this segment file. This must match the segment ID portion
@@ -277,7 +301,9 @@ data section, in bytes, is:
     seg_size\ :sub:`max` - size of segment header
 
 There are multiple types of data headers, depending on the format specified in
-the segment file header:
+the segment file header. Each is packed with no padding, and its fields
+appear in the order given below, so the sizes are zero bytes for
+Fixed(n), four for VariableSimple, and twenty for VariableTsRc:
 
     Fixed(n)
 
@@ -304,9 +330,13 @@ the segment file header:
 
         record count
 
-            The record count is one for the first record in the log and
-            increments by one for each record writen. It is of type RecordCount,
-            which is expected to be a RecordCount object.
+            The record count is one for the first record of a session
+            and increments by one for each record after it. It is of
+            type RecordCount, a u64. The count belongs to the session,
+            not to the log: a new LogWrite starts a session, and so does
+            the first write() after clear(), each beginning again at
+            one. That is why a reader must report a session boundary
+            before handing back the records that follow it.
 
 Segment IDs
 -----------
@@ -418,6 +448,26 @@ written to the previous segment); the writer must roll first, then
 begin the record in the new segment, so that the fresh-record start
 is unambiguously encoded as ``remaining = 0``.
 
+A record must also not begin in a segment file with too little room
+left for its whole data header, so before starting one the writer rolls
+whenever the bytes left are fewer than the data header size -- or fewer
+than one byte, for a format whose data header is empty. A data header
+split across a boundary cannot be recovered if the segment holding its
+leading bytes is lost: the payload length is spread across both files,
+and the surviving tail of a little-endian length cannot be told from
+the tail of a longer one, so the reader cannot find where the payload
+begins. ``remaining`` would then count bytes belonging to a record that
+has to be skipped even though its payload survived whole. Keeping each
+header intact means ``remaining`` always points at the first byte of a
+complete data header, so a record is lost only when its own bytes are.
+
+The segment file is closed short in that case, leaving at most one byte
+fewer than the data header size unused, and no padding is written to
+make up the difference. A segment file shorter than
+seg_size\ :sub:`max` is therefore normal rather than evidence of a
+fault, and a reader must take the file's own length as the end of its
+data section.
+
 Error Handling
 ^^^^^^^^^^^^^^
 When a segment file cannot be created,
@@ -440,7 +490,22 @@ Deleting a Log
 Logwrite::clear() can be called to delete all segment files for a log.
 It starts by closing any open segment files, then goes
 through all existing segment files in the given directory that match the
-prefix, suffix, and all possible segment IDs, deleting each one.
+prefix, suffix, and all possible segment IDs, deleting each one. Closing
+first is what makes the deletion complete: an open segment file cannot be
+removed on every supported platform, and one left behind would still read
+back as a log.
+
+The send() callback is not called for the files deleted. It exists to
+hand a segment file to user code, and these are being discarded.
+
+Afterwards the LogWrite has no current segment file and no log exists in
+the directory for a reader to open. The writer stays usable: the next
+write() starts a new session, whose first segment file carries sequence
+zero and whose records are numbered from one. Continuing the cleared
+session's sequence instead would leave a single segment file claiming a
+position with nothing ahead of it, which the reader is required to report
+as that many lost segment files -- a log that had just been emptied
+deliberately would come back as a log damaged by a fault.
 
 Read-Related Operations
 -----------------------
@@ -469,17 +534,24 @@ resync flag, described under "Reading Data Records" below.
 Initialization
 ~~~~~~~~~~~~~~
 The read process begins by creating a list of segment files that match
-the given prefix and suffix. This list is then sorted alphabtically. Since
-the segment file ID monotonically increases with time, the list is
-consequently sorted from oldest to newest. Processing starts with the oldest
-segment file and proceeds to the newest one.
+the given prefix and suffix. Each name is parsed back into its segment
+file ID and the list is sorted on those IDs. Since the segment file ID
+increases with time, the list is consequently sorted from oldest to
+newest. Sorting the parsed IDs and sorting the names alphabetically give
+the same order, because the ID is rendered as fixed-width zero-filled
+hexadecimal; the parsed form is used because it is the order that is
+actually meant. Processing starts with the oldest segment file and
+proceeds to the newest one.
 
 If the segment file list is empty, an error code is returned indicating that
 the log could not be found.
 
-After creating the segment file list, the start of the next data record is
-found. If errors occur, they are propagated to the caller. If successful,
-there will be a current segment file.
+Initialization opens no segment file. It leaves the reader with the
+pending list, no current segment file, and resynchronization armed, so
+that the first read finds the start of the first data record by the same
+path a read recovering from a fault takes. There is one way into the data
+rather than two, and the case of a log whose opening segment files are
+already gone is handled on the ordinary path instead of needing its own.
 
 Find the Next Data Record Start
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -510,20 +582,91 @@ o   Otherwise the ``remaining`` field value is less than the size of
     boundary case -- is not special here: skipping zero bytes leaves
     the read position exactly at the fresh record's first byte.
 
+Both of the cases above discard the record that continues into the
+segment being resynchronized in. The ``remaining`` field says how many
+of that record's bytes are still to come but not where the record
+started, and without its data header there is no way to tell a whole
+payload from the tail of one whose front is gone. Before applying them,
+however, the reader must check the one case where arithmetic settles
+it.
+
+Recovering a Data Record Whose Header Was Lost
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+When the resync follows a crossing that was rejected for a gap of
+exactly one segment file, and the segment now being examined is the one
+that crossing opened, and its ``remaining`` field is non-zero, every
+byte the missing segment held is accounted for:
+
+o   The missing segment held a full data section. The segment after it
+    continues a data record, so the missing segment ended part way
+    through one, and a mid-record roll happens only when a segment file
+    has reached ``seg_size_max``.
+
+o   The data record the gap interrupted owed a known number of bytes,
+    because its data header was read before the gap. Subtract those
+    from the data section size; call the result the room the gap had
+    for data records of its own.
+
+o   If that room equals the format's data header size exactly, the gap
+    held the data header of the record that continues into this segment
+    and nothing else of it: no payload byte of that record, and no
+    complete record ahead of it, because even a zero-length record
+    costs a data header of its own. The record's payload therefore
+    begins at the first byte of this segment's data section and is
+    ``remaining`` bytes long. Return it as a normal data record: the
+    read position is then already at the next record boundary and the
+    resync flag is cleared.
+
+Any other value for that room leaves a choice between payload bytes
+lost from the front of the continuing record and whole records lost
+ahead of it, which nothing on disk resolves; the record must then be
+discarded as described above. With more than one segment file missing,
+the size of the gap is itself unknown -- only the last of them is known
+to have been full, and any earlier one may have been closed short of
+``seg_size_max`` to keep a data header whole -- so no arithmetic may be
+attempted.
+
+This recovery applies only to the ``VariableSimple`` format, whose data
+header holds nothing but the payload length that ``remaining``
+supplies. A ``VariableTsRc`` data header also carries the timestamp and
+record count, which cannot be reconstructed, and a ``Fixed`` log has no
+data header for a gap to swallow.
+
 
 Validating a New Segment File
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Each time a new segment file is opened, the segment header is read. It does
-the following checks:
+Each time the reader takes the next segment file from its pending list,
+it must satisfy all of the following before becoming the current segment
+file:
+
+o   The file can be opened and its length obtained.
+
+o   Its length is at least the segment file header length. A file too
+    short to hold a header cannot be one.
 
 o   The type is "tcslogsf".
 
-o   The version string is "0010", corresponding to version 0.1.0.
+o   The version is one this build can read, by the rule given under
+    "Segment Header Format". This is a comparison of the parsed major and
+    minor numbers and not a match against the literal string this build
+    writes, which would refuse files it is required to accept.
 
-o   The segment ID matches the segment part of the segment file name
+o   The data format tag is one of the defined values, and its argument is
+    non-zero when the tag is that of Fixed.
+
+o   The segment ID matches the segment part of the segment file name.
 
 o   The segment file size is less than or equal to the value of max size
     read from the segment file header.
+
+A file failing any of these is skipped and the reader moves to the next
+one in the pending list. It is skipped silently: no error reaches the
+caller for the file itself, and no distinction is drawn between the
+reasons, because to a reader a segment it cannot use is a segment it does
+not have. The loss surfaces the way a deleted file's would, through the
+sequence gap the surviving neighbours show, so a corrupt segment and a
+missing one are reported alike. This is also why no error variant may
+exist for these conditions: nothing would ever construct it.
 
 At the end of reading the segment file header, the next position to read
 will the beginning of the data section. The new segment file becomes the
@@ -695,140 +838,303 @@ garbage.
 Public Data Structures
 ======================
 Tcslog provides several public data structures used for operations on log
-files.
-Some are interfaces, which requires that the user create structures to
-implement log operations. Others provide results of various sorts.
+files. Some are interfaces, which requires that the user create structures
+to implement log operations. Others provide results of various sorts.
+
+Every signature below is the one the code must present, including the
+mutability of the receiver: reading and writing both advance internal
+state, so those methods take ``&mut self``.
 
 LogWrite
 --------
-This interface is used for writing to logs. Amoung its members are:
+This interface is used for writing to logs. Among its members are:
 
-pub fn new(dir: &str, prefix: &str, suffix: &str, seg_size_max: u32, format: Format, write_callbacks: WriteCallbacks) -> Result(LogWrite, LogError);
+pub fn new(dir: &str, prefix: &str, suffix: &str, seg_size_max: u32, format: Format, callbacks: WriteCallbacks) -> Result<LogWrite, LogError>
 
-    Create or extend a log file.
+    Begin writing a log, in a new session.
 
-    dir             Name of the directory in which the log file is to be
-                    created.
+    dir             Name of the directory holding the segment files. It
+                    must already exist; this function does not create it.
 
-    prefix          String that that is the first part of the the segment file
+    prefix          String that is the first part of the segment file
                     names that make up the log file. Must not contain a
                     filesystem delimiter.
 
-    suffix          String used as the end of the segment file name. Must not
-                    contain a filesystem delimiter.
+    suffix          String used as the end of the segment file name. Must
+                    not contain a filesystem delimiter.
 
-    seg_size_max    Maximum number of bytes in a segment file
+    seg_size_max    Maximum number of bytes in a segment file. It must be
+                    strictly greater than the segment file header plus one
+                    data header for the chosen format. A segment file that
+                    could not hold a single data header would leave the
+                    writer with nowhere to put a record.
 
     format          Format for segment files
 
-    write_callbacks A structure holding callbacks used at various points
+    callbacks       A structure holding callbacks used at various points
                     in operations
 
-    The value of seg_size_max must be greater than the number of bytes
-    in the segment file header.
+    Every segment file already in dir whose name matches the prefix and
+    suffix is handed to the send callback before the new session's first
+    segment file is created. A new LogWrite therefore does not append to
+    what it finds: it takes responsibility for the older files off the
+    library's hands and starts a session of its own.
+
+    The errors are TimerResolutionZero when the build-time timer
+    resolution is zero, PathDelimiterNotAllowed for a prefix or suffix
+    holding a path separator, SegSizeTooSmall for a seg_size_max that is
+    not strictly greater than the segment header plus one data header,
+    FixedLenMismatch for Format::Fixed(0), InvalidPathname when dir does
+    not name a directory, and IoError from directory enumeration, the
+    send callback, segment file creation, or the header write.
 
 pub const SEGMENT_FILE_HEADER_LEN: u32
 
-    This is the length of the segment file header, in bytes.
+    The length of the segment file header, in bytes. An alias for the
+    crate-level constant of the same name, provided here because
+    seg_size_max is specified relative to it.
 
-pub fn write_str(&self, msg: &str) -> Result(u32, LogError);
+pub fn session_id(&self) -> SegId
 
-    Write a string to the log file. This invokes write().
+    The segment ID of this session's first segment file, which is the
+    value written to the session ID field of every segment file in the
+    session.
 
-    self            Reference to LogWrite
+pub fn current_segment_id(&self) -> SegId
 
-    msg             Reference to string to write
+    The segment ID of the segment file being written.
 
-    Write_str() calls write().
+pub fn last_meta(&self) -> Meta
 
-pub fn write(&self, msg: &[byte]) -> Result(u32, LogError);
+    The metadata minted for the most recently written record. For
+    Format::VariableTsRc this is how a caller learns the timestamp and
+    record count that were stored, since those are generated as the data
+    header is built rather than supplied by the caller.
 
-    Write a byte array to the log file.
+pub fn write_str(&mut self, msg: &str) -> Result<u32, LogError>
+
+    Write the UTF-8 bytes of a string as one record, by calling write().
+
+pub fn write(&mut self, msg: &[u8]) -> Result<u32, LogError>
+
+    Write a byte array to the log file as one data record.
 
     self            Reference to LogWrite
 
     msg             Reference to array of bytes to write
 
-    The user callback function record_complete() is called after all bytes
-    have been written. This may flush data is data integrity is the priority,
-    otherwise this may do nothing if performance is the priority.
+    Returns the total number of bytes written, counting the per-record
+    data header as well as the payload.
 
-    An error is returned if the format is Fixed(n) and the length of msg
-    is zero. It is a distinct error if the format is Fixed(n) and the
-    number of bytes in msg is not n.
+    The record may span segment files. Each time the current file fills,
+    the send callback is invoked with its path and a fresh segment file
+    is opened.
 
-pub fn flush(&self) -> Result((), LogError);
+    When there is no current segment file, which is the state clear()
+    leaves behind, a new session is started before the record is built.
+    It must happen in that order: starting a session restarts the record
+    count, so building the data header first would stamp this record
+    with the cleared session's count and then issue that same number
+    again to the record after it.
 
-    self            Reference to LogWrite
+    The user callback function record_complete() is called after all
+    bytes have been written. This may flush data if data integrity is
+    the priority, otherwise it may do nothing if performance is the
+    priority.
 
-    Flush all pending data to mass storage.
+    FixedLenMismatch is returned if the format is Fixed(n) and the
+    length of msg is anything other than n. A zero-length payload is
+    that same error rather than one of its own, since zero differs from
+    n like any other wrong length. PayloadTooLarge is returned if
+    msg.len() exceeds RecSize::MAX, and also if the payload plus its
+    data header would exceed the u32 this function returns -- a count
+    that wrapped would understate what was written. IoError and
+    ClockError are returned as encountered, along with any error from
+    creating a segment file on a roll.
 
-pub fn send(name: &str) -> Result((), Error);
+pub fn flush(&mut self) -> Result<(), LogError>
 
-    Process a completed segment file.
+    Flush buffered data for the current segment file to mass storage.
+    Returns IoError if the underlying flush fails.
 
-    name            Name of the segment file, including the directory.
+pub fn clear(&mut self) -> Result<(), LogError>
 
-pub fn clear();
+    Remove every one of this log's segment files from the directory,
+    including the one being written.
 
-    Remove all existing segment files.
+    The current segment file is closed before any name is unlinked. Not
+    every platform this library targets permits removing an open file,
+    and closing it is also what makes clearing complete rather than
+    partial: a log cleared down to its last segment still reads back as
+    a log, which is not what a caller reclaiming storage asked for.
 
-pub fn drop(&self);
+    The records in those files are discarded, including a record part
+    way through being written. The send() callback is not called for any
+    of them. That callback hands a segment file to user code, and these
+    files are being thrown away rather than handed anywhere.
 
-    If the current segment file has data in the data section, call the
-    user callback function send(). Then proceed with the rest of
-    processing drop is expected to do.
+    The writer remains usable and is left with no current segment file.
+    The next write() begins a new session, whose first segment file
+    carries sequence zero and numbers its records from one. Beginning a
+    new session is required rather than merely tidy: continuing the
+    cleared session's numbering would leave a lone segment file claiming
+    a position with nothing before it, which a reader must report as
+    that many segment files lost.
+
+    Until that write, current_segment_id() and session_id() still report
+    the cleared session's identifiers, which name files that no longer
+    exist.
+
+    IoError is returned if directory enumeration or file removal fails.
+    The current segment file is closed before either is attempted, so it
+    is closed even when the removal that follows fails.
+
+fn drop(&mut self)
+
+    The Drop implementation, not an inherent method. If the current
+    segment file has data in the data section, flush it and call the user
+    callback function send(). Then proceed with the rest of processing
+    drop is expected to do.
+
+    A destructor has no way to report a failure and must not panic, so
+    errors from the flush and from send() are discarded here. This is the
+    one place in the library where an error is dropped rather than
+    returned.
 
 LogRead
 -------
 The LogRead interface is used for reading from logs. Its members include:
 
-pub fn new(dir: &str, prefix: &str, suffix: &str) -> Result(LogRead, LogError);
+pub fn new(dir: &str, prefix: &str, suffix: &str) -> Result<LogRead, LogError>
 
-    Open an existing log file.
+    Open an existing log for reading. The directory must already hold at
+    least one segment file matching the prefix and suffix.
 
-    dir             Name of the directory in which the log file is to be
-                    created.
+    dir             Name of the directory holding the segment files
 
-    prefix          String that that is the first part of the the segment file
+    prefix          String that is the first part of the segment file
                     names that make up the log file. Must not contain a
                     filesystem delimiter.
 
-    suffix          String used as the end of the segment file name. Must not
-                    contain a filesystem delimiter.
+    suffix          String used as the end of the segment file name. Must
+                    not contain a filesystem delimiter.
 
-pub fn read_str(&self, msg: &str) -> Result(ReadResult, LogError);
+    The errors are PathDelimiterNotAllowed for a prefix or suffix holding
+    a path separator, InvalidPathname when dir does not name a directory,
+    NoSegmentFiles when no file in it matches the pattern, and IoError on
+    directory enumeration failure.
 
-    Read up to the msg.len() characters from the log. Returns Ok(u32) to
-    indicate the number of bytes read.
+pub fn read(&mut self, buf: &mut [u8]) -> Result<ReadResult, LogError>
 
-    self            Reference to LogRead
-
-    msg             String to write
-
-pub fn read(&self, msg: &str) -> Result(LogResult, LogError);
-
-    Read up to msg.len() bytes from the log. Return Ok(u32) to indicate the
-    number of bytes read.
+    Read the next record's payload into buf.
 
     self            Reference to LogRead
 
-    msg             Bytes to write
+    buf             Buffer to receive the payload
 
-An Iterator must be implemented for LogRead.
+    If the payload is longer than buf, the first buf.len() bytes are
+    copied and ReadOverflow is returned carrying that same count, so the
+    caller can tell a filled buffer from a complete record. The rest of
+    the payload is discarded so that the following read begins at the
+    next record rather than in the middle of this one.
+
+    Eof is returned when the segment list is exhausted, SessionEnd once
+    at each session boundary, ReadTruncated when a mid-record gap or
+    corruption is found, and IoError on underlying failure. On any
+    failure other than Eof, SessionEnd, and ReadOverflow the reader arms
+    its resynchronization flag and gives up any partly opened segment, so
+    that the next call recovers as described under "Find the Next Data
+    Record Start." ReadOverflow is not a failure of that kind: the
+    segment stays open and the read position stays valid.
+
+pub fn read_str(&mut self, buf: &mut [u8]) -> Result<ReadResult, LogError>
+
+    Equivalent to read(), named for callers whose payloads are UTF-8
+    text. It takes the same byte buffer, since a partially recovered
+    payload need not be valid UTF-8.
+
+pub fn iter(&mut self) -> LogReadIter<'_>
+
+    An iterator over the remaining records, yielding Record values. A
+    Record owns its payload, so the iterator is a convenience that gives
+    up the crate's no-allocation guarantee; read() is what a caller bound
+    by that guarantee uses.
+
+pub fn current_header(&self) -> Option<&SegmentHeader>
+
+    The header of the segment file now open, or None whenever none is:
+    before the first read, and after a read that returned Eof,
+    SessionEnd, or ReadTruncated. A ReadOverflow leaves the segment open.
+
+pub fn segments_opened(&self) -> u64
+
+    The number of segment files the reader has opened. A record spanning
+    several segments only ever reports the one it ended in, so this tally,
+    not a count of headers seen by the caller, is what describes a log's
+    extent.
+
+pub fn collect_opened_headers(&mut self, enable: bool)
+
+    Ask the reader to retain the header of every segment file it opens.
+    Retention is off by default and must be, because the headers
+    accumulate until taken and a caller that never takes them would grow
+    the buffer without bound.
+
+pub fn take_opened_headers(&mut self) -> Vec<SegmentHeader>
+
+    Remove and return the headers retained since the last call. Taking
+    them before examining a read's result puts each header ahead of the
+    records it carried, and lets a read that ended the log still report
+    the segments it opened.
 
 LogError
 --------
-    Enum used to return error values. It includes the following:
+    Enum used to return error values. Its variants are:
+
+    ClockError
+
+        The system clock returned a value before the UNIX epoch.
+
+    Eof
+
+        No more data records are available.
+
+    FixedLenMismatch
+
+        The format is Fixed(n) and the payload length is not n. A
+        zero-length payload under Fixed(n) is this error. It is also
+        returned for a format of Fixed(0), which no log may use.
+
+    InvalidHeader
+
+        The segment file header did not match the on-disk layout: the
+        type field is not "tcslogsf", or the format tag is not one of the
+        defined values, or it is Fixed with a length of zero.
+
+    InvalidPathname
+
+        The prefix and suffix cannot be combined with a segment file ID
+        and a directory name to form a valid path name, or the named
+        directory is not one.
 
     IoError(io::Error)
 
         An error occurred from an I/O operation.
 
-    InvalidPathname
+    NoSegmentFiles
 
-        The prefix and suffix cannot be combined with a segment file ID
-        and a directory name to form a valid path name.
+        No file in the directory matches the prefix and suffix, so there
+        is no log there to read.
+
+    PathDelimiterNotAllowed
+
+        The prefix or suffix contains a path separator.
+
+    PayloadTooLarge
+
+        A payload larger than RecSize::MAX was supplied to a write, or
+        one whose length plus its data header exceeds the byte count
+        write() returns.
 
     ReadOverflow(u32)
 
@@ -836,11 +1142,29 @@ LogError
         the supplied buffer. The value indicates the actual number
         of bytes or characters placed in the buffer.
 
+    ReadTruncated { lost: u64, n: RecSize }
+
+        A crossing between segment files found a continuation that does
+        not belong after the current one: a gap in the sequence, or a
+        remaining field that does not match the bytes still owed to the
+        record in progress. The record was cut short and the next read
+        resynchronizes.
+
+        lost is how many segment files the sequence shows are missing at
+        that crossing, and is zero when the sequence is intact and the
+        crossing was refused because the surviving segment is itself
+        corrupt or short. n is how many payload bytes of the cut-short
+        record reached the front of the caller's buffer; those bytes are
+        real telemetry and the caller may use them. It is zero when the
+        record was cut short before any payload was reached, which is the
+        case while a data header was being decoded and ahead of a
+        session's first surviving segment.
+
     SegSizeTooSmall
 
-        Indicates that the specified size of a segment file is less than
-        or equal to LogWrite::SEGMENT_FILE_HEADER_LEN. This must not
-        take any argument.
+        The requested seg_size_max is not strictly greater than the
+        segment file header plus one data header for the format in use.
+        This must not take any argument.
 
     SessionEnd
 
@@ -849,6 +1173,21 @@ LogError
         read operation will return the first record of the next session,
         if there is one.
 
+    TimerResolutionZero
+
+        The build-time timer resolution is zero, so segment ID generation
+        could not make progress.
+
+    VersionMismatch
+
+        The segment file was written by an incompatible version of
+        Tcslog.
+
+    No variant may exist that nothing constructs. A variant for a
+    condition the code has chosen not to distinguish is dead code under a
+    name that suggests coverage the library does not have: either the
+    check that raises it exists, or the variant does not.
+
 ReadResult
 ----------
     Structure returning the result of a read operation. It has the following
@@ -856,12 +1195,20 @@ ReadResult
 
     n
 
-        Number of bytes stored in the buffer. This may be less than or
-        equal to the buffer size.
+        Number of bytes stored in the buffer, of type RecSize. This may
+        be less than or equal to the buffer size.
 
     meta
 
         Object of type Meta containing format-specific data.
+
+Record
+------
+    One record's payload together with its metadata, produced by
+    LogRead::iter(). It holds meta, of type Meta, and payload, which owns
+    its bytes. This is the one public structure that allocates, which is
+    why the iterator that yields it is offered alongside read() rather
+    than in place of it.
 
 Meta
 ----
@@ -880,29 +1227,57 @@ Meta
         This record uses a variable length record with a timestamp
         and record count.
 
-RecSize
--------
-    This is the type used to contain the size of telemetry portion of
-    a data record. For version 1.0.0, this is defined to be u32.
+Format
+------
+    Enum selecting how records are laid out in the data section, with
+    variants Fixed(RecSize), VariableSimple, and VariableTsRc as
+    described under "Segment Header Format". It provides tag(), the
+    single byte stored in the segment header, which is 0, 1, and 2 in
+    that order; fixed_len(), the n of Fixed and zero for the others; and
+    data_header_len(), the on-disk size of one data header, which is
+    zero, four, and twenty bytes respectively.
 
-WriteCallback
+SegmentHeader
 -------------
-    This structure contains various callback functions used during
-    log writing operations. These members should be defined in a way that
-    avoids use of heal allocaton and dyn dispatch.:
+    The in-memory form of a segment file header, holding segment_id,
+    session_id, max_size, remaining, format, and sequence as described
+    under "Segment Header Format". It converts to and from the on-disk
+    byte encoding and reads from and writes to a stream, rejecting a
+    header that does not match the layout. It also reports the data
+    section length implied by a given maximum size, so that callers need
+    not repeat the subtraction.
 
-    fn record_complete(file: File) -> Result((), Error);
+RecSize, Timestamp, and RecordCount
+-----------------------------------
+    RecSize is the type used to contain the size of the telemetry portion
+    of a data record. For the on-disk format version 0.1.0 it is defined
+    to be u32. Timestamp and RecordCount are the types of the two
+    VariableTsRc metadata fields, both u64: a Timestamp is nanoseconds
+    since the UNIX epoch, and a RecordCount is one for a session's first
+    record and one more for each record after it.
 
-        Called after each data record is written. It is up to the implementation
-        what this does. It may flush the given file, do nothing, or do
-        something else.
+WriteCallbacks
+--------------
+    This structure contains the callback functions used during log
+    writing operations. Its members are plain function pointers rather
+    than trait objects or closures, so that the structure can be stored
+    inline in a LogWrite with no heap allocation and no dynamic dispatch.
+    A default is provided whose members do nothing, which suits local
+    development; a user storing telemetry for real is expected to replace
+    the send member.
 
-    fn send(path: &str) -> Result((), Error);
+    record_complete: fn(&mut File) -> std::io::Result<()>
+
+        Called after each data record is written. It is up to the
+        implementation what this does. It may flush the given file, do
+        nothing, or do something else.
+
+    send: fn(&Path) -> std::io::Result<()>
 
         Transfer ownership of a segment file from Tcslog to user code.
-
-        path            Name of the segment file, including the directory
-                        name.
+        Called with the full path of a segment file whose data section
+        has filled, and also with each pre-existing segment file that
+        LogWrite::new() finds.
 
         User code may do anything appropriate, such as:
 
@@ -923,18 +1298,163 @@ WriteCallback
 SegId
 -----
 This is the data structure that holds the segment file ID. Segment file IDs
-are based on u64 values.
+are based on u64 values and are wall-clock timestamps, so they increase but
+are not dense: they cannot be used to count segment files or to detect a
+gap, which is what the sequence field of the segment header is for.
 
 Using an u64 value as the segment ID assures that a huge number of segment
-files can be created. Only positive values are supported, so the theoretical
-number of segment files is 2\ :sup:`63` or 1.8e19.
-Alternatively, there could be enough segment files for over two centuries.
+files can be created. Nanosecond timestamps that fit in a u64 run to the
+year 2554, so a log's segment IDs cannot collide within any plausible
+mission.
 
 Converting this value into a string yields something of fixed length, with
-a value known as SegId::STR_LEN.
+a value known as SegId::STR_LEN, which is 19: sixteen hexadecimal digits
+and the three dashes that group them.
+
+SeqId
+-----
+The type of the segment header's sequence field, wrapping a u64. It offers
+a zero constant for the value that opens a session, a saturating step to
+the next value, and conversion to and from little-endian bytes for the
+header. The step saturates rather than wrapping, because a sequence that
+wrapped to zero would present itself as the first segment of a session.
+
+Free Functions
+--------------
+    format_timestamp(ts: Timestamp) -> String
+
+        Render a Timestamp as an ISO 8601 UTC date and time with
+        nanosecond precision, for example 2026-09-21T16:45:12.123456789Z.
+        The conversion is done in the crate rather than through a
+        date-and-time crate, so that the dependency set stays minimal.
+
+    record_trailer(payload_len: usize, meta: Meta) -> String
+
+        Render a record's length and its format-specific metadata as the
+        parenthesised trailer the binaries print after a payload. Both
+        tcslog-gen and tcslog-dump use it, so a record reads the same
+        coming out as it did going in.
+
+Support Binaries
+================
+Four binary crates ship alongside the library. The first three are what
+the error-recovery test suite drives, and that suite compares their
+output against stored files, so the output wording specified below is
+part of the requirement rather than an illustration of it.
+
+tcslog-gen
+----------
+Writes a log of generated records, giving a test segment files to
+damage. It takes the log directory, prefix, and suffix as positional
+arguments in that order, creating the directory if it does not exist,
+and accepts:
+
+o   ``-f``/``--format`` ``KIND:LEN`` or ``KIND:MIN..MAX``, where KIND is
+    ``fixed``, ``variable-simple``, or ``variable-tsrc``. ``fixed``
+    accepts only a single length; the variable kinds accept either form.
+
+o   ``-d``/``--data-size`` bytes, the size of each segment file's data
+    section, excluding the segment header. The log is created with
+    seg_size\ :sub:`max` of ``SEGMENT_FILE_HEADER_LEN + data_size``, so
+    a test states the data section it wants and needs no knowledge of the
+    header length.
+
+o   ``-n``/``--number``, the count of data records to write.
+
+o   ``-v``/``--verbose``, which adds the record format and the segment,
+    header, and data-section sizes ahead of the records, and the record
+    count and root file name after them.
+
+The payload of record *i*, counting from one, begins with ``#i`` and a
+space, and continues with the group ``123456789`` and a space repeated
+until the record's length is reached, then cut to exactly that length.
+Every record therefore names itself, which is what lets a stored expected file
+pin the identity and order of the records a damaged log yields rather
+than only their number. A format given as a range picks each length from
+a pseudo-random generator held to a fixed seed, so the same parameters
+produce the same sequence of lengths on every run. Both properties are
+required: the stored files are worthless without them.
+
+One line per record must be printed as it is written, giving the record
+number, the payload, and the trailer described for ``tcslog-dump``.
+
+tcslog-dump
+-----------
+Reads a log back. It takes the directory, prefix, and suffix as
+positional arguments, and accepts ``-t``/``--text`` to choose between
+hex and text rendering, and ``-v``/``--verbose``.
+
+Records are read into a buffer of a fixed 256 bytes named by a single
+constant. That constant is what makes the read-overflow path reachable
+from a command line, so it must stay fixed rather than being sized to the
+log being read.
+
+Without ``--verbose`` the output is one line per record and nothing else.
+``--verbose`` adds, and must add only, the following:
+
+o   A block per segment file traversed, printed before the record it
+    carried, giving the file name and every header field. Every segment a
+    read traversed must be reported, not merely the one a record ended
+    in: a record spanning several segments begins in one that naming only
+    the current segment never mentions. Segment headers are to be
+    collected for printing only when ``--verbose`` is in effect, since a
+    run that never prints them would otherwise buffer them forever.
+
+o   ``    -- {lost} missing segment file(s); resynchronizing --`` when a
+    truncated read reports a non-zero count of lost segment files, and
+    ``    -- corrupted or truncated segment file; resynchronizing --``
+    when it reports zero. The second wording claims no lost file because
+    none was: the sequence was intact and the crossing was refused for
+    damage within a surviving segment.
+
+o   ``    (payload larger than 256-byte buffer; {n} bytes captured,
+    remainder discarded)`` after a record that overflowed the buffer.
+
+o   ``--- End of Session---``, preceded by a blank line, at a session
+    boundary.
+
+o   ``read {total} message(s) across {n} file(s)`` at the end, where the
+    file count comes from the reader's own tally of segments opened
+    rather than from counting the headers printed, which undercounts
+    whenever a record spanned segments. A further line
+    ``{n} segment file(s) lost`` follows it when any were.
+
+Bytes that reached the buffer before a gap, and bytes captured before an
+overflow, are real telemetry and must be printed rather than discarded,
+marked so that neither can be mistaken for a whole record. A usage error
+exits with status 2 after printing the help text.
+
+tcslog-dumphdr
+--------------
+Prints one segment file's header on a single line, as
+``segment_id=``, ``session_id=``, ``max_size=``, ``remaining=``,
+``format=``, and ``sequence=`` pairs separated by commas, with the two
+identifiers rendered as timestamps rather than as the dashed hexadecimal
+that names the file.
+
+It reads the file named on its command line, or standard input when none
+is named, and must never consult the file's name, so that it also serves
+a segment file that has been renamed or copied out of its log -- the case
+in which the name is exactly what cannot be trusted. Only the header is
+read, leaving the stdin form usable on a pipe whose writer is still
+running. A read failure exits 1, a usage error exits 2.
+
+tcslog-sample
+-------------
+Writes a small demonstration log, taking the directory, prefix, and
+suffix as positional arguments, so that it and ``tcslog-dump`` form a
+runnable pair for someone new to the crate.
 
 Testing
 =======
+Testing has two layers and both are required. Unit tests inside the
+crates reach the library through its API, where a fault can be injected
+directly. The error-recovery suite under ``test/`` reaches it the way a
+user does, through ``tcslog-gen`` and ``tcslog-dump``, with the faults
+applied to the bytes on disk.
+
+Unit Tests
+----------
 Make sure to do the following:
 
 o   Test Format::Fixed records that do not span multiple segment files and
@@ -979,6 +1499,208 @@ o   Ensure the callback function record_complete() is called each time
 
 o   Verify that the user callback function sent() is called when the LogWrite
     drop() function is invoked.
+
+o   Check that clear() leaves no segment file in the directory, starting
+    from a log whose segment files include both a closed one and the one
+    still open, and that a reader then finds no log there at all.
+
+o   Check that the first write() after clear() starts a new session, with
+    a new session identifier and its record count restarted at one, and
+    that the log then reads back as exactly the records written after the
+    clear, with no loss reported.
+
+Error-Recovery Test Suite
+-------------------------
+A suite under ``test/`` generates a log, damages the segment files, reads
+the log back, and compares the result against stored files. It checks
+both halves of what the reader owes a caller: which records survive, and
+what the reader says it lost. A reader that quietly dropped records while
+producing a plausible-looking subset would pass the first check and fail
+the second.
+
+Layout and Naming
+~~~~~~~~~~~~~~~~~
+The directory holds a ``Makefile``, the driver ``error-recovery-common``,
+a stored-file directory ``expected/``, one script per test case, and
+``dump-before``, a hand-run aid that dumps a directory of segment files.
+
+Each case is a short script that sets the format, data-section size,
+record count, and the damage it wants as shell variables, then runs the
+driver with those as options followed by ``"$@"`` so that a flag given to
+the case reaches the driver. A comment at the top states what the case
+establishes and why nothing else covers it.
+
+A case's file name must match what it does, because a name is how a
+reader of the directory judges what is covered:
+
+o   The script's basename and the basename of its two stored files must
+    be the same string.
+
+o   The name states the format when it is not ``variable-simple``:
+    ``tsrc-`` for ``variable-tsrc`` and ``fixed`` for ``Format::Fixed``.
+    A ``variable-simple`` case needs no marker.
+
+o   A trailing ``_<record>-<data>`` records the format's record length
+    and the data-section size, so that two cases differing only in
+    geometry are distinguishable.
+
+o   A name that disagrees with what the script does is an error, not an
+    untidiness: it overstates the coverage the directory has.
+
+The Driver
+~~~~~~~~~~
+``error-recovery-common`` does the work; the cases only supply
+parameters. It must change to the directory holding it before doing
+anything else. Its stored files are beside it, and cargo locates both the
+workspace manifest and the ``.cargo/config.toml`` that supplies the
+build-time timer resolution by walking up from the working directory, so
+resolving any of the three against the caller's directory instead would
+leave the cases runnable only from the test directory. No option takes a
+path, so nothing is left pointing at the caller's directory.
+
+Segment files are generated into a fresh temporary directory, removed by
+a single exit trap so that the removal happens however the run ends. The
+options are:
+
+o   ``-e`` names the expected file within ``expected/`` and is required.
+    The diagnostics file is the same name with ``.diag`` in place of
+    ``.expected``. A missing file is an error that names ``-g`` rather
+    than a silent pass.
+
+o   ``-f``, ``-s``, ``-n``, and ``-S`` set the record format, the
+    data-section size, the record count, and the number of generation
+    passes. Each pass beyond the first writes a further session into the
+    same directory, so that the reader must end one session before
+    reading the next.
+
+o   ``-d``, ``-c``, ``-t``, ``-V``, ``-I``, and ``-O`` each take a list
+    of segment file indices to damage, described below.
+
+o   ``-g`` writes both stored files from this run instead of comparing
+    against them.
+
+o   ``-k`` keeps the temporary directory and prints its path, and ``-r``
+    and ``-x`` hexdump the segment files before and after the damage.
+    These are for working on a case by hand.
+
+Indices start at one, and the word ``last`` stands for the
+highest-numbered segment file. How many files a run produces depends on
+the format and the sizes, so ``last`` can only be resolved after
+generating the log. An index naming no segment file must fail the run:
+accepted silently, it would leave a case asserting less than it appears
+to. So must an index whose file an earlier action already removed.
+
+The damage each option applies must be exactly this, since the stored
+files record the reader's response to it:
+
+o   ``-d`` deletes the file.
+
+o   ``-c`` overwrites the eight-byte file-type magic with zeros. The file
+    remains, so its neighbours' sequence numbers still step over it and
+    the reader sees the same gap a deleted file would leave -- which is
+    the point: a corrupt segment and a missing one are the same event to
+    a reader, and only a test that leaves the file in place proves it.
+
+o   ``-t`` cuts the file to the header plus half of the data bytes the
+    file actually holds. Half of the nominal data section is wrong: a
+    segment the writer rolled early is shorter than
+    seg_size\ :sub:`max`, and truncating to a larger size would pad it
+    with zeros instead of cutting it, quietly substituting a different
+    kind of damage for the one the case asked for. The header survives,
+    so the sequence is intact and a record running off the short end is a
+    truncation the sequence cannot explain -- the case where the lost
+    count must be zero.
+
+o   ``-V`` sets the version field to a major this build cannot read.
+
+o   ``-I`` inverts a byte of the stored segment identifier so that it no
+    longer matches the identifier in the file name, as a renamed or
+    copied file would not.
+
+o   ``-O`` pads the file one byte past the maximum size its own header
+    declares, which the format forbids.
+
+Comparison
+~~~~~~~~~~
+The records come from a plain run and the diagnostics from a
+``--verbose`` run, reduced to the lines that the log and the damage fully
+determine. The per-segment header blocks are excluded because they name
+files after a segment identifier derived from the wall clock, which never
+repeats.
+
+The ``variable-tsrc`` format stamps every record with the time it was
+written, so a timestamp can never be compared against a stored value.
+Generating a stored file replaces each timestamp with a run of ``X`` of
+the same length, so that the file shows where the timestamp sits without
+fixing a value; comparing blanks the field on both sides. Every other
+field, the record count included, is compared exactly.
+
+Because the stored files are written from the tools' own output, they
+record what the tools currently do, and a regeneration captures a
+regression as readily as a fix. Regenerating is therefore a reviewed
+operation: the resulting diff is the thing to read.
+
+The two hexdumps that ``-r`` and ``-x`` produce, and ``dump-before``,
+must skip ``SEGMENT_FILE_HEADER_LEN`` bytes before dumping the data
+section, so that no part of the header is presented as though it were
+telemetry, and must invoke ``tcslog-dumphdr`` for the header itself --
+the library crate has no binary to run.
+
+Cases
+~~~~~
+The suite covers the following. Cases are grouped so that a group can be
+run alone while working on the behaviour it covers.
+
+o   Whole segment files lost from a ``Format::Fixed`` log, with a record
+    per segment, a record filling a segment exactly, and a record
+    spanning segments: lengths of one, eight, and five bytes against
+    data sections of one, eight, and seventeen. A further case truncates
+    a data section rather than deleting the file.
+
+o   Whole segment files lost from a ``variable-simple`` log, both at
+    fixed record lengths and at lengths drawn from a range, including a
+    record that ends exactly on a segment boundary and a case that
+    deletes the last segment file -- the one whose loss a reader is most
+    likely to mistake for a clean end of log.
+
+o   The same for ``variable-tsrc``, whose data header is the wider of the
+    two and so offers the most bytes that a resynchronizing reader could
+    misread as a record length.
+
+o   Damage that leaves the file in place, in both variable formats: an
+    unopenable header, which still leaves a sequence gap, and a short
+    data section, which leaves the sequence intact and so must be
+    reported with a lost count of zero. One case applies a deletion, an
+    unopenable header, and a short data section to different segment
+    files of one log, to show that the reader's accounting survives
+    recovering repeatedly.
+
+o   Files the reader must refuse outright rather than read with the wrong
+    assumptions: an unreadable version, a stored segment identifier that
+    disagrees with the file name, and a file larger than the maximum size
+    its own header declares. All three are settled before the header's
+    format tag is consulted, so one format exercises them and a case per
+    format would assert nothing further.
+
+o   A record too large for the caller's buffer, in both variable
+    formats. This one does need a case per format: the count reported is
+    of payload bytes, so a data header charged against the caller's
+    buffer would show up as a differing count, and the two formats'
+    headers differ in width.
+
+o   Several sessions in one directory with a segment file missing from
+    one of them, so that the reader must end each session before reading
+    the next and must attribute the loss to the right one.
+
+The Makefile
+~~~~~~~~~~~~
+One target per case, gathered into one target per group, with ``test``
+running every group. A ``regenerate`` target rewrites every stored file.
+It must find the cases by walking the directory's executable files and
+skipping the ``Makefile``, the stored-file directory, the driver, and
+``dump-before`` by name. Matching case names against a pattern instead
+leaves the target silently doing nothing the first time the cases are
+renamed.
 
 User Documentation
 ==================
