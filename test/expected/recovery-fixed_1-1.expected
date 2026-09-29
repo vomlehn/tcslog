@@ -1,2 +1,22 @@
+=== segment file: pfx-<id1>.log ===
+    segment_id: <id1>
+    session_id: <id2>
+    max_size:   54
+    remaining:  0
+    format:     Fixed(1)
+    sequence:   1
+    -- 1 missing segment file(s); resynchronizing --
     # (1 bytes)
+
+=== segment file: pfx-<id3>.log ===
+    segment_id: <id3>
+    session_id: <id2>
+    max_size:   54
+    remaining:  0
+    format:     Fixed(1)
+    sequence:   4
+    -- 2 missing segment file(s); resynchronizing --
     # (1 bytes)
+
+read 2 message(s) across 2 file(s)
+3 segment file(s) lost

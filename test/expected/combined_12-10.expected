@@ -1,9 +1,134 @@
+=== segment file: pfx-<id1>.log ===
+    segment_id: <id1>
+    session_id: <id1>
+    max_size:   63
+    remaining:  0
+    format:     VariableSimple
+    sequence:   0
+
+=== segment file: pfx-<id2>.log ===
+    segment_id: <id2>
+    session_id: <id1>
+    max_size:   63
+    remaining:  12
+    format:     VariableSimple
+    sequence:   2
     #1 123 (6 bytes recovered, rest of record lost)
+    -- 1 missing segment file(s); resynchronizing --
+
+=== segment file: pfx-<id3>.log ===
+    segment_id: <id3>
+    session_id: <id1>
+    max_size:   63
+    remaining:  2
+    format:     VariableSimple
+    sequence:   3
     #2 123456789 (12 bytes)
+
+=== segment file: pfx-<id4>.log ===
+    segment_id: <id4>
+    session_id: <id1>
+    max_size:   63
+    remaining:  8
+    format:     VariableSimple
+    sequence:   4
     #3 123456789 (12 bytes)
+
+=== segment file: pfx-<id5>.log ===
+    segment_id: <id5>
+    session_id: <id1>
+    max_size:   63
+    remaining:  6
+    format:     VariableSimple
+    sequence:   6
+    -- 1 missing segment file(s); resynchronizing --
+
+=== segment file: pfx-<id6>.log ===
+    segment_id: <id6>
+    session_id: <id1>
+    max_size:   63
+    remaining:  12
+    format:     VariableSimple
+    sequence:   7
+
+=== segment file: pfx-<id7>.log ===
+    segment_id: <id7>
+    session_id: <id1>
+    max_size:   63
+    remaining:  2
+    format:     VariableSimple
+    sequence:   8
     #5 123456789 (12 bytes)
+
+=== segment file: pfx-<id8>.log ===
+    segment_id: <id8>
+    session_id: <id1>
+    max_size:   63
+    remaining:  8
+    format:     VariableSimple
+    sequence:   9
+
+=== segment file: pfx-<id9>.log ===
+    segment_id: <id9>
+    session_id: <id1>
+    max_size:   63
+    remaining:  0
+    format:     VariableSimple
+    sequence:   10
     #6 12345 (8 bytes recovered, rest of record lost)
+    -- corrupted or truncated segment file; resynchronizing --
+
+=== segment file: pfx-<id10>.log ===
+    segment_id: <id10>
+    session_id: <id1>
+    max_size:   63
+    remaining:  6
+    format:     VariableSimple
+    sequence:   11
     #7 123456789 (12 bytes)
+
+=== segment file: pfx-<id11>.log ===
+    segment_id: <id11>
+    session_id: <id1>
+    max_size:   63
+    remaining:  12
+    format:     VariableSimple
+    sequence:   12
+
+=== segment file: pfx-<id12>.log ===
+    segment_id: <id12>
+    session_id: <id1>
+    max_size:   63
+    remaining:  2
+    format:     VariableSimple
+    sequence:   13
     #8 123456789 (12 bytes)
+
+=== segment file: pfx-<id13>.log ===
+    segment_id: <id13>
+    session_id: <id1>
+    max_size:   63
+    remaining:  8
+    format:     VariableSimple
+    sequence:   14
     #9 123456789 (12 bytes)
+
+=== segment file: pfx-<id14>.log ===
+    segment_id: <id14>
+    session_id: <id1>
+    max_size:   63
+    remaining:  0
+    format:     VariableSimple
+    sequence:   15
+
+=== segment file: pfx-<id15>.log ===
+    segment_id: <id15>
+    session_id: <id1>
+    max_size:   63
+    remaining:  6
+    format:     VariableSimple
+    sequence:   16
     #10 12345678 (12 bytes)
+
+read 9 message(s) across 15 file(s)
+2 segment file(s) lost

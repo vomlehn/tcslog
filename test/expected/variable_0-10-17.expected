@@ -1,15 +1,99 @@
+=== segment file: pfx-<id1>.log ===
+    segment_id: <id1>
+    session_id: <id2>
+    max_size:   70
+    remaining:  4
+    format:     VariableSimple
+    sequence:   1
+    -- 1 missing segment file(s); resynchronizing --
     #3 12345 (8 bytes)
+
+=== segment file: pfx-<id3>.log ===
+    segment_id: <id3>
+    session_id: <id2>
+    max_size:   70
+    remaining:  0
+    format:     VariableSimple
+    sequence:   4
+    -- 2 missing segment file(s); resynchronizing --
     #7  (3 bytes)
     #8 12 (5 bytes)
+
+=== segment file: pfx-<id4>.log ===
+    segment_id: <id4>
+    session_id: <id2>
+    max_size:   70
+    remaining:  0
+    format:     VariableSimple
+    sequence:   5
     #9 (2 bytes)
     #10  (4 bytes)
+
+=== segment file: pfx-<id5>.log ===
+    segment_id: <id5>
+    session_id: <id2>
+    max_size:   70
+    remaining:  0
+    format:     VariableSimple
+    sequence:   6
     #11 1234 (8 bytes)
+
+=== segment file: pfx-<id6>.log ===
+    segment_id: <id6>
+    session_id: <id2>
+    max_size:   70
+    remaining:  5
+    format:     VariableSimple
+    sequence:   7
     #12 12 (6 bytes)
+
+=== segment file: pfx-<id7>.log ===
+    segment_id: <id7>
+    session_id: <id2>
+    max_size:   70
+    remaining:  1
+    format:     VariableSimple
+    sequence:   8
     #13 12345 (9 bytes)
     #14 123 (7 bytes)
+
+=== segment file: pfx-<id8>.log ===
+    segment_id: <id8>
+    session_id: <id2>
+    max_size:   70
+    remaining:  8
+    format:     VariableSimple
+    sequence:   9
     #15 12345 (9 bytes)
+
+=== segment file: pfx-<id9>.log ===
+    segment_id: <id9>
+    session_id: <id2>
+    max_size:   70
+    remaining:  2
+    format:     VariableSimple
+    sequence:   10
     #16 123 (7 bytes)
      (0 bytes)
     #18 12 (6 bytes)
+
+=== segment file: pfx-<id10>.log ===
+    segment_id: <id10>
+    session_id: <id2>
+    max_size:   70
+    remaining:  0
+    format:     VariableSimple
+    sequence:   11
     #19 123456 (10 bytes)
+
+=== segment file: pfx-<id11>.log ===
+    segment_id: <id11>
+    session_id: <id2>
+    max_size:   70
+    remaining:  0
+    format:     VariableSimple
+    sequence:   12
     #20 12345 (9 bytes)
+
+read 15 message(s) across 10 file(s)
+3 segment file(s) lost

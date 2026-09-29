@@ -23,12 +23,9 @@ keep_tmp=0
 actual_file=""
 expected_cmp=""
 actual_cmp=""
-diag_actual=""
-diag_expected_cmp=""
 TMP_DIR=$(mktemp -d -t tcslog.XXXXXXXXXX)
 cleanup() {
-    rm -f "$actual_file" "$expected_cmp" "$actual_cmp" \
-        "$diag_actual" "$diag_expected_cmp"
+    rm -f "$actual_file" "$expected_cmp" "$actual_cmp"
     if [ $keep_tmp -ne 0 ]; then
         echo "Temporary directory kept: $TMP_DIR"
     else
@@ -142,14 +139,8 @@ if [ -z "$expected_file" ]; then
     echo "The -e <expected-file> option is required." 1>&2
     usage
 fi
-diag_file="${expected_file%.expected}.diag"
 if [ ! -f "$expected_file" ] && [ $generate -eq 0 ]; then
     echo "Expected results file not found: $expected_file" 1>&2
-    echo "Use -g to create it from this run's output." 1>&2
-    exit 1
-fi
-if [ ! -f "$diag_file" ] && [ $generate -eq 0 ]; then
-    echo "Expected diagnostics file not found: $diag_file" 1>&2
     echo "Use -g to create it from this run's output." 1>&2
     exit 1
 fi
@@ -386,75 +377,91 @@ echo tcslog-dump output
 actual_file=$(mktemp)
 expected_cmp=$(mktemp)
 actual_cmp=$(mktemp)
-diag_actual=$(mktemp)
-diag_expected_cmp=$(mktemp)
+
+# One --verbose capture is the whole comparison. It carries the records,
+# the per-segment header blocks, the truncation and overflow notices,
+# the session markers and the totals, in the order the reader produced
+# them, so the stored file fixes not just what each stream said but how
+# the two interleave: which segment a record came from, which session a
+# loss fell in, which record a notice follows.
+#
+# The header blocks were previously dropped as unreproducible. Only
+# their two identifiers are: `max_size`, `remaining`, `format` and
+# `sequence` are fixed by the log and the damage, and `remaining` and
+# `sequence` are the fields the reader's own loss detection rests on.
+# Discarding them left the suite unable to see a reader that computed
+# either one wrongly unless the record set happened to change with it.
 cargo run --quiet -p tcslog-dump -- \
-    "$TMP_DIR" "$PFX" "$SFX" > "$actual_file"
+    "$TMP_DIR" "$PFX" "$SFX" --verbose > "$actual_file"
 cat "$actual_file"
 
-# Which records survive is only half of what the reader owes a caller:
-# it must also say what it lost. Those reports are --verbose-only, so
-# take a second pass for them. Only the format-independent diagnostic
-# lines are kept -- the per-segment header blocks name files after the
-# time-derived SegId, which never repeats -- leaving the truncation
-# notices, the lost-segment tally and the record/file totals, all of
-# which are fully determined by the log and the damage done to it.
-extract_diagnostics() {
-    grep -E '^(    -- |    \(payload larger than|--- End of Session|read [0-9]+ message\(s\) across [0-9]+ file\(s\)$|[0-9]+ segment file\(s\) lost$)' \
-        "$1" || true
+# Segment identifiers are wall-clock timestamps, so neither they nor the
+# file names built from them repeat. Replacing each with a label numbered
+# in order of first appearance keeps them out of the comparison while
+# still holding what they say: that two segments share a session, or that
+# a later one opens a new session. Masking them all alike would discard
+# exactly that.
+#
+# The variable-tsrc format stamps every record with the time it was
+# written, which is likewise unrepeatable. Those get one label rather
+# than numbered ones: whether two records share a timestamp depends on
+# the clock's granularity, so numbering them would record a distinction
+# that is not the reader's to make.
+normalize() {
+    sed 's/ts=[^,)]*/ts=<ts>/g' "$1" |
+        awk '
+            {
+                id = "[0-9a-f][0-9a-f][0-9a-f][0-9a-f]"
+                pat = id "-" id "-" id "-" id
+                while (match($0, pat)) {
+                    found = substr($0, RSTART, RLENGTH)
+                    if (!(found in label)) {
+                        label[found] = "<id" ++seen ">"
+                    }
+                    $0 = substr($0, 1, RSTART - 1) label[found] \
+                        substr($0, RSTART + RLENGTH)
+                }
+                print
+            }
+        '
 }
-cargo run --quiet -p tcslog-dump -- \
-    "$TMP_DIR" "$PFX" "$SFX" --verbose |
-    extract_diagnostics /dev/stdin > "$diag_actual"
 
-# The variable-tsrc format stamps each record with the wall-clock time,
-# so the timestamp differs on every run and cannot be checked against a
-# stored file. Blank it out on both sides before comparing; every other
-# field, the record count included, is still compared exactly.
-strip_timestamp() {
-    sed 's/ts=[^,)]*/ts=<ignored>/g' "$1"
-}
-
-# Replace every character of each timestamp with an X, preserving its
-# length, so a stored expected file shows where the timestamp sits
-# without pinning a value that can never repeat. Each pass turns the
-# first not-yet-masked character after "ts=" into an X and branches
-# back, until the run of X reaches the ',' or ')' ending the field.
-mask_timestamp() {
-    sed ':a; s/\(ts=X*\)[^,)X]/\1X/; ta' "$1"
+# Without --verbose the tool prints records and nothing else. Nothing in
+# the stored file can show that, since the stored file is the verbose
+# form, so assert it directly rather than leave the quiet mode uncovered.
+check_quiet_mode() {
+    local quiet
+    quiet=$(cargo run --quiet -p tcslog-dump -- "$TMP_DIR" "$PFX" "$SFX")
+    if printf '%s\n' "$quiet" | grep -qE \
+        '^(=== segment file:|    (segment_id|session_id|max_size|remaining|format|sequence):|    -- |    \(payload larger than|--- End of Session|read [0-9]+ message)'
+    then
+        echo "FAIL: output without --verbose is not records alone" 1>&2
+        printf '%s\n' "$quiet" 1>&2
+        return 1
+    fi
+    echo "OK: output without --verbose is records alone"
+    return 0
 }
 
 if [ $generate -ne 0 ]; then
-    mask_timestamp "$actual_file" > "$actual_cmp"
+    normalize "$actual_file" > "$actual_cmp"
     cp "$actual_cmp" "$expected_file"
-    cp "$diag_actual" "$diag_file"
     echo
-    echo "GENERATED: $expected_file (timestamps masked with X)"
-    echo "GENERATED: $diag_file"
+    echo "GENERATED: $expected_file (segment ids and timestamps labelled)"
     exit 0
 fi
 
-strip_timestamp "$expected_file" > "$expected_cmp"
-strip_timestamp "$actual_file" > "$actual_cmp"
+normalize "$expected_file" > "$expected_cmp"
+normalize "$actual_file" > "$actual_cmp"
 
 status=0
 echo
 if diff -u "$expected_cmp" "$actual_cmp"; then
-    echo "OK: dump output matches $expected_file (timestamps ignored)"
+    echo "OK: dump output matches $expected_file"
 else
     echo "FAIL: dump output does not match $expected_file" 1>&2
     status=1
 fi
 
-echo
-echo "tcslog-dump diagnostics"
-cat "$diag_actual"
-cp "$diag_file" "$diag_expected_cmp"
-echo
-if diff -u "$diag_expected_cmp" "$diag_actual"; then
-    echo "OK: dump diagnostics match $diag_file"
-else
-    echo "FAIL: dump diagnostics do not match $diag_file" 1>&2
-    status=1
-fi
+check_quiet_mode || status=1
 exit $status

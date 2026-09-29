@@ -1512,7 +1512,7 @@ o   Check that the first write() after clear() starts a new session, with
 Error-Recovery Test Suite
 -------------------------
 A suite under ``test/`` generates a log, damages the segment files, reads
-the log back, and compares the result against stored files. It checks
+the log back, and compares the result against a stored file. It checks
 both halves of what the reader owes a caller: which records survive, and
 what the reader says it lost. A reader that quietly dropped records while
 producing a plausible-looking subset would pass the first check and fail
@@ -1533,8 +1533,8 @@ establishes and why nothing else covers it.
 A case's file name must match what it does, because a name is how a
 reader of the directory judges what is covered:
 
-o   The script's basename and the basename of its two stored files must
-    be the same string.
+o   The script's basename and the basename of its stored file must be
+    the same string.
 
 o   The name states the format when it is not ``variable-simple``:
     ``tsrc-`` for ``variable-tsrc`` and ``fixed`` for ``Format::Fixed``.
@@ -1562,10 +1562,9 @@ Segment files are generated into a fresh temporary directory, removed by
 a single exit trap so that the removal happens however the run ends. The
 options are:
 
-o   ``-e`` names the expected file within ``expected/`` and is required.
-    The diagnostics file is the same name with ``.diag`` in place of
-    ``.expected``. A missing file is an error that names ``-g`` rather
-    than a silent pass.
+o   ``-e`` names the expected file within ``expected/`` and is
+    required. A missing file is an error that names ``-g`` rather than a
+    silent pass.
 
 o   ``-f``, ``-s``, ``-n``, and ``-S`` set the record format, the
     data-section size, the record count, and the number of generation
@@ -1576,8 +1575,8 @@ o   ``-f``, ``-s``, ``-n``, and ``-S`` set the record format, the
 o   ``-d``, ``-c``, ``-t``, ``-V``, ``-I``, and ``-O`` each take a list
     of segment file indices to damage, described below.
 
-o   ``-g`` writes both stored files from this run instead of comparing
-    against them.
+o   ``-g`` writes the stored file from this run instead of comparing
+    against it.
 
 o   ``-k`` keeps the temporary directory and prints its path, and ``-r``
     and ``-x`` hexdump the segment files before and after the damage.
@@ -1622,18 +1621,48 @@ o   ``-O`` pads the file one byte past the maximum size its own header
 
 Comparison
 ~~~~~~~~~~
-The records come from a plain run and the diagnostics from a
-``--verbose`` run, reduced to the lines that the log and the damage fully
-determine. The per-segment header blocks are excluded because they name
-files after a segment identifier derived from the wall clock, which never
-repeats.
+One ``--verbose`` capture is the whole comparison, held against one
+stored file. That capture carries the records, the per-segment header
+blocks, the truncation and overflow notices, the session markers and the
+totals, in the order the reader produced them, so the stored file fixes
+not only what was reported but how the reports interleave: which segment
+each record came from, which session a loss fell in, which record a
+notice follows. Splitting the records and the diagnostics into two
+captures compared against two files would assert each list separately
+and none of that ordering, which is where a reader that recovered the
+right records and attributed them to the wrong place would hide.
 
-The ``variable-tsrc`` format stamps every record with the time it was
-written, so a timestamp can never be compared against a stored value.
-Generating a stored file replaces each timestamp with a run of ``X`` of
-the same length, so that the file shows where the timestamp sits without
-fixing a value; comparing blanks the field on both sides. Every other
-field, the record count included, is compared exactly.
+Comparing the header blocks is the point of capturing them. Of their
+fields only the two identifiers fail to repeat: ``max_size``,
+``remaining``, ``format`` and ``sequence`` are fixed by the log and the
+damage done to it, and ``remaining`` and ``sequence`` are the two fields
+the reader's loss detection rests on. A suite that discards them cannot
+see a reader that computes either one wrongly unless the surviving
+record set happens to change with it.
+
+Two kinds of value in that capture cannot be stored as they stand:
+
+o   Segment identifiers are wall-clock timestamps, so neither they nor
+    the file names built from them ever repeat. Each distinct one is
+    replaced by a label numbered in order of first appearance. This
+    keeps the values out of the comparison while holding what they say:
+    that two segments belong to one session, or that a later segment
+    opens a new one. Masking them all alike would discard exactly that.
+    A label that appears as some segment's session while never appearing
+    as a segment of its own is itself the evidence that the segment
+    which opened that session is gone.
+
+o   The ``variable-tsrc`` format stamps every record with the time it
+    was written. Those are replaced by a single label rather than
+    numbered ones, because whether two records share a timestamp depends
+    on the clock's granularity and is not a distinction the reader is
+    making. Every other field, the record count included, is compared
+    exactly.
+
+Without ``--verbose`` the tool prints records and nothing else. The
+stored file is the verbose form and so cannot show that, which would
+leave the quiet mode uncovered; a run without the flag is therefore
+checked directly for the absence of every verbose-only line.
 
 Because the stored files are written from the tools' own output, they
 record what the tools currently do, and a regeneration captures a

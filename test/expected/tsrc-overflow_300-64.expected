@@ -1,3 +1,127 @@
+=== segment file: pfx-<id1>.log ===
+    segment_id: <id1>
+    session_id: <id1>
+    max_size:   117
+    remaining:  0
+    format:     VariableTsRc
+    sequence:   0
+
+=== segment file: pfx-<id2>.log ===
+    segment_id: <id2>
+    session_id: <id1>
+    max_size:   117
+    remaining:  256
+    format:     VariableTsRc
+    sequence:   1
+
+=== segment file: pfx-<id3>.log ===
+    segment_id: <id3>
+    session_id: <id1>
+    max_size:   117
+    remaining:  192
+    format:     VariableTsRc
+    sequence:   2
+
+=== segment file: pfx-<id4>.log ===
+    segment_id: <id4>
+    session_id: <id1>
+    max_size:   117
+    remaining:  128
+    format:     VariableTsRc
+    sequence:   3
+
+=== segment file: pfx-<id5>.log ===
+    segment_id: <id5>
+    session_id: <id1>
+    max_size:   117
+    remaining:  64
+    format:     VariableTsRc
+    sequence:   4
     #1 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123 (256 bytes captured, record truncated)
+    (payload larger than 256-byte buffer; 256 bytes captured, remainder discarded)
+
+=== segment file: pfx-<id6>.log ===
+    segment_id: <id6>
+    session_id: <id1>
+    max_size:   117
+    remaining:  0
+    format:     VariableTsRc
+    sequence:   5
+
+=== segment file: pfx-<id7>.log ===
+    segment_id: <id7>
+    session_id: <id1>
+    max_size:   117
+    remaining:  256
+    format:     VariableTsRc
+    sequence:   6
+
+=== segment file: pfx-<id8>.log ===
+    segment_id: <id8>
+    session_id: <id1>
+    max_size:   117
+    remaining:  192
+    format:     VariableTsRc
+    sequence:   7
+
+=== segment file: pfx-<id9>.log ===
+    segment_id: <id9>
+    session_id: <id1>
+    max_size:   117
+    remaining:  128
+    format:     VariableTsRc
+    sequence:   8
+
+=== segment file: pfx-<id10>.log ===
+    segment_id: <id10>
+    session_id: <id1>
+    max_size:   117
+    remaining:  64
+    format:     VariableTsRc
+    sequence:   9
     #2 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123 (256 bytes captured, record truncated)
+    (payload larger than 256-byte buffer; 256 bytes captured, remainder discarded)
+
+=== segment file: pfx-<id11>.log ===
+    segment_id: <id11>
+    session_id: <id1>
+    max_size:   117
+    remaining:  0
+    format:     VariableTsRc
+    sequence:   10
+
+=== segment file: pfx-<id12>.log ===
+    segment_id: <id12>
+    session_id: <id1>
+    max_size:   117
+    remaining:  256
+    format:     VariableTsRc
+    sequence:   11
+
+=== segment file: pfx-<id13>.log ===
+    segment_id: <id13>
+    session_id: <id1>
+    max_size:   117
+    remaining:  192
+    format:     VariableTsRc
+    sequence:   12
+
+=== segment file: pfx-<id14>.log ===
+    segment_id: <id14>
+    session_id: <id1>
+    max_size:   117
+    remaining:  128
+    format:     VariableTsRc
+    sequence:   13
+
+=== segment file: pfx-<id15>.log ===
+    segment_id: <id15>
+    session_id: <id1>
+    max_size:   117
+    remaining:  64
+    format:     VariableTsRc
+    sequence:   14
     #3 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123 (256 bytes captured, record truncated)
+    (payload larger than 256-byte buffer; 256 bytes captured, remainder discarded)
+
+read 3 message(s) across 15 file(s)
