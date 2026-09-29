@@ -7,8 +7,15 @@ set -eu
 
 dumpseg() {
     (
-        cargo run -q -p tcslog-dumphdr "$@";
-        hexdump -C --skip 49 "$@"
+        if cargo run -q -p tcslog-dumphdr "$@"; then
+            if hexdump -C --skip 49 "$@"; then
+                :
+            else
+                echo "Segment file data" "$@" "corrupted or missing"
+            fi
+        else
+            :
+        fi
     )
 }
 

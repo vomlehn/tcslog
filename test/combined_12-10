@@ -26,7 +26,7 @@ CORRUPT="6"
 TRUNCATE="10"
 
 $test/error-recovery-common \
-    -e "max-rsync_12-10.expected" \
+    -e "combined_12-10.expected" \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \
     -n "$NUMBER" \

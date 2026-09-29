@@ -4,9 +4,15 @@
 # The segment cannot be opened, so the reader steps over it exactly as
 # it would a missing file and the sequence gap still accounts for it.
 #
-# This runs tcslog-gen to generate segment files. It then deletes and
-# corrupts them in various ways and uses tcslog-dump to see whether
-# error recovery works.
+# Generate segment files as follows:
+# o Variable size data records
+# o Data record length, in bytes: 12
+# o Data section size, in bytes: 10`
+#
+# Number of records: 5
+#
+# Expect raw number of segment files: 5
+# Corrupted segment files: 2
 
 set -eu
 
@@ -21,7 +27,7 @@ NUMBER="5"
 CORRUPT="2"
 
 $test/error-recovery-common \
-    -e "corrupt_12-10.expected" \
+    -e "tsrc-corrupt.expected" \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \
     -n "$NUMBER" \

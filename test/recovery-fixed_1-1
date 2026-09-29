@@ -1,0 +1,31 @@
+#!/bin/bash
+#
+# Generate segment files as follows:
+# o Fixed size data records
+# o Data record length, in bytes: 1
+# o Data section size, in bytes: 1
+#
+# Number of records: 5
+#
+# Expect raw number of segment files: 5
+# Delete segment files: 1, 3, and 4
+
+set -eu
+
+PFX=pfx-
+SFX=.log
+
+test="$(dirname "$0")"
+
+FORMAT="fixed:1"
+DELETE="1 3 4"
+DATA_SIZE="1"
+NUMBER="5"
+
+$test/error-recovery-common \
+    -e "recovery-fixed_1-1.expected" \
+    -f "$FORMAT" \
+    -d "$DELETE" \
+    -s "$DATA_SIZE" \
+    -n "$NUMBER" \
+    "$@"
