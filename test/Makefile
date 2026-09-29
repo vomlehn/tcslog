@@ -123,7 +123,7 @@ test-corrupt: test-corrupt_12-10 test-tsrc-corrupt_10-24
 
 .PHONY: test-corrupt_12-10
 test-corrupt_12-10:
-	./corrupt_12-10 -k
+	./corrupt_12-10
 
 .PHONY: test-tsrc-corrupt_10-24
 test-tsrc-corrupt_10-24:
