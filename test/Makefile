@@ -73,7 +73,9 @@ test-combined:
 # Segment files the reader must refuse outright rather than read with
 # the wrong assumptions: an unreadable version, a stored segment id that
 # disagrees with the file name, and a file larger than the max_size its
-# own header declares.
+# own header declares. All three run before the format tag in the header
+# is consulted, so one format exercises them; only the overflow path,
+# which decodes a data header, needs a variable-tsrc case of its own.
 .PHONY: test-rejected
 test-rejected: test-version_12-10 test-segid_12-10 test-oversize_12-10
 
@@ -90,13 +92,19 @@ test-oversize_12-10:
 	./oversize_12-10
 
 # A record too large for the caller's buffer, which exercises the
-# overflow path rather than any segment-file damage.
+# overflow path rather than any segment-file damage. The count reported
+# covers payload only, so both variable formats must capture the same
+# 256 bytes despite their data headers differing in width.
 .PHONY: test-overflow
-test-overflow: test-overflow_300-64
+test-overflow: test-overflow_300-64 test-tsrc-overflow_300-64
 
 .PHONY: test-overflow_300-64
 test-overflow_300-64:
 	./overflow_300-64
+
+.PHONY: test-tsrc-overflow_300-64
+test-tsrc-overflow_300-64:
+	./tsrc-overflow_300-64
 
 # Several sessions in one directory, so the reader has to end each
 # before reading the next.
