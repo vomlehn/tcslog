@@ -6,17 +6,13 @@ rust-version.workspace = true
 authors.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Onboard segmented telemetry log library for storage-bounded systems"
+description = "Onboard telemetry logging into segment files, with recovery from lost or damaged segments"
 build = "build.rs"
 
-[lints]
-workspace = true
-
 [features]
+# Writing needs the build-time timer resolution; reading does not, so a
+# read-only consumer can take the crate without supplying one.
 default = ["write"]
-# Enables `LogWrite` and its supporting code. When disabled, the crate
-# provides only the reader path and does not require `TIMER_RESOLUTION`
-# to be set at build time.
 write = []
 
 [dependencies]
@@ -24,3 +20,6 @@ thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[lints]
+workspace = true
