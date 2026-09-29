@@ -21,11 +21,6 @@ pub enum LogError {
     #[error("payload length does not match Format::Fixed record size")]
     FixedLenMismatch,
 
-    /// The combination of prefix, suffix, and segment identifier does not
-    /// form a valid file name.
-    #[error("invalid file name")]
-    InvalidFileName,
-
     /// The segment file header did not match the tcslog on-disk layout.
     #[error("invalid or corrupt segment file header")]
     InvalidHeader,
@@ -86,11 +81,6 @@ pub enum LogError {
         /// ahead of a session's first surviving segment.
         n: RecSize,
     },
-
-    /// The segment file's stored `segment_id` did not match the value
-    /// encoded in its file name.
-    #[error("segment id does not match file name")]
-    SegIdMismatch,
 
     /// The requested `seg_size_max` is not larger than
     /// `SEGMENT_FILE_HEADER_LEN` plus a single data-record header.
