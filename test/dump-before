@@ -5,10 +5,12 @@
 
 set -eu
 
+# The skip is SEGMENT_FILE_HEADER_LEN from tcslog::header; a smaller
+# value would show the tail of the header as if it were payload.
 dumpseg() {
     (
         if cargo run -q -p tcslog-dumphdr "$@"; then
-            if hexdump -C --skip 49 "$@"; then
+            if hexdump -C --skip 53 "$@"; then
                 :
             else
                 echo "Segment file data" "$@" "corrupted or missing"

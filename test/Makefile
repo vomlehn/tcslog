@@ -119,15 +119,15 @@ test-sessions_8-40:
 # variable-tsrc data header is the longer of the two and so offers the
 # most bytes a resync could misread as a record length.
 .PHONY: test-corrupt
-test-corrupt: tsrc-corrupt test-tsrc_10-24
+test-corrupt: test-corrupt_12-10 test-tsrc-corrupt_10-24
 
-.PHONY: tsrc-corrupt
-tsrc-corrupt:
-	./tsrc-corrupt -k
+.PHONY: test-corrupt_12-10
+test-corrupt_12-10:
+	./corrupt_12-10 -k
 
-.PHONY: test-tsrc_10-24
-test-tsrc_10-24:
-	./tsrc_10-24
+.PHONY: test-tsrc-corrupt_10-24
+test-tsrc-corrupt_10-24:
+	./tsrc-corrupt_10-24
 
 # Rebuild every expected file from the current output of the tools,
 # masking timestamps so the results stay reproducible. Review

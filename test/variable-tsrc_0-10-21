@@ -18,7 +18,7 @@ DATA_SIZE="21"
 NUMBER=20
 
 $test/error-recovery-common \
-    -e "variable_tsrc-0-10-21.expected" \
+    -e "variable-tsrc_0-10-21.expected" \
     -f "$FORMAT" \
     -d "$DELETE" \
     -s "$DATA_SIZE" \

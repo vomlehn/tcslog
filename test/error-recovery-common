@@ -7,10 +7,13 @@
 
 set -eu
 
+# Dumps a segment file's header, then its data section. The skip is
+# SEGMENT_FILE_HEADER_LEN from tcslog::header; a smaller value would
+# show the tail of the header as if it were payload.
 dumphdr() {
     (
-        cargo run -q -p tcslog "$@"
-        hexdump -C --skip 49 "$@"
+        cargo run -q -p tcslog-dumphdr "$@"
+        hexdump -C --skip 53 "$@"
     )
 }
 
@@ -38,6 +41,16 @@ trap cleanup EXIT
 
 PFX=pfx-
 SFX=.log
+
+# Run from the directory holding this script, so that neither the
+# expected files beside it nor the cargo invocations below depend on
+# where the caller happened to be. Cargo needs this as much as the
+# expected files do: it discovers both the workspace manifest and the
+# `.cargo/config.toml` that supplies TIMER_RESOLUTION by walking up
+# from the working directory, and --manifest-path covers only the
+# first of those. No option to this script takes a path, so nothing is
+# left behind pointing at the old directory.
+cd "$(dirname "$0")"
 
 dumphdr_enabled=0
 raw_dumphdr_enabled=0

@@ -27,7 +27,7 @@ NUMBER="5"
 CORRUPT="2"
 
 $test/error-recovery-common \
-    -e "tsrc-corrupt.expected" \
+    -e "corrupt_12-10.expected" \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \
     -n "$NUMBER" \
