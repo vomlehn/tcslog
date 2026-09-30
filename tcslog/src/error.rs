@@ -1,104 +1,120 @@
-//! Error type shared by the read and write halves of tcslog.
+//! The error type every fallible operation in this crate returns.
 
 use std::io;
-use thiserror::Error;
 
-use crate::format::RecSize;
+use crate::RecSize;
 
-/// Errors returned by any tcslog operation.
-#[derive(Debug, Error)]
+/// Everything that can go wrong reading or writing a log.
+///
+/// Several variants are outcomes rather than faults. [`Eof`](Self::Eof)
+/// ends a read, [`SessionEnd`](Self::SessionEnd) separates one session's
+/// records from the next, and
+/// [`ReadOverflow`](Self::ReadOverflow) says the caller's buffer was
+/// smaller than the record. They travel as errors because each one
+/// means the caller did not get the record it asked for.
+///
+/// No variant exists that nothing constructs. A segment file the reader
+/// cannot use, in particular, raises no error of its own: it is skipped,
+/// and the loss shows up through the sequence gap its neighbours reveal,
+/// exactly as a deleted file's would.
+#[derive(Debug, thiserror::Error)]
 pub enum LogError {
-    /// The system clock returned a value before the UNIX epoch.
-    #[error("system clock returned a value before the UNIX epoch")]
+    /// The system clock reported a time before the UNIX epoch, so no
+    /// segment ID or record timestamp could be minted from it.
+    #[error("the system clock is set before the UNIX epoch")]
     ClockError,
 
-    /// No more data records are available.
+    /// No more data records are available: the reader has exhausted its
+    /// list of segment files.
     #[error("end of log")]
     Eof,
 
-    /// The current `Format::Fixed(n)` requires records of exactly `n`
-    /// bytes; the caller passed a differently sized payload.
-    #[error("payload length does not match Format::Fixed record size")]
+    /// The format is `Fixed(n)` and the payload length is not `n`. A
+    /// zero-length payload under `Fixed(n)` is this error, since zero is
+    /// a wrong length like any other. `Format::Fixed(0)`, which no log
+    /// may use, is reported the same way.
+    #[error("payload length does not match the fixed record length")]
     FixedLenMismatch,
 
-    /// The segment file header did not match the tcslog on-disk layout.
-    #[error("invalid or corrupt segment file header")]
+    /// The bytes read do not form a segment file header: the type field
+    /// is not `tcslogsf`, or the data format tag is not one of the
+    /// defined values, or the tag is that of `Fixed` with a length of
+    /// zero.
+    #[error("not a tcslog segment file header")]
     InvalidHeader,
 
-    /// The requested path could not be represented as a valid pathname on
-    /// this platform (for example, it contained a NUL byte, or its length
-    /// exceeded `PATH_MAX`).
-    #[error("invalid pathname")]
+    /// A directory name, prefix, and suffix could not be combined with a
+    /// segment ID into a usable path, or the named directory is not a
+    /// directory.
+    #[error("invalid path name")]
     InvalidPathname,
 
-    /// The underlying operation returned an I/O error.
+    /// An underlying I/O operation failed.
     #[error("I/O error: {0}")]
     IoError(#[from] io::Error),
 
-    /// No segment files matching the given prefix and suffix were found
-    /// in the log directory.
-    #[error("no segment files found")]
+    /// No file in the directory matches the prefix and suffix, so there
+    /// is no log there to read.
+    #[error("no segment files match the given prefix and suffix")]
     NoSegmentFiles,
 
-    /// The prefix or suffix contained a path separator.
-    #[error("path delimiter not allowed in prefix or suffix")]
+    /// The prefix or suffix contains a path separator, which would let a
+    /// segment file escape the directory it was meant for.
+    #[error("prefix and suffix must not contain a path delimiter")]
     PathDelimiterNotAllowed,
 
-    /// A payload larger than `RecSize::MAX` bytes was supplied to a
-    /// write.
-    #[error("payload larger than RecSize::MAX")]
+    /// A payload larger than [`RecSize::MAX`](crate::RecSize) was
+    /// offered to a write, or one whose length plus its data header
+    /// would exceed the byte count `write` returns.
+    #[error("payload is too large to store in one data record")]
     PayloadTooLarge,
 
-    /// Too much telemetry data in the current data record to fit in the
-    /// user-supplied buffer. The wrapped value is the number of bytes
-    /// actually placed in the buffer.
-    #[error("read overflow (buffer filled with {0} bytes; remainder discarded)")]
-    ReadOverflow(u32),
+    /// The record was longer than the supplied buffer. The value is how
+    /// many bytes reached the front of the buffer; they are real
+    /// telemetry. The rest of the record was skipped, so the next read
+    /// starts at the following record.
+    #[error("record is larger than the supplied buffer; {0} byte(s) captured")]
+    ReadOverflow(RecSize),
 
-    /// A segment-boundary crossing during a mid-record read found a
-    /// continuation that does not belong after the current one: either
-    /// a gap in the segment `sequence`, or a `remaining` field that
-    /// does not match the bytes still owed to the current record. The
-    /// record was truncated; the next call to read will resynchronize
-    /// on the next available segment file.
-    #[error(
-        "read truncated by missing or corrupted segment file \
-             ({lost} segment file(s) lost, {n} payload byte(s) recovered)"
-    )]
+    /// A crossing from one segment file into the next found a
+    /// continuation that cannot follow it: a gap in the sequence, or a
+    /// `remaining` field disagreeing with the bytes still owed to the
+    /// record in progress. The record is lost and the next read
+    /// resynchronizes.
+    #[error("read truncated: {lost} segment file(s) lost, {n} payload byte(s) recovered")]
     ReadTruncated {
-        /// Number of segment files missing from the session at that
-        /// crossing, derived from the gap in the `sequence` counter.
-        /// Zero when the sequence is intact and the crossing was
-        /// rejected because the surviving segment is corrupt or
-        /// truncated rather than because one was lost.
+        /// How many segment files the sequence numbers show are missing
+        /// at the crossing. Zero when the sequence is intact and the
+        /// crossing was refused because a surviving segment is itself
+        /// corrupt or short.
         lost: u64,
-        /// Number of payload bytes of the truncated record that were
-        /// read before the crossing failed, left at the front of the
-        /// caller's buffer. Those bytes are real payload and the
-        /// caller may use them; the rest of the record is gone. Zero
-        /// when the record was cut short before any of its payload was
-        /// reached -- while its data header was being decoded, or
-        /// ahead of a session's first surviving segment.
+        /// How many payload bytes of the cut-short record reached the
+        /// front of the caller's buffer. Those bytes are real telemetry.
+        /// Zero when the record was cut short before any payload was
+        /// reached, which is the case while a data header was being
+        /// decoded and ahead of a session's first surviving segment.
         n: RecSize,
     },
 
-    /// The requested `seg_size_max` is not larger than
-    /// `SEGMENT_FILE_HEADER_LEN` plus a single data-record header.
-    #[error("seg_size_max is smaller than a segment header plus one data header")]
+    /// The requested maximum segment size is not strictly greater than
+    /// the segment file header plus one data header for the format in
+    /// use, so a segment file could not hold even an empty record.
+    #[error("maximum segment size leaves no room for a data record")]
     SegSizeTooSmall,
 
-    /// The most recently opened segment file belongs to a different
-    /// session than the previous one. The next read will return the
-    /// first record of the new session.
-    #[error("session boundary reached")]
+    /// Every record of the session just being read has been returned,
+    /// and the next segment file belongs to a different session. The
+    /// read after this one returns that session's first record.
+    #[error("end of session")]
     SessionEnd,
 
-    /// The build-time timer resolution is zero. Rebuild with
-    /// `TIMER_RESOLUTION` set to a strictly positive value.
-    #[error("timer resolution is zero; rebuild with TIMER_RESOLUTION > 0")]
+    /// The build-time timer resolution is zero, so the writer could not
+    /// guarantee that a fresh segment ID differs from the last one.
+    #[error("the build-time timer resolution is zero")]
     TimerResolutionZero,
 
-    /// The segment file was written by an incompatible version of tcslog.
-    #[error("incompatible segment file version")]
+    /// The segment file was written by a version of the on-disk format
+    /// this build cannot read.
+    #[error("segment file version is not readable by this build")]
     VersionMismatch,
 }

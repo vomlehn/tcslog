@@ -1,4 +1,4 @@
-//! On-disk segment file header layout.
+//! The segment file header: its in-memory form and on-disk encoding.
 
 use std::io::{Read, Write};
 
@@ -6,293 +6,385 @@ use crate::error::LogError;
 use crate::format::Format;
 use crate::segid::SegId;
 use crate::seq_id::SeqId;
+use crate::RecSize;
 
-/// ASCII magic tag stored at the start of every segment file.
-pub const FILE_TYPE: &[u8; 8] = b"tcslogsf";
-
-/// Segment-file format version corresponding to tcslog `0.1.0`.
-/// The four ASCII digits encode `MMmp`: two-digit major, one-digit
-/// minor, one-digit patch.
-pub const VERSION: &[u8; 4] = b"0010";
-
-/// Major version number of the on-disk format understood by this crate.
-pub const VERSION_MAJOR: u8 = 0;
-/// Minor version number of the on-disk format understood by this crate.
-pub const VERSION_MINOR: u8 = 1;
-
-/// Number of bytes the segment file header consumes on disk.
-///
-/// Layout (little-endian, tightly packed):
-///
-/// | offset | length | field       |
-/// |-------:|-------:|:------------|
-/// |      0 |      8 | file type   |
-/// |      8 |      4 | version     |
-/// |     12 |      8 | segment_id  |
-/// |     20 |      8 | session_id  |
-/// |     28 |      4 | max_size    |
-/// |     32 |      8 | remaining   |
-/// |     40 |      1 | format tag  |
-/// |     41 |      4 | format arg  |
-/// |     45 |      8 | sequence    |
+/// Length of a segment file header, in bytes. The same for every format,
+/// so that a reader can obtain the header before it knows which format
+/// the file uses.
 pub const SEGMENT_FILE_HEADER_LEN: u32 = 53;
 
-/// In-memory representation of a segment file header.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Major number of the on-disk format this build writes. A file whose
+/// major differs is refused: a different major means the layout itself
+/// differs.
+pub const VERSION_MAJOR: u32 = 0;
+
+/// Minor number of the on-disk format this build writes. A file whose
+/// minor is greater is refused, since it may use something this build
+/// does not know about; a lesser or equal one is readable.
+pub const VERSION_MINOR: u32 = 1;
+
+/// Patch number of the on-disk format this build writes. It takes no
+/// part in the compatibility decision.
+pub const VERSION_PATCH: u32 = 0;
+
+/// The ASCII string that identifies a tcslog segment file, and the first
+/// bytes of every one.
+const TYPE_MAGIC: &[u8; 8] = b"tcslogsf";
+
+// Field offsets within the header. The fields are packed with no
+// padding, and every numeric value is little-endian.
+const OFF_TYPE: usize = 0;
+const OFF_VERSION: usize = 8;
+const OFF_SEGMENT_ID: usize = 12;
+const OFF_SESSION_ID: usize = 20;
+const OFF_MAX_SIZE: usize = 28;
+const OFF_REMAINING: usize = 32;
+const OFF_FORMAT_TAG: usize = 40;
+const OFF_FORMAT_ARG: usize = 41;
+const OFF_SEQUENCE: usize = 45;
+
+/// Length of the header as a `usize`, for slicing.
+const HEADER_LEN: usize = SEGMENT_FILE_HEADER_LEN as usize;
+
+/// The header that opens every segment file.
+///
+/// The type and version fields are not represented here: they are
+/// checked when a header is decoded and written from this build's own
+/// constants when one is encoded, so there is no state a caller could
+/// set to something the format does not allow.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SegmentHeader {
-    /// Identifier of this segment file. Matches the segment portion of
-    /// the file name.
+    /// Identifier of this segment file, which must match the identifier
+    /// in its name.
     pub segment_id: SegId,
-    /// Segment identifier of the first segment file created for the
-    /// session this file belongs to.
+
+    /// Identifier of the first segment file of this session, carried by
+    /// every segment file of it. A change in this field is how a reader
+    /// sees one session end and the next begin.
     pub session_id: SegId,
-    /// Maximum size in bytes that a segment file in this log may reach.
+
+    /// The maximum size, in bytes, of a segment file of this log. No
+    /// segment file may be larger.
     pub max_size: u32,
-    /// Number of bytes at the start of this segment's data section that
-    /// are the tail of a data record that began in an earlier segment
-    /// file. Zero when the data section starts with a fresh record (the
-    /// common case for a session's first segment and for every segment
-    /// whose predecessor ended exactly at a record boundary). May exceed
-    /// this segment's data section, in which case the continuing record
-    /// extends into later segment files and no fresh record begins in
-    /// this segment.
+
+    /// How many bytes at the start of this data section are the tail of
+    /// a data record that began in an earlier segment file, counting
+    /// that record's data header as well as its payload. Zero when the
+    /// data section starts a fresh record. May exceed the data section,
+    /// in which case the record continues past this file and no fresh
+    /// record begins here.
     pub remaining: u64,
-    /// Layout used for records in the data section.
+
+    /// How data records in this file are laid out.
     pub format: Format,
-    /// Zero-based index of this segment file within its session. Resets
-    /// to zero for the first segment of a new session and increments by
-    /// one for each subsequent roll. The `u64` width ensures the
-    /// counter cannot realistically overflow during a single session.
-    ///
-    /// Segment IDs are wall-clock timestamps, not a dense integer
-    /// sequence, so they cannot be used to count segments or detect
-    /// gaps. This field is the canonical dense counter, and it plays a
-    /// role distinct from [`SegmentHeader::remaining`] in loss
-    /// detection: `remaining` catches losses that fall inside a data
-    /// record, whereas `sequence` catches losses that fall on
-    /// record-aligned segment boundaries -- where both surrounding
-    /// segments show `remaining == 0` and the `remaining` check
-    /// silently accepts the crossing even though whole segments' worth
-    /// of records have vanished.
-    ///
-    /// Both of those checks run at a crossing, so neither can see
-    /// segments lost before the first segment of a session that
-    /// survives: nothing crosses into it. The reader therefore also
-    /// requires the first segment it opens for a session to carry
-    /// `sequence == 0`, and reports a non-zero value as that many
-    /// segments lost ahead of it. The three checks together upgrade the
-    /// reader's guarantee from "no in-progress record was silently
-    /// truncated" to "no segment in the session was silently dropped."
-    ///
-    /// The field also lets recovery tools reassemble a session by
-    /// `session_id` + `sequence` when file names have been changed,
-    /// since segment file names carry the timestamp-based segment ID
-    /// and are not reliable if the files have been renamed or copied.
+
+    /// Zero-based position of this segment file within its session.
     pub sequence: SeqId,
 }
 
 impl SegmentHeader {
-    /// Number of bytes usable for the data section of a segment file
-    /// that is at most `max_size` bytes long.
+    /// The number of bytes of a segment file that hold data records.
+    ///
+    /// * `max_size` -- the maximum segment file size, as stored in the
+    ///   header's max size field.
+    ///
+    /// Returns `max_size` less the header length, saturating at zero so
+    /// that a nonsensical stored value cannot underflow.
     #[must_use]
-    pub fn data_section_len(max_size: u32) -> u32 {
+    pub const fn data_section_len(max_size: u32) -> u32 {
         max_size.saturating_sub(SEGMENT_FILE_HEADER_LEN)
     }
 
-    /// Number of bytes available for records in this segment's data
-    /// section.
+    /// The data section length of the file this header came from.
+    ///
+    /// Returns the length implied by this header's max size field.
     #[must_use]
-    pub fn data_capacity(&self) -> u32 {
+    pub const fn data_len(&self) -> u32 {
         Self::data_section_len(self.max_size)
     }
 
-    /// Serializes the header into `SEGMENT_FILE_HEADER_LEN` bytes.
+    /// Encodes the header in its on-disk form.
+    ///
+    /// Returns the [`SEGMENT_FILE_HEADER_LEN`] bytes that open a segment
+    /// file, with the type and version fields set from this build's
+    /// constants.
     #[must_use]
-    pub fn to_bytes(&self) -> [u8; SEGMENT_FILE_HEADER_LEN as usize] {
-        let mut buf = [0u8; SEGMENT_FILE_HEADER_LEN as usize];
-        buf[0..8].copy_from_slice(FILE_TYPE);
-        buf[8..12].copy_from_slice(VERSION);
-        buf[12..20].copy_from_slice(&self.segment_id.to_le_bytes());
-        buf[20..28].copy_from_slice(&self.session_id.to_le_bytes());
-        buf[28..32].copy_from_slice(&self.max_size.to_le_bytes());
-        buf[32..40].copy_from_slice(&self.remaining.to_le_bytes());
-        buf[40] = self.format.tag();
-        buf[41..45].copy_from_slice(&self.format.fixed_len().to_le_bytes());
-        buf[45..53].copy_from_slice(&self.sequence.to_le_bytes());
-        buf
+    pub fn to_bytes(&self) -> [u8; HEADER_LEN] {
+        let mut out = [0u8; HEADER_LEN];
+        out[OFF_TYPE..OFF_TYPE + 8].copy_from_slice(TYPE_MAGIC);
+        out[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(&version_bytes());
+        out[OFF_SEGMENT_ID..OFF_SEGMENT_ID + 8].copy_from_slice(&self.segment_id.to_le_bytes());
+        out[OFF_SESSION_ID..OFF_SESSION_ID + 8].copy_from_slice(&self.session_id.to_le_bytes());
+        out[OFF_MAX_SIZE..OFF_MAX_SIZE + 4].copy_from_slice(&self.max_size.to_le_bytes());
+        out[OFF_REMAINING..OFF_REMAINING + 8].copy_from_slice(&self.remaining.to_le_bytes());
+        out[OFF_FORMAT_TAG] = self.format.tag();
+        out[OFF_FORMAT_ARG..OFF_FORMAT_ARG + 4]
+            .copy_from_slice(&self.format.fixed_len().to_le_bytes());
+        out[OFF_SEQUENCE..OFF_SEQUENCE + 8].copy_from_slice(&self.sequence.to_le_bytes());
+        out
     }
 
-    /// Writes the header to `w` in on-disk form.
+    /// Decodes a header from its on-disk form.
+    ///
+    /// * `bytes` -- at least [`SEGMENT_FILE_HEADER_LEN`] bytes read from
+    ///   the start of a segment file.
+    ///
+    /// Returns the decoded header.
     ///
     /// # Errors
     ///
-    /// Returns [`LogError::IoError`] if the underlying writer fails.
-    pub fn write_to<W: Write>(&self, w: &mut W) -> Result<(), LogError> {
-        let buf = self.to_bytes();
-        w.write_all(&buf).map_err(LogError::IoError)
-    }
-
-    /// Deserializes a header from its on-disk byte encoding.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`LogError::InvalidHeader`] if the magic tag or format
-    /// tag are wrong, or [`LogError::VersionMismatch`] if the version
-    /// string identifies an incompatible on-disk format.
-    pub fn from_bytes(buf: &[u8; SEGMENT_FILE_HEADER_LEN as usize]) -> Result<Self, LogError> {
-        if &buf[0..8] != FILE_TYPE {
+    /// Returns [`LogError::InvalidHeader`] if `bytes` is too short, if
+    /// the type field is not `tcslogsf`, or if the data format fields do
+    /// not name a format. Returns [`LogError::VersionMismatch`] if the
+    /// version field does not parse or names a version this build cannot
+    /// read: the major must match and the minor must be no greater.
+    pub fn from_bytes(bytes: &[u8]) -> Result<Self, LogError> {
+        if bytes.len() < HEADER_LEN {
             return Err(LogError::InvalidHeader);
         }
-        let version: [u8; 4] = field(buf, 8);
-        if !version_is_compatible(version) {
-            return Err(LogError::VersionMismatch);
+        if &bytes[OFF_TYPE..OFF_TYPE + 8] != TYPE_MAGIC {
+            return Err(LogError::InvalidHeader);
         }
-        let segment_id = SegId::from_le_bytes(field(buf, 12));
-        let session_id = SegId::from_le_bytes(field(buf, 20));
-        let max_size = u32::from_le_bytes(field(buf, 28));
-        let remaining = u64::from_le_bytes(field(buf, 32));
-        let tag = buf[40];
-        let arg = u32::from_le_bytes(field(buf, 41));
-        let sequence = SeqId::from_le_bytes(field(buf, 45));
-        let format = match tag {
-            0 => {
-                if arg == 0 {
-                    return Err(LogError::InvalidHeader);
-                }
-                Format::Fixed(arg)
-            }
-            1 => Format::VariableSimple,
-            2 => Format::VariableTsRc,
-            _ => return Err(LogError::InvalidHeader),
-        };
-        Ok(SegmentHeader {
-            segment_id,
-            session_id,
-            max_size,
-            remaining,
+        check_version(&bytes[OFF_VERSION..OFF_VERSION + 4])?;
+
+        let tag = bytes[OFF_FORMAT_TAG];
+        let arg = RecSize::from_le_bytes(take4(bytes, OFF_FORMAT_ARG));
+        let format = Format::from_tag(tag, arg)?;
+
+        Ok(Self {
+            segment_id: SegId::from_le_bytes(take8(bytes, OFF_SEGMENT_ID)),
+            session_id: SegId::from_le_bytes(take8(bytes, OFF_SESSION_ID)),
+            max_size: u32::from_le_bytes(take4(bytes, OFF_MAX_SIZE)),
+            remaining: u64::from_le_bytes(take8(bytes, OFF_REMAINING)),
             format,
-            sequence,
+            sequence: SeqId::from_le_bytes(take8(bytes, OFF_SEQUENCE)),
         })
     }
 
-    /// Reads a header from `r`.
+    /// Reads and decodes a header from a stream.
+    ///
+    /// Exactly [`SEGMENT_FILE_HEADER_LEN`] bytes are consumed, leaving
+    /// the stream positioned at the first byte of the data section. No
+    /// more than that is read, so this works on a pipe whose writer is
+    /// still running.
+    ///
+    /// * `src` -- the stream to read from, positioned at the start of a
+    ///   segment file.
+    ///
+    /// Returns the decoded header.
     ///
     /// # Errors
     ///
-    /// Returns [`LogError::IoError`] on underlying read failure, or the
-    /// errors documented on [`SegmentHeader::from_bytes`].
-    pub fn read_from<R: Read>(r: &mut R) -> Result<Self, LogError> {
-        let mut buf = [0u8; SEGMENT_FILE_HEADER_LEN as usize];
-        r.read_exact(&mut buf).map_err(LogError::IoError)?;
+    /// Returns [`LogError::IoError`] if the stream cannot supply that
+    /// many bytes, and otherwise whatever
+    /// [`from_bytes`](Self::from_bytes) reports.
+    pub fn read_from<R: Read + ?Sized>(src: &mut R) -> Result<Self, LogError> {
+        let mut buf = [0u8; HEADER_LEN];
+        src.read_exact(&mut buf)?;
         Self::from_bytes(&buf)
+    }
+
+    /// Encodes the header and writes it to a stream.
+    ///
+    /// * `dst` -- the stream to write to, positioned at the start of a
+    ///   segment file.
+    ///
+    /// Returns nothing on success.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::IoError`] if the write fails.
+    pub fn write_to<W: Write + ?Sized>(&self, dst: &mut W) -> Result<(), LogError> {
+        dst.write_all(&self.to_bytes())?;
+        Ok(())
     }
 }
 
-/// Copies the `N`-byte field at `at` out of a header buffer.
+/// The four version characters this build writes: two digits of major,
+/// one of minor, one of patch.
+fn version_bytes() -> [u8; 4] {
+    [
+        b'0' + u8::try_from(VERSION_MAJOR / 10).unwrap_or(0),
+        b'0' + u8::try_from(VERSION_MAJOR % 10).unwrap_or(0),
+        b'0' + u8::try_from(VERSION_MINOR % 10).unwrap_or(0),
+        b'0' + u8::try_from(VERSION_PATCH % 10).unwrap_or(0),
+    ]
+}
+
+/// Decides whether a stored version field names a format this build can
+/// read.
 ///
-/// Every offset and length passed here is a compile-time constant drawn
-/// from the layout table on [`SEGMENT_FILE_HEADER_LEN`], so the source
-/// slice is always exactly `N` bytes long.
-fn field<const N: usize>(buf: &[u8; SEGMENT_FILE_HEADER_LEN as usize], at: usize) -> [u8; N] {
-    let mut out = [0u8; N];
-    out.copy_from_slice(&buf[at..at + N]);
+/// The major must match exactly, because a different major means the
+/// layout differs. The minor must be no greater than this build's, since
+/// a greater one may use something unknown here. The patch takes no
+/// part. A character outside `'0'` to `'9'` anywhere in the field is
+/// refused as well: a field that does not parse cannot be compared.
+fn check_version(field: &[u8]) -> Result<(), LogError> {
+    if field.len() != 4 || field.iter().any(|b| !b.is_ascii_digit()) {
+        return Err(LogError::VersionMismatch);
+    }
+    let digit = |b: u8| u32::from(b - b'0');
+    let major = digit(field[0]) * 10 + digit(field[1]);
+    let minor = digit(field[2]);
+    if major == VERSION_MAJOR && minor <= VERSION_MINOR {
+        Ok(())
+    } else {
+        Err(LogError::VersionMismatch)
+    }
+}
+
+/// Copies four bytes out of a header buffer at `off`.
+fn take4(bytes: &[u8], off: usize) -> [u8; 4] {
+    let mut out = [0u8; 4];
+    out.copy_from_slice(&bytes[off..off + 4]);
     out
 }
 
-/// Returns `true` if a segment file with the given four-byte version
-/// string can be read by this build of tcslog. The spec restricts
-/// every version character to the ASCII digits `'0'..'9'`. The rule
-/// is: major must match exactly; the file's minor must be less than or
-/// equal to the crate's minor.
-fn version_is_compatible(v: [u8; 4]) -> bool {
-    fn digit(b: u8) -> Option<u8> {
-        match b {
-            b'0'..=b'9' => Some(b - b'0'),
-            _ => None,
-        }
-    }
-    let (Some(h), Some(t), Some(m), Some(_p)) =
-        (digit(v[0]), digit(v[1]), digit(v[2]), digit(v[3]))
-    else {
-        return false;
-    };
-    let major = h * 10 + t;
-    let minor = m;
-    major == VERSION_MAJOR && minor <= VERSION_MINOR
+/// Copies eight bytes out of a header buffer at `off`.
+fn take8(bytes: &[u8], off: usize) -> [u8; 8] {
+    let mut out = [0u8; 8];
+    out.copy_from_slice(&bytes[off..off + 8]);
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn roundtrip_variable_ts_rc() {
-        let h = SegmentHeader {
-            segment_id: SegId::from_u64(0x1111_2222_3333_4444),
-            session_id: SegId::from_u64(0x1111_2222_3333_4444),
+    fn sample() -> SegmentHeader {
+        SegmentHeader {
+            segment_id: SegId::from_u64(0x1122_3344_5566_7788),
+            session_id: SegId::from_u64(0x0011_2233_4455_6677),
             max_size: 4096,
-            remaining: 0,
-            format: Format::VariableTsRc,
-            sequence: SeqId::ZERO,
-        };
-        let bytes = h.to_bytes();
-        let back = SegmentHeader::from_bytes(&bytes).unwrap();
-        assert_eq!(h, back);
-    }
-
-    #[test]
-    fn roundtrip_fixed() {
-        let h = SegmentHeader {
-            segment_id: SegId::from_u64(1),
-            session_id: SegId::from_u64(1),
-            max_size: 256,
-            remaining: 17,
+            remaining: 19,
             format: Format::Fixed(64),
-            sequence: SeqId::from_u64(3),
-        };
-        let bytes = h.to_bytes();
-        let back = SegmentHeader::from_bytes(&bytes).unwrap();
-        assert_eq!(h, back);
-        assert_eq!(back.sequence, SeqId::from_u64(3));
+            sequence: SeqId::from_u64(5),
+        }
     }
 
     #[test]
-    fn rejects_bad_magic() {
-        let mut bytes = SegmentHeader {
-            segment_id: SegId::from_u64(1),
-            session_id: SegId::from_u64(1),
-            max_size: 256,
-            remaining: 0,
-            format: Format::VariableSimple,
-            sequence: SeqId::ZERO,
+    fn header_is_fifty_three_bytes() {
+        assert_eq!(SEGMENT_FILE_HEADER_LEN, 53);
+        assert_eq!(sample().to_bytes().len(), 53);
+    }
+
+    #[test]
+    fn fields_land_at_the_specified_offsets() {
+        let h = sample();
+        let b = h.to_bytes();
+        assert_eq!(&b[0..8], b"tcslogsf");
+        assert_eq!(&b[8..12], b"0010");
+        assert_eq!(&b[12..20], &h.segment_id.to_le_bytes());
+        assert_eq!(&b[20..28], &h.session_id.to_le_bytes());
+        assert_eq!(&b[28..32], &h.max_size.to_le_bytes());
+        assert_eq!(&b[32..40], &h.remaining.to_le_bytes());
+        assert_eq!(b[40], 0);
+        assert_eq!(&b[41..45], &64u32.to_le_bytes());
+        assert_eq!(&b[45..53], &5u64.to_le_bytes());
+    }
+
+    #[test]
+    fn round_trips_every_format() {
+        for format in [
+            Format::Fixed(1),
+            Format::Fixed(RecSize::MAX),
+            Format::VariableSimple,
+            Format::VariableTsRc,
+        ] {
+            let mut h = sample();
+            h.format = format;
+            assert_eq!(SegmentHeader::from_bytes(&h.to_bytes()).unwrap(), h);
         }
-        .to_bytes();
-        bytes[0] = b'X';
+    }
+
+    #[test]
+    fn stream_round_trip() {
+        let h = sample();
+        let mut buf = Vec::new();
+        h.write_to(&mut buf).unwrap();
+        // A trailing byte stands in for the data section: read_from must
+        // stop at the end of the header and leave it alone.
+        buf.push(0xAA);
+        let mut src = buf.as_slice();
+        assert_eq!(SegmentHeader::read_from(&mut src).unwrap(), h);
+        assert_eq!(src, &[0xAA]);
+    }
+
+    #[test]
+    fn rejects_wrong_magic() {
+        let mut b = sample().to_bytes();
+        b[0] = 0;
         assert!(matches!(
-            SegmentHeader::from_bytes(&bytes),
+            SegmentHeader::from_bytes(&b),
             Err(LogError::InvalidHeader)
         ));
     }
 
     #[test]
-    fn accepts_minor_zero() {
-        assert!(version_is_compatible(*b"0000"));
-        assert!(version_is_compatible(*b"0010"));
+    fn rejects_short_buffer() {
+        let b = sample().to_bytes();
+        assert!(matches!(
+            SegmentHeader::from_bytes(&b[..HEADER_LEN - 1]),
+            Err(LogError::InvalidHeader)
+        ));
     }
 
     #[test]
-    fn rejects_higher_minor() {
-        assert!(!version_is_compatible(*b"0020"));
+    fn rejects_unknown_format_tag() {
+        let mut b = sample().to_bytes();
+        b[OFF_FORMAT_TAG] = 7;
+        assert!(matches!(
+            SegmentHeader::from_bytes(&b),
+            Err(LogError::InvalidHeader)
+        ));
     }
 
     #[test]
-    fn rejects_higher_major() {
-        assert!(!version_is_compatible(*b"0100"));
+    fn rejects_fixed_with_zero_length() {
+        let mut b = sample().to_bytes();
+        b[OFF_FORMAT_TAG] = 0;
+        b[OFF_FORMAT_ARG..OFF_FORMAT_ARG + 4].copy_from_slice(&0u32.to_le_bytes());
+        assert!(matches!(
+            SegmentHeader::from_bytes(&b),
+            Err(LogError::InvalidHeader)
+        ));
     }
 
     #[test]
-    fn rejects_non_digit_version() {
-        assert!(!version_is_compatible(*b"00a0"));
-        assert!(!version_is_compatible(*b"XXXX"));
+    fn accepts_an_equal_or_lesser_minor_and_any_patch() {
+        // The rule is a comparison of parsed numbers, not a match
+        // against the literal string this build writes.
+        for field in [b"0010", b"0000", b"0019"] {
+            let mut b = sample().to_bytes();
+            b[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(field);
+            assert!(
+                SegmentHeader::from_bytes(&b).is_ok(),
+                "refused readable version {:?}",
+                std::str::from_utf8(field).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn refuses_greater_minor_other_major_and_non_digits() {
+        for field in [b"0020", b"0110", b"9900", b"00a0", b"    "] {
+            let mut b = sample().to_bytes();
+            b[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(field);
+            assert!(
+                matches!(
+                    SegmentHeader::from_bytes(&b),
+                    Err(LogError::VersionMismatch)
+                ),
+                "accepted unreadable version {:?}",
+                std::str::from_utf8(field).unwrap()
+            );
+        }
+    }
+
+    #[test]
+    fn data_section_length_subtracts_the_header() {
+        assert_eq!(SegmentHeader::data_section_len(100), 47);
+        // A stored max size smaller than a header cannot underflow.
+        assert_eq!(SegmentHeader::data_section_len(0), 0);
     }
 }

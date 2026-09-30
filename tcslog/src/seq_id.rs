@@ -1,55 +1,77 @@
-//! Segment-within-session sequence numbers.
+//! The segment header's sequence field.
 
 use std::fmt;
 
-/// Zero-based index of a segment file within its session. A [`SeqId`]
-/// is a 64-bit counter that starts at zero for the first segment of a
-/// session and increments by one on each roll.
+/// Zero-based position of a segment file within its session.
 ///
-/// The `u64` width is chosen so that the counter cannot realistically
-/// overflow during a single session; at one roll per microsecond it
-/// would take more than half a million years to wrap.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// Segment IDs are wall-clock timestamps and so cannot be counted; this
+/// is the dense counter that can. A reader checks that each segment it
+/// crosses into carries one more than the last, and that the first
+/// segment it opens for a session carries zero. Those two checks are
+/// what make a lost segment file visible even when it was lost on a
+/// record boundary, where the `remaining` field of both neighbours
+/// agrees and nothing else would show the gap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SeqId(u64);
 
 impl SeqId {
-    /// The first sequence number in a session.
-    pub const ZERO: SeqId = SeqId(0);
+    /// The value carried by the first segment file of a session.
+    pub const ZERO: Self = Self(0);
 
-    /// Wraps a raw `u64` value as a [`SeqId`].
+    /// Wraps a raw counter value.
+    ///
+    /// * `value` -- the position within the session.
+    ///
+    /// Returns the corresponding `SeqId`.
     #[must_use]
-    pub const fn from_u64(v: u64) -> SeqId {
-        SeqId(v)
+    pub const fn from_u64(value: u64) -> Self {
+        Self(value)
     }
 
-    /// Returns the underlying `u64`.
+    /// Unwraps the counter to its raw value.
+    ///
+    /// Returns the position within the session.
     #[must_use]
     pub const fn as_u64(self) -> u64 {
         self.0
     }
 
-    /// Returns the next sequence number, saturating at [`u64::MAX`].
+    /// The value for the segment file after this one.
+    ///
+    /// Saturates rather than wrapping: a counter that wrapped to zero
+    /// would announce itself as the first segment of a session, which
+    /// is the one thing a reader must be able to trust. A `u64` counter
+    /// cannot reach the saturation point in any real session.
+    ///
+    /// Returns the next `SeqId`.
     #[must_use]
-    pub const fn saturating_next(self) -> SeqId {
-        SeqId(self.0.saturating_add(1))
+    pub const fn next(self) -> Self {
+        Self(self.0.saturating_add(1))
     }
 
-    /// Little-endian byte encoding of the underlying `u64`.
+    /// Encodes the counter for the segment file header.
+    ///
+    /// Returns the eight little-endian bytes stored on disk.
     #[must_use]
-    pub fn to_le_bytes(self) -> [u8; 8] {
+    pub const fn to_le_bytes(self) -> [u8; 8] {
         self.0.to_le_bytes()
     }
 
-    /// Constructs a [`SeqId`] from its little-endian byte encoding.
+    /// Decodes a counter from its stored form.
+    ///
+    /// * `bytes` -- the eight little-endian bytes read from a header.
+    ///
+    /// Returns the decoded `SeqId`.
     #[must_use]
-    pub fn from_le_bytes(bytes: [u8; 8]) -> SeqId {
-        SeqId(u64::from_le_bytes(bytes))
+    pub const fn from_le_bytes(bytes: [u8; 8]) -> Self {
+        Self(u64::from_le_bytes(bytes))
     }
 }
 
 impl fmt::Display for SeqId {
+    /// Renders the counter as a decimal number.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.0.fmt(f)
+        write!(f, "{}", self.0)
     }
 }
 
@@ -58,25 +80,30 @@ mod tests {
     use super::*;
 
     #[test]
-    fn zero_and_next() {
+    fn zero_opens_a_session() {
         assert_eq!(SeqId::ZERO.as_u64(), 0);
-        assert_eq!(SeqId::ZERO.saturating_next(), SeqId::from_u64(1));
     }
 
     #[test]
-    fn saturates_at_max() {
-        let max = SeqId::from_u64(u64::MAX);
-        assert_eq!(max.saturating_next(), max);
+    fn next_steps_by_one() {
+        assert_eq!(SeqId::ZERO.next(), SeqId::from_u64(1));
     }
 
     #[test]
-    fn le_bytes_roundtrip() {
+    fn next_saturates_rather_than_wrapping_to_zero() {
+        let last = SeqId::from_u64(u64::MAX);
+        assert_eq!(last.next(), last);
+        assert_ne!(last.next(), SeqId::ZERO);
+    }
+
+    #[test]
+    fn little_endian_round_trip() {
         let s = SeqId::from_u64(0x0102_0304_0506_0708);
         assert_eq!(SeqId::from_le_bytes(s.to_le_bytes()), s);
     }
 
     #[test]
-    fn display_is_decimal() {
-        assert_eq!(format!("{}", SeqId::from_u64(42)), "42");
+    fn displays_as_decimal() {
+        assert_eq!(SeqId::from_u64(17).to_string(), "17");
     }
 }

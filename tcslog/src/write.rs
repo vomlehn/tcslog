@@ -1,11 +1,4 @@
-//! Log writer implementation.
-//
-// Every byte count in this module is bounded by a segment file's
-// `max_size`, which is a `u32`, or by a record total that
-// `LogWrite::write` has already range-checked against `u32::MAX`. The
-// `usize`/`u32` conversions below therefore cannot lose information;
-// `usize` is at least 32 bits wide on every target tcslog supports.
-#![allow(clippy::cast_possible_truncation)]
+//! Writing a log: [`LogWrite`] and the callbacks it invokes.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
@@ -14,125 +7,172 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::error::LogError;
-use crate::format::{Format, Meta, RecSize};
+use crate::format::{Format, Meta};
 use crate::header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN};
 use crate::segid::SegId;
 use crate::seq_id::SeqId;
-use crate::util::{check_no_path_delim, enumerate_segments, segment_path};
-use crate::TIMER_RESOLUTION_NS;
+use crate::util::{build_name, check_log_location, scan_segment_ids};
+use crate::{RecSize, RecordCount, Timestamp};
 
-/// Largest per-record data header any [`Format`] produces. Sized to the
-/// [`Format::VariableTsRc`] layout (`RecSize` + `Timestamp` +
-/// `RecordCount` = 4 + 8 + 8 bytes) so that the record-header build path
-/// can avoid heap allocation.
+include!(concat!(env!("OUT_DIR"), "/timer_resolution.rs"));
+
+/// Largest data header this crate has, which is
+/// [`Format::VariableTsRc`]'s. A buffer of this size holds any format's
+/// data header, so building one allocates nothing.
 const MAX_DATA_HEADER_LEN: usize = 20;
 
-/// User-supplied callbacks invoked while writing.
+/// Callbacks a [`LogWrite`] invokes as it works.
 ///
-/// Function pointers (not trait objects or closures) are used so that
-/// [`WriteCallbacks`] can be stored inline in [`LogWrite`] without heap
-/// allocation and without dynamic dispatch.
-#[derive(Copy, Clone, Debug)]
+/// The members are plain function pointers rather than trait objects or
+/// closures, so that the structure sits inline in a `LogWrite` with no
+/// heap allocation and no dynamic dispatch. That also lets a caller
+/// build one in a `const`.
+///
+/// The [`Default`] implementation does nothing in either callback, which
+/// suits local development. Storing telemetry for real means replacing
+/// [`send`](Self::send): without it, segment files accumulate in the
+/// directory and the storage bound the log was given stops holding.
+#[derive(Clone, Copy)]
 pub struct WriteCallbacks {
-    /// Called after every data record has been fully written. Typical
-    /// implementations either flush the underlying file or leave it
-    /// untouched, trading durability for throughput.
-    pub record_complete: fn(&mut File) -> std::io::Result<()>,
-    /// Invoked with the full path of a segment file whose data section
-    /// has filled, and again with any pre-existing segment files
-    /// discovered by [`LogWrite::new`].
+    /// Called after each data record has been written, with the segment
+    /// file the record ended in.
     ///
-    /// Upon return, the named file must either be deleted or renamed so
-    /// that it no longer matches the segment-file pattern for this log.
-    /// The [`WriteCallbacks::default`] implementation is a no-op suitable
-    /// for local development; production users should replace it.
+    /// What it does is the caller's choice of priority: flushing the
+    /// file trades throughput for a smaller window in which a restart
+    /// loses the record, and doing nothing makes the opposite trade.
+    pub record_complete: fn(&mut File) -> std::io::Result<()>,
+
+    /// Transfers ownership of a segment file from this library to the
+    /// caller.
+    ///
+    /// Called with the full path of a segment file whose data section
+    /// has filled, and also with each pre-existing segment file that
+    /// [`LogWrite::new`] finds. The caller may compress it, move it,
+    /// send it down, or announce it.
+    ///
+    /// When it returns there must be no file at the path it was given,
+    /// and none matching this log's naming pattern, because the space is
+    /// no longer being accounted for by this library.
     pub send: fn(&Path) -> std::io::Result<()>,
 }
 
-// Both no-ops must keep the fallible signatures declared by
-// `WriteCallbacks` so they can be stored in those function-pointer
-// fields, even though neither can fail.
-#[allow(clippy::unnecessary_wraps)]
-fn noop_record_complete(_f: &mut File) -> std::io::Result<()> {
-    Ok(())
-}
-
-#[allow(clippy::unnecessary_wraps)]
-fn noop_send(_p: &Path) -> std::io::Result<()> {
-    Ok(())
-}
-
 impl Default for WriteCallbacks {
-    fn default() -> WriteCallbacks {
-        WriteCallbacks {
-            record_complete: noop_record_complete,
-            send: noop_send,
+    /// Callbacks that do nothing.
+    fn default() -> Self {
+        Self {
+            record_complete: |_| Ok(()),
+            send: |_| Ok(()),
         }
     }
 }
 
-/// Handle for writing telemetry data into a segmented log.
-#[derive(Debug)]
+impl std::fmt::Debug for WriteCallbacks {
+    /// Function pointers have nothing worth printing, so this reports
+    /// only that the structure is one of these.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("WriteCallbacks { .. }")
+    }
+}
+
+/// The segment file being written.
+struct Current {
+    /// Identifier of this segment file, and of the file it is named for.
+    id: SegId,
+    /// Full path, kept so that it can be handed to `send` without being
+    /// rebuilt.
+    path: PathBuf,
+    /// The open file, positioned after everything written so far.
+    file: File,
+    /// Bytes written to the data section, header excluded.
+    data_written: u32,
+}
+
+/// Writes a log, one session at a time.
+///
+/// Constructing a `LogWrite` starts a session: every pre-existing
+/// segment file matching the prefix and suffix is handed to
+/// [`WriteCallbacks::send`], and a fresh segment file is created. A new
+/// `LogWrite` therefore never appends to what it finds; it takes the
+/// older files off this library's hands and starts afresh.
 pub struct LogWrite {
+    /// Directory the segment files live in.
     dir: PathBuf,
+    /// First part of every segment file name.
     prefix: String,
+    /// Last part of every segment file name.
     suffix: String,
+    /// Largest a segment file of this log may grow.
     seg_size_max: u32,
+    /// How data records are laid out.
     format: Format,
+    /// Callbacks supplied by the caller.
     callbacks: WriteCallbacks,
+    /// The segment file being written, absent after `clear`.
+    current: Option<Current>,
+    /// Identifier of this session's first segment file.
     session_id: SegId,
-    segment_id: SegId,
-    current_path: PathBuf,
-    file: Option<File>,
-    file_pos: u32,
+    /// Position of the current segment file within the session.
+    sequence: SeqId,
+    /// Position of the record last written within the session.
+    record_count: RecordCount,
+    /// Bytes of the record in progress not yet written. This is what a
+    /// new segment file's `remaining` field is set from.
     record_bytes_left: u64,
-    record_count: u64,
-    session_sequence: SeqId,
+    /// Metadata minted for the record last written.
     last_meta: Meta,
+    /// Reusable data header buffer, so that building a record allocates
+    /// nothing.
+    header_buf: [u8; MAX_DATA_HEADER_LEN],
+    /// Reusable file name buffer, for the same reason.
+    name_buf: String,
+    /// A path buffer not currently naming anything, handed back and
+    /// forth with the open segment file so that a roll allocates no
+    /// path. Absent only between a failed creation and the next one.
+    spare_path: Option<PathBuf>,
 }
 
 impl LogWrite {
-    /// Length of the segment file header, in bytes. An alias for the
-    /// crate-level [`SEGMENT_FILE_HEADER_LEN`], provided because
-    /// `seg_size_max` is specified relative to it.
+    /// The length of the segment file header, in bytes.
+    ///
+    /// An alias for the crate-level [`SEGMENT_FILE_HEADER_LEN`],
+    /// repeated here because `seg_size_max` is specified relative to it.
     pub const SEGMENT_FILE_HEADER_LEN: u32 = SEGMENT_FILE_HEADER_LEN;
 
-    /// Creates or extends the log identified by `dir`, `prefix`, and
-    /// `suffix`, writing records in `format`.
+    /// Begins writing a log, in a new session.
     ///
-    /// * `dir` - Directory in which segment files live. Must already
-    ///   exist.
-    /// * `prefix` - Prefix that appears at the start of every segment
-    ///   file's name. Must not contain a path separator.
-    /// * `suffix` - Suffix that appears at the end of every segment
-    ///   file's name. Must not contain a path separator.
-    /// * `seg_size_max` - Maximum size, in bytes, of any single segment
-    ///   file. Must be strictly greater than [`SEGMENT_FILE_HEADER_LEN`]
-    ///   plus one data-record header.
-    /// * `format` - Layout used to store records.
-    /// * `callbacks` - User callbacks invoked at various points; see
-    ///   [`WriteCallbacks`].
-    ///
-    /// Every segment file already present in `dir` that matches the
-    /// prefix and suffix is handed to `callbacks.send` before the new
+    /// Every segment file already in `dir` whose name matches `prefix`
+    /// and `suffix` is handed to [`WriteCallbacks::send`] before this
     /// session's first segment file is created.
+    ///
+    /// * `dir` -- directory to hold the segment files. It must already
+    ///   exist; this function does not create it.
+    /// * `prefix` -- first part of every segment file name. Must hold no
+    ///   path separator.
+    /// * `suffix` -- last part of every segment file name. Must hold no
+    ///   path separator.
+    /// * `seg_size_max` -- largest a segment file may grow, in bytes.
+    ///   Must be strictly greater than the segment file header plus one
+    ///   data header for `format`: a file that could not hold a single
+    ///   data header would leave the writer nowhere to put a record.
+    /// * `format` -- how data records are to be laid out.
+    /// * `callbacks` -- functions to invoke as segment files fill and
+    ///   records complete.
+    ///
+    /// Returns the new writer, with its first segment file created and
+    /// its header written.
     ///
     /// # Errors
     ///
-    /// * [`LogError::TimerResolutionZero`] if the build-time
-    ///   `TIMER_RESOLUTION` value slipped through as zero.
-    /// * [`LogError::PathDelimiterNotAllowed`] if `prefix` or `suffix`
-    ///   contains a `/` or `\`.
-    /// * [`LogError::SegSizeTooSmall`] if `seg_size_max` is not
-    ///   strictly greater than the segment header plus one data
-    ///   header.
-    /// * [`LogError::FixedLenMismatch`] if `format` is
-    ///   `Format::Fixed(0)`.
-    /// * [`LogError::InvalidPathname`] if `dir` does not name a
-    ///   directory.
-    /// * [`LogError::IoError`] on directory enumeration, `send`
-    ///   callback error, segment-file creation, or header write
-    ///   failure.
+    /// Returns [`LogError::TimerResolutionZero`] when the build-time
+    /// timer resolution is zero, [`LogError::PathDelimiterNotAllowed`]
+    /// for a prefix or suffix holding a path separator,
+    /// [`LogError::SegSizeTooSmall`] for a `seg_size_max` that is not
+    /// strictly greater than the segment header plus one data header,
+    /// [`LogError::FixedLenMismatch`] for `Format::Fixed(0)`,
+    /// [`LogError::InvalidPathname`] when `dir` does not name a
+    /// directory, and [`LogError::IoError`] from enumerating the
+    /// directory, from the `send` callback, from creating the segment
+    /// file, or from writing its header.
     pub fn new(
         dir: &str,
         prefix: &str,
@@ -140,461 +180,520 @@ impl LogWrite {
         seg_size_max: u32,
         format: Format,
         callbacks: WriteCallbacks,
-    ) -> Result<LogWrite, LogError> {
-        // Runtime belt-and-suspenders: build.rs already refuses a
-        // set-but-zero value, but a caller could still land here with
-        // TIMER_RESOLUTION_NS==0 if the default in build.rs is ever
-        // relaxed. Fail cleanly rather than looping in
-        // create_segment_file.
+    ) -> Result<Self, LogError> {
         if TIMER_RESOLUTION_NS == 0 {
             return Err(LogError::TimerResolutionZero);
         }
-
-        check_no_path_delim(prefix)?;
-        check_no_path_delim(suffix)?;
-
-        let min_size = SEGMENT_FILE_HEADER_LEN + format.data_header_len();
-        if seg_size_max <= min_size {
+        if seg_size_max <= SEGMENT_FILE_HEADER_LEN.saturating_add(format.data_header_len()) {
             return Err(LogError::SegSizeTooSmall);
         }
-        if let Format::Fixed(n) = format {
-            if n == 0 {
-                return Err(LogError::FixedLenMismatch);
-            }
+        if format == Format::Fixed(0) {
+            return Err(LogError::FixedLenMismatch);
         }
+        let dir = check_log_location(dir, prefix, suffix)?;
 
-        let dir_path = PathBuf::from(dir);
-        if !dir_path.is_dir() {
-            return Err(LogError::InvalidPathname);
-        }
-
-        for id in enumerate_segments(&dir_path, prefix, suffix)? {
-            let path = segment_path(&dir_path, prefix, id, suffix);
-            (callbacks.send)(&path).map_err(LogError::IoError)?;
-        }
-
-        // Built with no segment file so that `start_session` is the one
-        // place a session's first segment is created, shared with the
-        // restart after `clear`. The identifiers below are placeholders
-        // that `start_session` overwrites; if it fails, the half-built
-        // writer is dropped here rather than returned.
-        let mut log = LogWrite {
-            dir: dir_path,
+        let mut log = Self {
+            dir,
             prefix: prefix.to_string(),
             suffix: suffix.to_string(),
             seg_size_max,
             format,
             callbacks,
+            current: None,
             session_id: SegId::from_u64(0),
-            segment_id: SegId::from_u64(0),
-            current_path: PathBuf::new(),
-            file: None,
-            file_pos: 0,
-            record_bytes_left: 0,
+            sequence: SeqId::ZERO,
             record_count: 0,
-            session_sequence: SeqId::ZERO,
-            last_meta: initial_meta(format),
+            record_bytes_left: 0,
+            last_meta: match format {
+                Format::Fixed(_) => Meta::Fixed,
+                Format::VariableSimple => Meta::VariableSimple,
+                Format::VariableTsRc => Meta::VariableTsRc(0, 0),
+            },
+            header_buf: [0u8; MAX_DATA_HEADER_LEN],
+            name_buf: String::with_capacity(prefix.len() + SegId::STR_LEN + suffix.len()),
+            spare_path: None,
         };
+
+        // Hand over what is already there before writing anything, so
+        // that the storage the older files occupy stops being this
+        // library's concern before more is committed to.
+        log.send_existing()?;
         log.start_session()?;
         Ok(log)
     }
 
-    /// Creates the first segment file of a new session and makes it
-    /// current.
+    /// The segment ID of this session's first segment file.
     ///
-    /// The new segment names itself as the session, carries
-    /// `sequence` zero and `remaining` zero, and resets the record
-    /// count, because a session's records are numbered from one. Used
-    /// both to open a writer and to resume one after [`LogWrite::clear`]
-    /// has removed every segment file.
+    /// This is the value written to the session ID field of every
+    /// segment file of the session, and so the value a reader watches
+    /// for a change in.
     ///
-    /// # Errors
-    ///
-    /// Returns [`LogError::ClockError`] or [`LogError::IoError`] if the
-    /// segment file cannot be created, or [`LogError::IoError`] if its
-    /// header cannot be written.
-    fn start_session(&mut self) -> Result<(), LogError> {
-        let (segment_id, current_path, mut file) =
-            create_segment_file(&self.dir, &self.prefix, &self.suffix)?;
-
-        let header = SegmentHeader {
-            segment_id,
-            session_id: segment_id,
-            max_size: self.seg_size_max,
-            remaining: 0,
-            format: self.format,
-            sequence: SeqId::ZERO,
-        };
-        header.write_to(&mut file)?;
-
-        self.session_id = segment_id;
-        self.segment_id = segment_id;
-        self.current_path = current_path;
-        self.file = Some(file);
-        self.file_pos = SEGMENT_FILE_HEADER_LEN;
-        self.record_bytes_left = 0;
-        self.record_count = 0;
-        self.session_sequence = SeqId::ZERO;
-        self.last_meta = initial_meta(self.format);
-        Ok(())
-    }
-
-    /// The session identifier of this writer. Equals the segment
-    /// identifier of the first segment file that was created for this
-    /// session.
+    /// Returns the session identifier. After [`clear`](Self::clear) this
+    /// still names the cleared session, whose files no longer exist,
+    /// until the next [`write`](Self::write) starts a session.
     #[must_use]
     pub fn session_id(&self) -> SegId {
         self.session_id
     }
 
-    /// The segment identifier of the segment file the next byte will be
-    /// written into.
+    /// The segment ID of the segment file being written.
+    ///
+    /// Returns that identifier. After [`clear`](Self::clear) this still
+    /// names the last file of the cleared session, which no longer
+    /// exists, until the next [`write`](Self::write) creates one.
     #[must_use]
     pub fn current_segment_id(&self) -> SegId {
-        self.segment_id
+        self.current
+            .as_ref()
+            .map_or(self.session_id, |current| current.id)
     }
 
-    /// The per-record metadata stored with the most recent successful
-    /// [`LogWrite::write`]. This is the same metadata a reader will
-    /// report for that record, which lets a writer echo it without
-    /// reading the log back.
+    /// The metadata minted for the most recently written record.
     ///
-    /// For formats that carry no per-record metadata this is simply the
-    /// [`Meta`] variant matching the log's [`Format`]. Before the first
-    /// record is written, a [`Format::VariableTsRc`] log reports a zero
-    /// timestamp and record count.
+    /// For [`Format::VariableTsRc`] this is how a caller learns the
+    /// timestamp and record count that were stored, since both are
+    /// generated as the data header is built rather than supplied by the
+    /// caller.
+    ///
+    /// Returns that metadata. Before the first write it reports the
+    /// format with zeroed values.
     #[must_use]
     pub fn last_meta(&self) -> Meta {
         self.last_meta
     }
 
-    /// Writes the UTF-8 bytes of `msg` as a single record.
+    /// Writes the UTF-8 bytes of a string as one data record.
+    ///
+    /// * `msg` -- the text to store.
+    ///
+    /// Returns what [`write`](Self::write) returns: the total bytes
+    /// written, data header included.
     ///
     /// # Errors
     ///
-    /// See [`LogWrite::write`].
+    /// The same errors as [`write`](Self::write).
     pub fn write_str(&mut self, msg: &str) -> Result<u32, LogError> {
         self.write(msg.as_bytes())
     }
 
-    /// Writes `msg` as a single record.
+    /// Writes a byte array to the log as one data record.
     ///
-    /// The record may span multiple segment files; each time the
-    /// current file fills, `callbacks.send` is invoked with its path and
-    /// a fresh segment file is opened.
+    /// The record may span segment files. Each time the current file
+    /// fills, [`WriteCallbacks::send`] is invoked with its path and a
+    /// fresh segment file is opened. A record begins wherever the
+    /// current file has room for a byte of it, so a data header can
+    /// straddle a boundary; that is what lets every segment file but a
+    /// session's last be exactly `seg_size_max` bytes.
     ///
-    /// Returns the total number of bytes written, including the
-    /// per-record data header.
+    /// When there is no current segment file -- the state
+    /// [`clear`](Self::clear) leaves behind -- a new session is started
+    /// before the record is built. It must happen in that order:
+    /// starting a session restarts the record count, so building the
+    /// data header first would stamp this record with the cleared
+    /// session's count and then issue that same number again to the
+    /// record after it.
+    ///
+    /// [`WriteCallbacks::record_complete`] is invoked once every byte
+    /// has been written.
+    ///
+    /// * `msg` -- the payload bytes to store.
+    ///
+    /// Returns the total number of bytes written, counting the
+    /// per-record data header as well as the payload.
     ///
     /// # Errors
     ///
-    /// * [`LogError::FixedLenMismatch`] if `format` is
-    ///   [`Format::Fixed`] and `msg.len()` differs from the configured
-    ///   fixed length (including zero-length payloads).
-    /// * [`LogError::PayloadTooLarge`] if `msg.len()` exceeds
-    ///   [`RecSize::MAX`], or if the payload plus its data header would
-    ///   not fit in the `u32` byte count this function returns.
-    /// * [`LogError::IoError`], [`LogError::ClockError`] and any error
-    ///   returned by segment-file creation on a write-time roll.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the current segment file is absent after the record's
-    /// bytes have been written. Every error path either restores a
-    /// segment file or returns before this point, so the condition is
-    /// unreachable.
+    /// Returns [`LogError::FixedLenMismatch`] if the format is
+    /// `Fixed(n)` and `msg.len()` is anything other than `n`, a
+    /// zero-length payload included.
+    /// [`LogError::PayloadTooLarge`] if `msg.len()` exceeds
+    /// [`RecSize::MAX`](crate::RecSize), or if the payload plus its data
+    /// header would exceed the `u32` this function returns -- a count
+    /// that wrapped would understate what was written.
+    /// [`LogError::ClockError`] if a timestamp is needed and the clock
+    /// is before the epoch, and [`LogError::IoError`] as encountered,
+    /// including from creating a segment file on a roll.
     pub fn write(&mut self, msg: &[u8]) -> Result<u32, LogError> {
         if let Format::Fixed(n) = self.format {
-            if msg.len() as u64 != u64::from(n) {
+            if msg.len() != n as usize {
                 return Err(LogError::FixedLenMismatch);
             }
         }
-        let payload_len = RecSize::try_from(msg.len()).map_err(|_| LogError::PayloadTooLarge)?;
+        if msg.len() > RecSize::MAX as usize {
+            return Err(LogError::PayloadTooLarge);
+        }
+        let header_len = self.format.data_header_len();
+        let total = u64::from(header_len) + msg.len() as u64;
+        let total = u32::try_from(total).map_err(|_| LogError::PayloadTooLarge)?;
 
-        // `clear` leaves no segment file behind, so one is created here
-        // for the first record written after it. This precedes building
-        // the data header because starting a session resets the record
-        // count, which the header about to be built draws from: the
-        // other order would stamp this record with the cleared
-        // session's count and then hand the same number out again.
-        if self.file.is_none() {
+        if self.current.is_none() {
             self.start_session()?;
         }
 
-        let mut header_buf = [0u8; MAX_DATA_HEADER_LEN];
-        let header_len = self.build_data_header(payload_len, &mut header_buf)?;
-        // The returned count covers the data header as well as the
-        // payload, so a payload near `RecSize::MAX` can push the total
-        // past what a `u32` can report. Reject it rather than hand back
-        // a wrapped count.
-        let total = header_len + msg.len();
-        let total_u32 = RecSize::try_from(total).map_err(|_| LogError::PayloadTooLarge)?;
-
-        // Roll only when the current segment is exactly full, never
-        // merely because too little is left for a whole data header. A
-        // header is allowed to straddle the boundary, which is what
-        // keeps every segment file but a session's last one exactly
-        // `seg_size_max` bytes long: rolling early to keep a header
-        // whole would close the file up to `data_header_len() - 1`
-        // bytes short instead.
-        //
-        // The price is a record whose header spans two segments and
-        // whose first segment is later lost. Its payload length is
-        // spread across both files, and the surviving tail of a
-        // little-endian length cannot be told from the tail of a longer
-        // one, so the reader cannot find where the payload begins and
-        // must skip the record even though those payload bytes are
-        // intact. A uniform file length is worth that here.
-        //
-        // The roll that remains has to happen BEFORE `record_bytes_left`
-        // is armed, so the new segment's header records `remaining = 0`.
-        // That is the reader's "no prior record continues into this
-        // segment" signal, and it is what lets a resync pick up records
-        // after a missing predecessor when a record ends exactly on a
-        // segment boundary. Letting `write_bytes` roll instead, with
-        // the count already armed, would stamp `remaining = total` on a
-        // segment where the record in fact begins, and the reader would
-        // skip that many bytes as an orphaned continuation.
-        if self.seg_size_max.saturating_sub(self.file_pos) == 0 {
-            self.roll_segment()?;
-        }
-        self.record_bytes_left = total as u64;
-
-        if header_len > 0 {
-            if let Err(e) = self.write_bytes(&header_buf[..header_len]) {
-                return Err(self.recover_from_write_error(e));
-            }
-        }
-        if let Err(e) = self.write_bytes(msg) {
-            return Err(self.recover_from_write_error(e));
+        // Roll an exactly-full segment before the record begins. Rolling
+        // afterwards would set the new file's `remaining` to the whole
+        // record size, and a reader takes that to mean the record began
+        // in an earlier file and skips it as unrecoverable.
+        if self.room() == 0 {
+            self.roll()?;
         }
 
-        let file = self.file.as_mut().expect("file present after write");
-        if let Err(e) = (self.callbacks.record_complete)(file) {
-            return Err(self.recover_from_write_error(LogError::IoError(e)));
-        }
+        let (built, meta) = self.build_data_header(msg.len())?;
+        self.record_bytes_left = u64::from(total);
+        self.write_bytes_from_header(built)?;
+        self.write_bytes(msg)?;
+        self.last_meta = meta;
 
-        Ok(total_u32)
+        let record_complete = self.callbacks.record_complete;
+        if let Some(current) = self.current.as_mut() {
+            record_complete(&mut current.file)?;
+        }
+        Ok(total)
     }
 
-    /// Applies the spec-mandated recovery after a write-side I/O error:
-    /// close the current segment file, hand it to `send`, and roll into
-    /// a freshly created replacement so that the next call to
-    /// [`LogWrite::write`] begins in a clean segment.
+    /// Flushes buffered data for the current segment file to storage.
     ///
-    /// Returns the original write error when recovery succeeds. If the
-    /// recovery itself fails (for example, `send` errors or the new
-    /// segment file cannot be created), the recovery error is returned
-    /// instead - the spec requires that errors while creating a new
-    /// segment file terminate the write and propagate to the caller.
-    fn recover_from_write_error(&mut self, original: LogError) -> LogError {
-        self.record_bytes_left = 0;
-        match self.roll_segment_inner(true) {
-            Ok(()) => original,
-            Err(e) => e,
-        }
-    }
-
-    /// Flushes any buffered data in the current segment file.
+    /// Returns nothing on success, and nothing to do when there is no
+    /// current segment file.
     ///
     /// # Errors
     ///
     /// Returns [`LogError::IoError`] if the underlying flush fails.
     pub fn flush(&mut self) -> Result<(), LogError> {
-        if let Some(f) = self.file.as_mut() {
-            f.flush().map_err(LogError::IoError)?;
+        if let Some(current) = self.current.as_mut() {
+            current.file.flush()?;
         }
         Ok(())
     }
 
-    /// Removes every segment file for this log from `dir`, the one
-    /// being written included.
+    /// Removes every one of this log's segment files, including the one
+    /// being written.
     ///
-    /// The current segment file is closed first, since a file still
-    /// open cannot be removed on every platform this library targets.
-    /// Closing it is what allows the log to be cleared completely
-    /// rather than down to its last segment: a segment left behind
-    /// would still be read back as a log, which is not what a caller
-    /// reclaiming storage asked for.
+    /// The current segment file is closed before any name is unlinked.
+    /// Not every supported platform permits removing an open file, and
+    /// closing it is also what makes the clearing complete rather than
+    /// partial: a log cleared down to its last segment file still reads
+    /// back as a log, which is not what a caller reclaiming storage
+    /// asked for.
     ///
     /// The records in those files are discarded, a record part way
-    /// through being written among them. `send` is not called for any
-    /// of them: it hands a segment file to user code, and these are
-    /// being thrown away rather than handed anywhere.
+    /// through being written included. [`WriteCallbacks::send`] is not
+    /// invoked for any of them: that callback hands a segment file to
+    /// user code, and these are being thrown away.
     ///
-    /// The writer is left with no current segment file and stays
-    /// usable. The next [`LogWrite::write`] begins a new session, whose
-    /// first segment file carries `sequence` zero and numbers its
-    /// records from one. A new session is required rather than tidier:
-    /// continuing this one's sequence would leave a lone segment
-    /// claiming a position that the reader, finding nothing before it,
-    /// must report as that many segment files lost.
+    /// The writer stays usable and is left with no current segment file.
+    /// The next [`write`](Self::write) begins a new session, whose first
+    /// segment file carries sequence zero and numbers its records from
+    /// one. A new session is required rather than merely tidy:
+    /// continuing the cleared session's numbering would leave a lone
+    /// segment file claiming a position with nothing before it, which a
+    /// reader must report as that many segment files lost -- a log
+    /// emptied deliberately would come back as one damaged by a fault.
     ///
-    /// Until that write, [`LogWrite::current_segment_id`] and
-    /// [`LogWrite::session_id`] still report the cleared session's
-    /// identifiers, which now name files that no longer exist.
+    /// Returns nothing on success.
     ///
     /// # Errors
     ///
-    /// Returns [`LogError::IoError`] if directory enumeration or file
-    /// removal fails. The current segment file is closed before either
-    /// is attempted, so it is closed even when the removal that follows
-    /// fails.
+    /// Returns [`LogError::IoError`] if enumerating the directory or
+    /// removing a file fails. The current segment file is closed before
+    /// either is attempted, so it is closed even when the removal that
+    /// follows fails.
     pub fn clear(&mut self) -> Result<(), LogError> {
-        // Dropping the handle closes the file. Done before the removal
-        // loop rather than within it so that the current segment is no
-        // more special than any other by the time names are unlinked.
-        self.file = None;
-        self.file_pos = 0;
+        self.current = None;
         self.record_bytes_left = 0;
-
-        for id in enumerate_segments(&self.dir, &self.prefix, &self.suffix)? {
-            let path = segment_path(&self.dir, &self.prefix, id, &self.suffix);
-            fs::remove_file(&path).map_err(LogError::IoError)?;
-        }
-        Ok(())
+        self.for_each_segment_file(|path| fs::remove_file(path))
     }
 
-    /// Fills the leading bytes of `out` with the per-record header for
-    /// the active format and returns how many bytes were written.
-    fn build_data_header(
+    /// Hands every pre-existing segment file of this log to the `send`
+    /// callback.
+    fn send_existing(&mut self) -> Result<(), LogError> {
+        let send = self.callbacks.send;
+        self.for_each_segment_file(send)
+    }
+
+    /// Applies `action` to the path of every segment file of this log,
+    /// oldest first.
+    ///
+    /// Enumerating a directory allocates whatever the platform needs to
+    /// list it, so this is the one operation a caller can reach that
+    /// does allocate. The steady-state paths -- `write` and everything
+    /// under it -- do not.
+    fn for_each_segment_file(
         &mut self,
-        payload_len: u32,
-        out: &mut [u8; MAX_DATA_HEADER_LEN],
-    ) -> Result<usize, LogError> {
-        match self.format {
-            Format::Fixed(_) => Ok(0),
-            Format::VariableSimple => {
-                out[..4].copy_from_slice(&payload_len.to_le_bytes());
-                Ok(4)
-            }
-            Format::VariableTsRc => {
-                let ts = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map_err(|_| LogError::ClockError)?
-                    .as_nanos();
-                // Saturate rather than wrap: a clock beyond the year
-                // 2554 would otherwise produce a timestamp that sorts
-                // before the epoch.
-                let ts = u64::try_from(ts).unwrap_or(u64::MAX);
-                self.record_count = self.record_count.saturating_add(1);
-                out[0..4].copy_from_slice(&payload_len.to_le_bytes());
-                out[4..12].copy_from_slice(&ts.to_le_bytes());
-                out[12..20].copy_from_slice(&self.record_count.to_le_bytes());
-                self.last_meta = Meta::VariableTsRc(ts, self.record_count);
-                Ok(20)
-            }
-        }
-    }
-
-    fn write_bytes(&mut self, data: &[u8]) -> Result<(), LogError> {
-        let mut written = 0usize;
-        while written < data.len() {
-            let available = self.seg_size_max.saturating_sub(self.file_pos) as usize;
-            if available == 0 {
-                self.roll_segment()?;
-                continue;
-            }
-            let chunk = (data.len() - written).min(available);
-            let file = self.file.as_mut().expect("file present in write_bytes");
-            file.write_all(&data[written..written + chunk])
-                .map_err(LogError::IoError)?;
-            self.file_pos += chunk as u32;
-            self.record_bytes_left = self.record_bytes_left.saturating_sub(chunk as u64);
-            written += chunk;
+        mut action: impl FnMut(&Path) -> std::io::Result<()>,
+    ) -> Result<(), LogError> {
+        let ids = scan_segment_ids(&self.dir, &self.prefix, &self.suffix)?;
+        let mut path = self.placeholder_path();
+        for id in ids {
+            build_name(&mut self.name_buf, &self.prefix, id, &self.suffix);
+            path.set_file_name(&self.name_buf);
+            action(&path)?;
         }
         Ok(())
     }
 
-    fn roll_segment(&mut self) -> Result<(), LogError> {
-        self.roll_segment_inner(false)
+    /// Starts a session: resets the record count and sequence, then
+    /// creates the session's first segment file.
+    ///
+    /// The session identifier is that file's own segment ID, which is
+    /// what lets a reader recognize the start of a session by comparing
+    /// the two fields.
+    fn start_session(&mut self) -> Result<(), LogError> {
+        self.record_count = 0;
+        self.sequence = SeqId::ZERO;
+        self.record_bytes_left = 0;
+        self.create_segment(true)
     }
 
-    fn roll_segment_inner(&mut self, best_effort_flush: bool) -> Result<(), LogError> {
-        if let Some(mut f) = self.file.take() {
-            let flush_res = f.flush();
-            drop(f);
-            if !best_effort_flush {
-                flush_res.map_err(LogError::IoError)?;
-            }
+    /// Creates the next segment file and writes its header.
+    ///
+    /// * `opens_session` -- true when this file begins a session, in
+    ///   which case its own identifier becomes the session identifier.
+    fn create_segment(&mut self, opens_session: bool) -> Result<(), LogError> {
+        // The buffer the segment file just closed was named in, so that
+        // a roll allocates nothing.
+        let buf = self
+            .spare_path
+            .take()
+            .unwrap_or_else(|| self.placeholder_path());
+        let (id, path, file) = self.create_unique_file(buf)?;
+        if opens_session {
+            self.session_id = id;
         }
-        let sent_path = self.current_path.clone();
-        (self.callbacks.send)(&sent_path).map_err(LogError::IoError)?;
-
-        let (new_id, new_path, mut new_file) =
-            create_segment_file(&self.dir, &self.prefix, &self.suffix)?;
-        self.segment_id = new_id;
-        self.current_path = new_path;
-        self.session_sequence = self.session_sequence.saturating_next();
-
         let header = SegmentHeader {
-            segment_id: new_id,
+            segment_id: id,
             session_id: self.session_id,
             max_size: self.seg_size_max,
+            // What the previous segment file still owes the record it
+            // was part way through, and zero when it ended on a record
+            // boundary.
             remaining: self.record_bytes_left,
             format: self.format,
-            sequence: self.session_sequence,
+            sequence: self.sequence,
         };
-        header.write_to(&mut new_file)?;
-
-        self.file = Some(new_file);
-        self.file_pos = SEGMENT_FILE_HEADER_LEN;
+        let mut current = Current {
+            id,
+            path,
+            file,
+            data_written: 0,
+        };
+        header.write_to(&mut current.file)?;
+        self.current = Some(current);
         Ok(())
+    }
+
+    /// Creates a segment file whose name no file has.
+    ///
+    /// The segment ID is the current time, so a collision means two
+    /// files were created within one tick of the clock. Sleeping for
+    /// twice the clock's resolution guarantees that the next reading is
+    /// larger, and the clock being monotonic guarantees it is larger
+    /// than every earlier one, so the retry terminates.
+    /// * `buf` -- a path buffer to build the name in, so that creating a
+    ///   segment file need not allocate one.
+    fn create_unique_file(&mut self, mut buf: PathBuf) -> Result<(SegId, PathBuf, File), LogError> {
+        let nap = Duration::from_nanos(TIMER_RESOLUTION_NS.saturating_mul(2));
+        loop {
+            let id = now_seg_id()?;
+            build_name(&mut self.name_buf, &self.prefix, id, &self.suffix);
+            buf.set_file_name(&self.name_buf);
+            match OpenOptions::new().write(true).create_new(true).open(&buf) {
+                Ok(file) => return Ok((id, buf, file)),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => thread::sleep(nap),
+                Err(e) => return Err(LogError::IoError(e)),
+            }
+        }
+    }
+
+    /// A path inside this log's directory whose last component is about
+    /// to be replaced by a segment file name.
+    ///
+    /// The component has to be there for `set_file_name` to replace:
+    /// given a path ending in a separator it would replace the directory
+    /// instead.
+    fn placeholder_path(&self) -> PathBuf {
+        self.dir.join("placeholder")
+    }
+
+    /// The segment file being written.
+    ///
+    /// Every caller has just made sure one is open, by starting a
+    /// session or by rolling, and both of those report their own
+    /// failures. The error here is therefore for a state the writer
+    /// cannot reach; it is returned rather than asserted so that no
+    /// path through this crate can panic.
+    fn current_mut(&mut self) -> Result<&mut Current, LogError> {
+        self.current
+            .as_mut()
+            .ok_or_else(|| LogError::IoError(std::io::Error::other("no segment file is open")))
+    }
+
+    /// Bytes still available in the current segment file's data section.
+    ///
+    /// Returns zero when there is no current segment file, which makes
+    /// the caller roll or start a session.
+    fn room(&self) -> u32 {
+        self.current.as_ref().map_or(0, |current| {
+            self.seg_size_max - SEGMENT_FILE_HEADER_LEN - current.data_written
+        })
+    }
+
+    /// Builds the data header for a record of `payload_len` bytes into
+    /// the reusable buffer.
+    ///
+    /// Returns the number of header bytes built and the metadata the
+    /// header carries.
+    fn build_data_header(&mut self, payload_len: usize) -> Result<(usize, Meta), LogError> {
+        let n = RecSize::try_from(payload_len).map_err(|_| LogError::PayloadTooLarge)?;
+        match self.format {
+            Format::Fixed(_) => Ok((0, Meta::Fixed)),
+            Format::VariableSimple => {
+                self.header_buf[0..4].copy_from_slice(&n.to_le_bytes());
+                Ok((4, Meta::VariableSimple))
+            }
+            Format::VariableTsRc => {
+                let ts = now_nanos()?;
+                self.record_count += 1;
+                let rc = self.record_count;
+                self.header_buf[0..4].copy_from_slice(&n.to_le_bytes());
+                self.header_buf[4..12].copy_from_slice(&ts.to_le_bytes());
+                self.header_buf[12..20].copy_from_slice(&rc.to_le_bytes());
+                Ok((20, Meta::VariableTsRc(ts, rc)))
+            }
+        }
+    }
+
+    /// Writes the first `len` bytes of the data header buffer.
+    ///
+    /// The buffer is a field of `self`, which the byte writer also
+    /// borrows, so the bytes are copied to the stack first. A data
+    /// header is at most twenty bytes, so the copy is free.
+    fn write_bytes_from_header(&mut self, len: usize) -> Result<(), LogError> {
+        let mut scratch = [0u8; MAX_DATA_HEADER_LEN];
+        scratch[..len].copy_from_slice(&self.header_buf[..len]);
+        self.write_bytes(&scratch[..len])
+    }
+
+    /// Appends bytes to the data section, rolling to a new segment file
+    /// each time the current one is exactly full.
+    ///
+    /// Nothing is padded, because nothing needs to be: the writer stops
+    /// at `seg_size_max` exactly and continues the record in the next
+    /// file.
+    fn write_bytes(&mut self, data: &[u8]) -> Result<(), LogError> {
+        let mut off = 0usize;
+        while off < data.len() {
+            if self.room() == 0 {
+                self.roll()?;
+            }
+            let room = self.room() as usize;
+            let take = room.min(data.len() - off);
+            let chunk = &data[off..off + take];
+
+            let outcome = self.current_mut()?.file.write_all(chunk);
+            if let Err(e) = outcome {
+                // The segment file is given up rather than retried: its
+                // contents are no longer trustworthy. A fresh one is
+                // opened so that the next write has somewhere to go, and
+                // a failure to open that is what reaches the caller
+                // instead.
+                self.abandon_after_error()?;
+                return Err(LogError::IoError(e));
+            }
+
+            let current = self.current_mut()?;
+            current.data_written += u32::try_from(take).unwrap_or(u32::MAX);
+            self.record_bytes_left = self.record_bytes_left.saturating_sub(take as u64);
+            off += take;
+        }
+        Ok(())
+    }
+
+    /// Closes the current segment file, hands it to `send`, and creates
+    /// its successor.
+    fn roll(&mut self) -> Result<(), LogError> {
+        self.close_and_send()?;
+        self.sequence = self.sequence.next();
+        self.create_segment(false)
+    }
+
+    /// Flushes and closes the current segment file, then hands its path
+    /// to the `send` callback.
+    ///
+    /// The path buffer is kept for the next segment file however this
+    /// turns out, so that a writer that has met an error still rolls
+    /// without allocating.
+    fn close_and_send(&mut self) -> Result<(), LogError> {
+        let Some(current) = self.current.take() else {
+            return Ok(());
+        };
+        let Current { path, mut file, .. } = current;
+        let mut result = file.flush().map_err(LogError::IoError);
+        drop(file);
+        if result.is_ok() {
+            let send = self.callbacks.send;
+            result = send(&path).map_err(LogError::IoError);
+        }
+        self.spare_path = Some(path);
+        result
+    }
+
+    /// Recovers from a failed write by giving up the current segment
+    /// file and opening a fresh one.
+    ///
+    /// The record in progress is abandoned, so the new file's
+    /// `remaining` field is zero: the next write starts a record at the
+    /// beginning of its data section.
+    fn abandon_after_error(&mut self) -> Result<(), LogError> {
+        self.record_bytes_left = 0;
+        // A close that also fails must not mask the write error, and the
+        // path still needs handing over, so the result is dropped here.
+        let _ = self.close_and_send();
+        self.sequence = self.sequence.next();
+        self.create_segment(false)
     }
 }
 
 impl Drop for LogWrite {
+    /// Flushes the current segment file and hands it to `send` if it
+    /// holds any data, so that the records written last are not stranded
+    /// in a file the caller was never told about.
+    ///
+    /// A destructor cannot report a failure and must not panic, so the
+    /// errors from the flush and from `send` are discarded. This is the
+    /// one place in the library where an error is dropped rather than
+    /// returned.
     fn drop(&mut self) {
-        // When the writer is dropped, the currently open segment file
-        // may still contain data that user code has never received via
-        // `send`. Flush and hand it off. Errors are ignored because
-        // Drop must not panic and there is no meaningful error path
-        // from a destructor.
-        if let Some(mut f) = self.file.take() {
-            let _ = f.flush();
-            let has_data = self.file_pos > SEGMENT_FILE_HEADER_LEN;
-            drop(f);
-            if has_data {
-                let _ = (self.callbacks.send)(&self.current_path);
-            }
+        let Some(mut current) = self.current.take() else {
+            return;
+        };
+        if current.data_written == 0 {
+            return;
         }
+        let _ = current.file.flush();
+        drop(current.file);
+        let send = self.callbacks.send;
+        let _ = send(&current.path);
     }
 }
 
-/// Repeatedly reads the wall clock and attempts to create a segment
-/// file whose name derives from the current time. Retries until an
-/// unused name is found or a non-`AlreadyExists` error is returned.
-/// The metadata a session reports before any of its records has been
-/// written. For the formats carrying no per-record metadata this is
-/// simply the variant matching the log's format; for
-/// [`Format::VariableTsRc`] the real timestamp and record count replace
-/// it on the first successful write.
-fn initial_meta(format: Format) -> Meta {
-    match format {
-        Format::Fixed(_) => Meta::Fixed,
-        Format::VariableSimple => Meta::VariableSimple,
-        Format::VariableTsRc => Meta::VariableTsRc(0, 0),
-    }
+/// The current time as nanoseconds since the UNIX epoch.
+///
+/// # Errors
+///
+/// Returns [`LogError::ClockError`] if the clock is set before the epoch,
+/// which leaves no timestamp to record.
+fn now_nanos() -> Result<Timestamp, LogError> {
+    let dur = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|_| LogError::ClockError)?;
+    // A u64 of nanoseconds runs to the year 2554, so saturation here is
+    // unreachable in practice; it is written out rather than asserted so
+    // that no input can panic.
+    Ok(u64::try_from(dur.as_nanos()).unwrap_or(u64::MAX))
 }
 
-fn create_segment_file(
-    dir: &Path,
-    prefix: &str,
-    suffix: &str,
-) -> Result<(SegId, PathBuf, File), LogError> {
-    let sleep = Duration::from_nanos(TIMER_RESOLUTION_NS.saturating_mul(2));
-    loop {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|_| LogError::ClockError)?
-            .as_nanos();
-        let ns = u64::try_from(now).unwrap_or(u64::MAX);
-        let seg_id = SegId::from_u64(ns);
-        let path = segment_path(dir, prefix, seg_id, suffix);
-        match OpenOptions::new().write(true).create_new(true).open(&path) {
-            Ok(f) => return Ok((seg_id, path, f)),
-            Err(e) if e.kind() == ErrorKind::AlreadyExists => thread::sleep(sleep),
-            Err(e) => return Err(LogError::IoError(e)),
-        }
-    }
+/// The current time as a segment identifier.
+fn now_seg_id() -> Result<SegId, LogError> {
+    Ok(SegId::from_u64(now_nanos()?))
 }
