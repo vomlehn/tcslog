@@ -7,6 +7,11 @@ TcsLog Prompt
 
 Introduction
 ============
+.. note::
+
+    This was being used to recreate everything from scratch, but the
+    approach will now switch to deltas, instread
+
 Create a Rust library named Tcslog for onboard logging of telemetry data
 for systems such as as spacecraft and autonomous underwater vehicles that
 must store telemetry onboard until opportunies arise for transmission.
