@@ -1796,6 +1796,118 @@ o   Several sessions in one directory with a segment file missing from
     one of them, so that the reader must end each session before reading
     the next and must attribute the loss to the right one.
 
+The parameters behind those groups are the following. Format is the
+``-f`` spec, which carries the record length; data section is ``-s`` and
+records is ``-n``; damage is the remaining options, described above. A
+row stands for more than one case only where the cases share a format
+spec, a data-section size and a record count, differing in the damage
+alone -- so a row is one log geometry, and the damages listed against it
+are what that one geometry is asked to survive. A case whose geometry
+differs from every row's is a row of its own, however small the
+difference: two cases that look combinable but are not share no stored
+file and prove nothing about each other.
+
+.. list-table::
+   :header-rows: 1
+   :widths: 21 20 8 7 17 27
+
+   * - Case
+     - Format
+     - Data section
+     - Records
+     - Damage
+     - Establishes
+   * - ``recovery-fixed_1-1``
+     - ``fixed:1``
+     - 1
+     - 5
+     - ``-d 1 3 4``
+     - One record per segment file.
+   * - ``recovery-fixed_8-8``
+     - ``fixed:8``
+     - 8
+     - 4
+     - ``-d 2``
+     - A record filling the data section exactly.
+   * - ``recovery-fixed_5-17``, ``fixed-truncated_5-17``
+     - ``fixed:5``
+     - 17
+     - 20
+     - ``-d 1 3 4``; ``-t 3``
+     - A record spanning segments, and a short data section in a format
+       with no stored record length to check.
+   * - ``variable_0-10-17``
+     - ``variable-simple:0..10``
+     - 17
+     - 20
+     - ``-d 1 3 4``
+     - Lengths drawn from a range that stays inside the data section.
+   * - ``variable_0-33-10``
+     - ``variable-simple:0..33``
+     - 10
+     - 20
+     - ``-d 1 3 4``
+     - Lengths drawn from a range wider than the data section, so
+       records span segments and some span more than one.
+   * - ``variable-exact_6-20``
+     - ``variable-simple:6``
+     - 20
+     - 8
+     - ``-d 3``
+     - A record ending exactly on a segment boundary, which the other
+       variable cases never reach.
+   * - ``variable-last_12-10``
+     - ``variable-simple:12``
+     - 10
+     - 3
+     - ``-d last``
+     - The final segment lost while a record still runs into it, which
+       must not read as a clean end of log.
+   * - ``corrupt_12-10``, ``truncated_12-10``, ``version_12-10``,
+       ``segid_12-10``, ``oversize_12-10``
+     - ``variable-simple:12``
+     - 10
+     - 5
+     - ``-c 2``; ``-t 2``; ``-V 2``; ``-I 2``; ``-O 2``
+     - One damaged segment in an otherwise whole log, each kind against
+       the same geometry so the stored files differ only by the reader's
+       response to the damage.
+   * - ``combined_12-10``
+     - ``variable-simple:12``
+     - 10
+     - 10
+     - ``-d 2 -c 6 -t 10``
+     - Three kinds of damage in one log, on separate segments, so the
+       accounting survives recovering repeatedly.
+   * - ``variable-tsrc_0-10-21``
+     - ``variable-tsrc:0..10``
+     - 21
+     - 20
+     - ``-d 1 3 4``
+     - Whole segments lost from the format with the wider data header.
+   * - ``tsrc-truncated_10-24``, ``tsrc-corrupt_10-24``
+     - ``variable-tsrc:10``
+     - 24
+     - 6
+     - ``-t 2``; ``-c 2``
+     - Damage leaving the file in place where the data header offers the
+       most bytes a resync could misread as a length.
+   * - ``overflow_300-64``, ``tsrc-overflow_300-64``
+     - ``variable-simple:300`` and ``variable-tsrc:300``
+     - 64
+     - 3
+     - none
+     - A record too large for the caller's buffer. The exception to the
+       rule above: the two cases share a geometry and differ by format,
+       because the reported count is of payload alone and the formats'
+       data headers differ in width.
+   * - ``sessions_8-40``
+     - ``variable-simple:8``
+     - 40
+     - 6
+     - ``-S 3 -d 3``
+     - Three sessions in one directory with the loss in the middle one.
+
 The Makefile
 ~~~~~~~~~~~~
 One target per case, gathered into one target per group, with ``test``
