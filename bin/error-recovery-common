@@ -39,15 +39,17 @@ trap cleanup EXIT
 PFX=pfx-
 SFX=.log
 
-# Run from the directory holding this script, so that neither the
-# expected files beside it nor the cargo invocations below depend on
-# where the caller happened to be. Cargo needs this as much as the
-# expected files do: it discovers both the workspace manifest and the
+# Run from the test directory, so that neither the expected files it
+# holds nor the cargo invocations below depend on where the caller
+# happened to be. This script lives in bin/ rather than beside the
+# expected files, so the path is relative to its own directory rather
+# than simply being it. Cargo needs this as much as the expected files
+# do: it discovers both the workspace manifest and the
 # `.cargo/config.toml` that supplies TIMER_RESOLUTION by walking up
 # from the working directory, and --manifest-path covers only the
 # first of those. No option to this script takes a path, so nothing is
 # left behind pointing at the old directory.
-cd "$(dirname "$0")"
+cd "$(dirname "$0")/../test"
 
 dumphdr_enabled=0
 raw_dumphdr_enabled=0

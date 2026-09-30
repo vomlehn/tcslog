@@ -136,7 +136,7 @@ test-tsrc-corrupt_10-24:
 .PHONY: regenerate
 regenerate:
 	@for t in *; do \
-		case $$t in Makefile|expected|dump-before|error-recovery-common) continue;; esac; \
+		case $$t in Makefile|expected) continue;; esac; \
 		[ -f $$t ] && [ -x $$t ] || continue; \
 		./$$t -g || exit 1; \
 	done

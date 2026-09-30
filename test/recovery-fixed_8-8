@@ -15,14 +15,14 @@ set -eu
 PFX=pfx-
 SFX=.log
 
-test="$(dirname "$0")"
+bin="$(dirname "$0")/../bin"
 
 FORMAT="fixed:8"
 DELETE="2"
 DATA_SIZE="8"
 NUMBER="4"
 
-$test/error-recovery-common \
+$bin/error-recovery-common \
     -e "recovery-fixed_8-8.expected" \
     -f "$FORMAT" \
     -d "$DELETE" \

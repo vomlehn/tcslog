@@ -1590,9 +1590,11 @@ the second.
 
 Layout and Naming
 ~~~~~~~~~~~~~~~~~
-The directory holds a ``Makefile``, the driver ``error-recovery-common``,
-a stored-file directory ``expected/``, one script per test case, and
-``dump-before``, a hand-run aid that dumps a directory of segment files.
+The directory holds a ``Makefile``, a stored-file directory
+``expected/``, and one script per test case. The driver
+``error-recovery-common`` lives in ``bin/`` alongside the other
+hand-run tools, as does ``dump-before``, an aid that dumps a directory
+of segment files.
 
 Each case is a short script that sets the format, data-section size,
 record count, and the damage it wants as shell variables, then runs the
@@ -1620,13 +1622,15 @@ o   A name that disagrees with what the script does is an error, not an
 The Driver
 ~~~~~~~~~~
 ``error-recovery-common`` does the work; the cases only supply
-parameters. It must change to the directory holding it before doing
-anything else. Its stored files are beside it, and cargo locates both the
-workspace manifest and the ``.cargo/config.toml`` that supplies the
-build-time timer resolution by walking up from the working directory, so
-resolving any of the three against the caller's directory instead would
-leave the cases runnable only from the test directory. No option takes a
-path, so nothing is left pointing at the caller's directory.
+parameters. It must change to ``test/`` before doing anything else,
+naming that directory relative to its own rather than simply using its
+own, since it sits in ``bin/`` and its stored files do not. Cargo
+locates both the workspace manifest and the ``.cargo/config.toml`` that
+supplies the build-time timer resolution by walking up from the working
+directory, so resolving any of the three against the caller's directory
+instead would leave the cases runnable only from the test directory. No
+option takes a path, so nothing is left pointing at the caller's
+directory.
 
 Segment files are generated into a fresh temporary directory, removed by
 a single exit trap so that the removal happens however the run ends. The
@@ -1797,8 +1801,9 @@ The Makefile
 One target per case, gathered into one target per group, with ``test``
 running every group. A ``regenerate`` target rewrites every stored file.
 It must find the cases by walking the directory's executable files and
-skipping the ``Makefile``, the stored-file directory, the driver, and
-``dump-before`` by name. Matching case names against a pattern instead
+skipping the ``Makefile`` and the stored-file directory by name; the
+driver and ``dump-before`` need no exclusion, as they are not in the
+directory being walked. Matching case names against a pattern instead
 leaves the target silently doing nothing the first time the cases are
 renamed.
 

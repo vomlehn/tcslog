@@ -13,14 +13,14 @@ set -eu
 PFX=pfx-
 SFX=.log
 
-test="$(dirname "$0")"
+bin="$(dirname "$0")/../bin"
 
 FORMAT="variable-tsrc:10"
 DATA_SIZE="24"
 NUMBER="6"
 CORRUPT="2"
 
-$test/error-recovery-common \
+$bin/error-recovery-common \
     -e "tsrc-corrupt_10-24.expected" \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \

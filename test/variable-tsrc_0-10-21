@@ -10,14 +10,14 @@ set -eu
 PFX=pfx-
 SFX=.log
 
-test="$(dirname "$0")"
+bin="$(dirname "$0")/../bin"
 
 FORMAT="variable-tsrc:0..10"
 DELETE="1 3 4"
 DATA_SIZE="21"
 NUMBER=20
 
-$test/error-recovery-common \
+$bin/error-recovery-common \
     -e "variable-tsrc_0-10-21.expected" \
     -f "$FORMAT" \
     -d "$DELETE" \

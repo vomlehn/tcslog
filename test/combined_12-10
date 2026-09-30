@@ -16,7 +16,7 @@ set -eu
 PFX=pfx-
 SFX=.log
 
-test="$(dirname "$0")"
+bin="$(dirname "$0")/../bin"
 
 FORMAT="variable-simple:12"
 DATA_SIZE="10"
@@ -25,7 +25,7 @@ DELETE="2"
 CORRUPT="6"
 TRUNCATE="10"
 
-$test/error-recovery-common \
+$bin/error-recovery-common \
     -e "combined_12-10.expected" \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \

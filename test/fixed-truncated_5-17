@@ -13,14 +13,14 @@ set -eu
 PFX=pfx-
 SFX=.log
 
-test="$(dirname "$0")"
+bin="$(dirname "$0")/../bin"
 
 FORMAT="fixed:5"
 DATA_SIZE="17"
 NUMBER="20"
 TRUNCATE="3"
 
-$test/error-recovery-common \
+$bin/error-recovery-common \
     -e "fixed-truncated_5-17.expected" \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \

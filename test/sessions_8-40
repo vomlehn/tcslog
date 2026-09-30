@@ -10,7 +10,7 @@ set -eu
 PFX=pfx-
 SFX=.log
 
-test="$(dirname "$0")"
+bin="$(dirname "$0")/../bin"
 
 FORMAT="variable-simple:8"
 DATA_SIZE="40"
@@ -18,7 +18,7 @@ NUMBER="6"
 SESSIONS="3"
 DELETE="3"
 
-$test/error-recovery-common \
+$bin/error-recovery-common \
     -e "sessions_8-40.expected" \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \
