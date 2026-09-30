@@ -1,5 +1,4 @@
 #!/bin/bash
-# FIXME: I think there is more than one short data section, check this
 #
 # Three kinds of damage at once, on separate segment files: one deleted,
 # one with an unopenable header, one with a short data section. Each is
