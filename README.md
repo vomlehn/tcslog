@@ -50,21 +50,5 @@ The Claude Code prompt that generates the sources lives at
 
 Making Changes
 --------------
-In the future, it's possible that changes will be made by changing the Rust
-file directly or by incremental AI work. For now, changes are made by
-modifying the Claude Code prompt file in the docs directory, tcslog-prompt.rst.
-To run claude to rebuild everything, start in the root directory and type:
-
-```sh
-make distclean
-```
-
-to discard the previous Rust files in tcslog. Then generate new ones by
-feeding the prompt to Claude Code:
-
-```sh
-cat base-prompt | claude --allowedTools Read,Write,Edit,MultiEdit --verbose
-```
-
-This will generate the tcslog subcrate. The user documentation is not
-touched.
+Changes were originally made from a single "master" Claude prompt. They
+are now made directly, whether by hand or by using Claude.
