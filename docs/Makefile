@@ -14,4 +14,3 @@ clean:
 
 .PHONY: distclean
 distclean:
-	rm -f tcslog.rst

@@ -372,8 +372,9 @@ read, it must be greater than the previous value. Since the system
 time increases monotonically, it must be greater than any previous
 time and so is unique.
 
-TIMER_RESOLUTION must not be defined in the code proper but
-is defined on the command line via an included makefile named config.mk.
+TIMER_RESOLUTION must not be defined in the code proper but is supplied
+from outside as an environment variable, either from .cargo/config.toml
+(see .cargo/config.toml.example) or on the command line.
 The tcslog/build.rs file is then used to define it in the code.
 Unparseable and zero values will result
 either in a compile error or an error from LogWrite::new(). There is no

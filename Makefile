@@ -1,144 +1,56 @@
 # Makefile for automated Rust project creation with Claude Code
 
-include config.mk
-
-SHELL := /bin/sh
+# Run every recipe under bash with pipefail. Without it, the exit
+# status of a pipeline is the status of its last stage, so a failing
+# `cargo build ... | tee build.out` would report success and `make
+# install` would happily install a stale binary.
+SHELL := /bin/bash
+.SHELLFLAGS := -eu -o pipefail -c
 
 # Portable command abstractions (override per-OS as needed)
 RM      := rm -f
 RMDIR   := rm -rf
-MKDIR   := mkdir -p
-CP      := cp
-CP_R    := cp -R -p
-SED     := sed
-MV      := mv
-
-# Project variables
-PROJECT_NAME := task-manager
-SIM_NAME := simulator
-SRC_DIR := src
-DOCS_DIR := docs
-PROMPTS_DIR := prompts
-
-TCSLOG_PROMPT=$(DOCS_DIR)/tcslog-prompt.rst
-TCSPECIAL = .
-RUST = .
-
-TCSLOG_CODE = tcslog
-TCSLOG_TEST = 
-BASE_PROMPT_FILE = base-prompt
-PROMPT = Generate Rust code ($(TCSLOG_CODE)), auditing and patching against the code if it exists and creating it if not, and write a full user guide to $(TCSLOG_DOC) in RST format.
-
-TCSLOG_CRATES = tcslog
 
 # Output directory for tcslog-sample, passed to it as its first argument.
 TMPDIR ?= /tmp
 TCSLOG_SAMPLE_DIR ?= $(TMPDIR)/tcslog-sample
 
+# Extra flags for `cargo build`; `make release` sets it to --release.
 RELEASE =
 
-# To enable FIXUP, set ENABLE_FIXUP=1 on the make command line.
-ENABLE_FIXUP ?=
-ifeq ($(ENABLE_FIXUP),1)
-FIXUP = echo "Project fixup..."; \
-		$(SED) 's/into_raw_fd/as_raw_fd/g' g/src/endpoint.rs > g/src/endpoint.rs.tmp && \
-		$(MV) g/src/endpoint.rs.tmp g/src/endpoint.rs; \
-		$(SED) 's/into_raw_fd/as_raw_fd/g' g/src/dh.rs > g/src/dh.rs.tmp && \
-		$(MV) g/src/dh.rs.tmp g/src/dh.rs;
-else
-FIXUP =
-endif
-
-FIXUP_TEST =
-FIXUP_SIM =
-
 # Default target
-all: build
+.PHONY: all
+all: build			## Build the project (default target)
 
-# Display help
-help:
+# Display help. Every entry is the `##` comment on the target's own
+# rule, so the list cannot drift from the set of targets that exist.
+.PHONY: help
+help:				## Show this help
 	@echo "Makefile for Rust Project with Claude Code"
 	@echo ""
 	@echo "Usage:"
-	@echo "  make all         - Generate, build, and test the project"
-	@echo "  make generate    - Use Claude Code to generate project files"
-	@echo "  make build       - Build the Rust project"
-	@echo "  make test        - Run all tests"
-	@echo "  make run         - Run the application"
-	@echo "  make clean       - Remove build artifacts"
-	@echo "  make distclean   - Remove build artifacts and all generated files"
-	@echo "  make install     - Install the binary globally"
-	@echo "  make uninstall   - Remove installed binaries"
-	@echo "  make setup       - Initial setup (create directories)"
-	@echo "  make check       - Run cargo check, clippy, and fmt --check"
+	@grep -hE '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) \
+		| sed 's/:.*## /|/' \
+		| awk -F'|' '{printf "  make %-14s - %s\n", $$1, $$2}'
 
-# Create necessary directories
-setup:
-	@echo "Setting up project structure..."
-	@$(MKDIR) $(DOCS_DIR) $(PROMPTS_DIR)
-	@echo "[OK] Directories created"
-
-# Generate project using Claude Code
-generate: .generate
-
-.generate: $(TCSLOG_PROMPT)
-	( \
-		set -eu; start_time=$$(date +%s); \
-		cat $(BASE_PROMPT_FILE) | \
-			$(TCSLOG_CONFIG) \
-			claude \
-				--allowedTools Read,Write,Edit,MultiEdit \
-				--verbose; \
-		print-elapsed $$start_time; \
-		echo "[OK] Project files generated"; \
-	) 2>&1 | tee -a generate.out
-	echo "File created after project code is generated" > .generate
-
-# Alternative: Use echo to pipe commands
-generate-alt:
-	@echo "Generating project with Claude Code (alternative method)..."
-	@printf '%s\n' \
-	    "Read docs/design.rst and create a complete Rust project with:" \
-	    "1. Cargo.toml with dependencies (serde, serde_json, chrono, clap)" \
-	    "2. All source files: main.rs, task.rs, storage.rs, cli.rs" \
-	    "3. Unit tests in each module" \
-	    "4. Integration tests" \
-	    "5. README.md and .gitignore" \
-	    "Generate all files without confirmation." \
-	    | claude --model claude-sonnet-4-5-20250929
-
-# Build the project
+# Build the project. The subshell groups the whole build so that one
+# `tee` captures all of it.
 .PHONY: build
-build:
+build:				## Build the Rust project
 	( \
-		set -eu; \
-		$(FIXUP) \
 		echo "Building the project..."; \
-		cd $(RUST) && $(TCSLOG_CONFIG) cargo build $(RELEASE); \
-		make -C docs; \
+		cargo build $(RELEASE); \
+		$(MAKE) -C docs; \
 		echo "[OK] Build complete"; \
 	) 2>&1 | tee build.out
 
 # Run tests
 .PHONY: test
-test:
-	( \
-		set -eu; \
-		echo "Running tests..."; \
-		$(FIXUP_TEST) \
-		cd $(RUST) && $(TCSLOG_CONFIG) cargo test; \
-	)
+test:				## Run all tests
+	@echo "Running tests..."
+	cargo test
 	$(MAKE) -C test
-	echo "[OK] Tests complete"
-
-# Run the tcspecial application
-run:
-	( \
-		set -eu; \
-		$(FIXUP) \
-		echo "Running $(PROJECT_NAME)..."; \
-		cd $(RUST) && RUST_LOG=info cargo run --bin tcspecial \
-	)
+	@echo "[OK] Tests complete"
 
 # Segment file naming used by the tcslog-sample / tcslog-dump demo pair.
 TCSLOG_SAMPLE_PREFIX ?= prefix_
@@ -148,40 +60,29 @@ TCSLOG_SAMPLE_SUFFIX ?= _suffix
 # log directory, prefix, and suffix as their three positional
 # arguments, in that order.
 .PHONY: tcslog-sample
-tcslog-sample:
-	$(TCSLOG_CONFIG) cargo run -p tcslog-sample -- \
-		$(TCSLOG_SAMPLE_DIR) \
-		$(TCSLOG_SAMPLE_PREFIX) \
-		$(TCSLOG_SAMPLE_SUFFIX) \
-		--verbose
-
-# Read back whatever `make tcslog-sample` wrote.
-.PHONY: tcslog-dump
-tcslog-dump:
-	$(TCSLOG_CONFIG) cargo run -p tcslog-dump -- \
+tcslog-sample:			## Write a demo log with tcslog-sample
+	cargo run -p tcslog-sample -- \
 		$(TCSLOG_SAMPLE_DIR) \
 		$(TCSLOG_SAMPLE_PREFIX) \
 		$(TCSLOG_SAMPLE_SUFFIX) \
 		--verbose
 
 # Clean build artifacts
-clean:
+.PHONY: clean
+clean:				## Remove build artifacts
 	@echo "Cleaning build artifacts..."
 	-cargo clean
-	$(RM) generate.out build.out run.out test.out
-	make -C docs clean
+	$(RM) build.out
+	$(MAKE) -C docs clean
 	@echo "[OK] Clean complete"
 
-
 # Clean everything including generated source
-distclean: clean
+.PHONY: distclean
+distclean: clean		## Remove build artifacts and all generated files
 	@echo "Removing all generated files..."
-	$(RM) .generate
-	$(RM) docs/tcslog.rst
 	$(RM) Cargo.lock
-	$(RMDIR) $(TCSLOG_CRATES)
 	$(RMDIR) target
-	make -C docs distclean
+	$(MAKE) -C docs distclean
 	@echo "[OK] Project reset"
 
 # Install binaries. Defaults to $HOME; override PREFIX for other locations,
@@ -189,49 +90,35 @@ distclean: clean
 PREFIX  ?= $(HOME)
 DESTDIR ?=
 
-install: build
-	@echo "Installing tcslog-sample and tcslog-dump to $(DESTDIR)$(PREFIX)/bin..."
-	$(TCSLOG_CONFIG) cargo install --path tcslog-sample --root $(DESTDIR)$(PREFIX)
-	$(TCSLOG_CONFIG) cargo install --path tcslog-dump   --root $(DESTDIR)$(PREFIX)
+.PHONY: install
+install: build			## Install the binary globally
+	@echo "Installing tcslog-dump to $(DESTDIR)$(PREFIX)/bin..."
+	cargo install --path tcslog-dump --root $(DESTDIR)$(PREFIX)
 	@echo "[OK] Installed to $(DESTDIR)$(PREFIX)/bin/"
 
 # Uninstall binaries from the same location `install` uses.
-uninstall:
-	@echo "Removing tcslog-sample and tcslog-dump from $(DESTDIR)$(PREFIX)/bin..."
-	$(RM) $(DESTDIR)$(PREFIX)/bin/tcslog-sample
+.PHONY: uninstall
+uninstall:			## Remove installed binaries
+	@echo "Removing tcslog-dump from $(DESTDIR)$(PREFIX)/bin..."
 	$(RM) $(DESTDIR)$(PREFIX)/bin/tcslog-dump
 	@echo "[OK] Uninstalled from $(DESTDIR)$(PREFIX)/bin/"
 
 # Check code quality
-check:
+.PHONY: check
+check:				## Run cargo check, clippy, and fmt --check
 	@echo "Running cargo check..."
-	cd $(RUST) && cargo check
-	cd $(RUST) && cargo clippy -- -D warnings
-	cd $(RUST) && cargo fmt -- --check
+	cargo check
+	cargo clippy -- -D warnings
+	cargo fmt -- --check
 
 # Format code
-format:
-	cd $(RUST) && cargo fmt
+.PHONY: format
+format:				## Format the code with cargo fmt
+	cargo fmt
 
-# Create release build
-release: test
+# Create release build. Reuses `build` so there is one build path.
+.PHONY: release
+release: test			## Build with optimizations into target/release
 	@echo "Creating release build..."
-	cd $(RUST) && cargo build --release
-	@echo "[OK] Release binary: target/release/$(PROJECT_NAME)"
-
-# Run with example data
-demo: build
-	@echo "Running demo..."
-	cd $(RUST) && cargo run -- add "Buy groceries" --desc "Milk, eggs, bread"
-	cd $(RUST) && cargo run -- add "Write documentation"
-	cd $(RUST) && cargo run -- add "Deploy to production"
-	cd $(RUST) && cargo run -- list
-	cd $(RUST) && cargo run -- complete 1
-	cd $(RUST) && cargo run -- list --pending
-
-# Duplicate crates
-.PHONY: dup
-dup:
-	$(RMDIR) dup
-	$(MKDIR) dup
-	$(CP_R) $(TCSLOG_CRATES) dup
+	$(MAKE) build RELEASE=--release
+	@echo "[OK] Release binaries are in target/release/"

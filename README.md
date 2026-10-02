@@ -63,10 +63,10 @@ make distclean
 ```
 
 to discard the previous Rust files in tcslog and the user documentation in
-docs. Then generate new ones with:
+docs. Then generate new ones by feeding the prompt to Claude Code:
 
 ```sh
-make generate
+cat base-prompt | claude --allowedTools Read,Write,Edit,MultiEdit --verbose
 ```
 
 This will generate the tcslog subcrate and the user documentation.
