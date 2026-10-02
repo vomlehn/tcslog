@@ -1942,7 +1942,9 @@ Building and Installation
 -------------------------
 Include instructions on how to build code using the tcslog crate library and
 how to build, install, and run tcslog-dump. Also, show how to build and
-run tcslog-sample.
+run tcslog-sample, and note that a sample application that uses the crate
+from outside this repository is available separately at
+``git@github.com:vomlehn/tcslog-sample.git``.
 
 Record formats
 --------------
