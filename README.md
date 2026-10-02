@@ -40,16 +40,13 @@ Removes `tcslog-sample` and `tcslog-dump` from `$HOME/bin/`.
 
 Documentation
 -------------
-User documentation is generated to:
+User documentation is maintained by hand at `docs/tcslog.rst` and rendered
+to `docs/tcslog.html` by `make -C docs`. It is no longer generated from the
+prompt; edit the `.rst` file directly.
 
-```
-docs/tcslog.rst
-docs/tcslog.html
-```
-
-The Claude Code prompt that generates the sources and user docs lives at
-`docs/tcslog-prompt.rst` — do not confuse it with the generated user guide
-at `docs/tcslog.rst`.
+The Claude Code prompt that generates the sources lives at
+`docs/tcslog-prompt.rst` — do not confuse it with the user guide at
+`docs/tcslog.rst`.
 
 Making Changes
 --------------
@@ -62,11 +59,12 @@ To run claude to rebuild everything, start in the root directory and type:
 make distclean
 ```
 
-to discard the previous Rust files in tcslog and the user documentation in
-docs. Then generate new ones by feeding the prompt to Claude Code:
+to discard the previous Rust files in tcslog. Then generate new ones by
+feeding the prompt to Claude Code:
 
 ```sh
 cat base-prompt | claude --allowedTools Read,Write,Edit,MultiEdit --verbose
 ```
 
-This will generate the tcslog subcrate and the user documentation.
+This will generate the tcslog subcrate. The user documentation is not
+touched.

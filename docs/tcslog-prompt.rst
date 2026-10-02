@@ -1920,57 +1920,6 @@ directory being walked. Matching case names against a pattern instead
 leaves the target silently doing nothing the first time the cases are
 renamed.
 
-User Documentation
-==================
-User documentation is written as an .RST file. It must not have any
-constructs that cause errors when processed with rst2html. The title of
-the document should be "Tcslog User Documentation".
-
-Introduction
-------------
-The introduction to user document should specify the key advantages of
-using Tcslog both internal of error-free operation and for error-recovery
-operation.
-
-Functions
----------
-Documentation for user-accessible functions should have a description of
-what the function does, a description of each parameter, and the
-return value.
-
-Building and Installation
--------------------------
-Include instructions on how to build code using the tcslog crate library and
-how to build, install, and run tcslog-dump. Also, show how to build and
-run tcslog-sample, and note that a sample application that uses the crate
-from outside this repository is available separately at
-``git@github.com:vomlehn/tcslog-sample.git``.
-
-Record formats
---------------
-Per-format documentation on record formats must be presented as a table with
-the following columns:
-
-o   Name of the record format
-
-o   Minimum and maximum record size in bytes
-
-o   Elements, their types and definitions, and the number of bytes in the
-    data header
-
-o   Details on when to use this record format.
-
-Theory of Operation
--------------------
-The final section in the user documentation must be coverage of the
-theory of operation, i.e. how LogWrite and LogRead work, including details
-on what happens when errors occur and how recovery is performed.
-
-Excluded
---------
-The user documentation omits mention of internal tcslog testing and the on-disk
-format.
-
 Restrictions
 ============
 Values written to segment files are packed, that is, there are no padding
@@ -2016,8 +1965,9 @@ Use of AI
 =========
 This file was used as the AI prompt file. The
 file spells out the algorithms used, so AI didn't do this, but the actual
-code generation was done with Claude Code. Claude Code is also completely
-responsible for generating the user interface documentation.
+code generation was done with Claude Code. The user documentation at
+``docs/tcslog.rst`` was generated from this file originally, but is now
+maintained by hand and is no longer regenerated from it.
 
 In addition, Claude Code was used to review the code and documentation it
 produced and suggestions incorporated into this file.
