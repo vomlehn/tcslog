@@ -252,6 +252,11 @@ fills, which leaves the files in the directory. That suits development
 and the examples above. A program storing telemetry in earnest should
 replace the ``send`` member; see `Handing over a segment file`_.
 
+A sample application that uses the crate from outside this repository is
+available separately::
+
+    git clone git@github.com:vomlehn/tcslog-sample.git
+
 Building, installing, and running tcslog-dump
 ---------------------------------------------
 
@@ -319,11 +324,6 @@ The Makefile wires the two together, writing a log and reading it back::
 Both targets write into ``$(TMPDIR)/tcslog-sample`` and use the prefix
 ``prefix_`` and suffix ``_suffix``; override ``TCSLOG_SAMPLE_DIR``,
 ``TCSLOG_SAMPLE_PREFIX``, or ``TCSLOG_SAMPLE_SUFFIX`` to change that.
-
-A sample application that uses the crate from outside this repository is
-available separately::
-
-    git clone git@github.com:vomlehn/tcslog-sample.git
 
 Examining one segment file
 --------------------------
