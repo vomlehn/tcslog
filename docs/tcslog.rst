@@ -252,11 +252,6 @@ fills, which leaves the files in the directory. That suits development
 and the examples above. A program storing telemetry in earnest should
 replace the ``send`` member; see `Handing over a segment file`_.
 
-A sample application that uses the crate from outside this repository is
-available separately::
-
-    git clone git@github.com:vomlehn/tcslog-sample.git
-
 Building, installing, and running tcslog-dump
 ---------------------------------------------
 
@@ -264,7 +259,7 @@ Building, installing, and running tcslog-dump
 
     cargo build -p tcslog-dump
 
-Install it, along with ``tcslog-sample``, under your home directory::
+Install it under your home directory::
 
     make install
 
@@ -273,7 +268,7 @@ Or choose somewhere else, and stage it if you are packaging::
     make install PREFIX=/usr/local
     make install PREFIX=/usr DESTDIR=/tmp/stage
 
-``make uninstall`` removes them again, honouring the same two variables.
+``make uninstall`` removes it again, honouring the same two variables.
 Installing without the Makefile works too::
 
     cargo install --path tcslog-dump --root "$HOME"
@@ -308,22 +303,22 @@ Building and running tcslog-sample
 
 ``tcslog-sample`` writes a small demonstration log, so that it and
 ``tcslog-dump`` form a runnable pair for someone meeting the crate for
-the first time. Build it with::
+the first time. It is a separate repository rather than part of this
+one, because it is also the worked example of depending on the crate
+from outside::
 
-    cargo build -p tcslog-sample
+    git clone git@github.com:vomlehn/tcslog-sample.git
+    cd tcslog-sample
+    cargo build
 
-It takes the same three positional arguments::
+It takes the log directory, prefix, and suffix as positional arguments,
+in that order -- the same three ``tcslog-dump`` takes, so a log written
+by one is read back by the other::
 
-    cargo run -p tcslog-sample -- /tmp/demo demo- .seg --verbose
+    cargo run -- /tmp/demo demo- .seg --verbose
+    tcslog-dump /tmp/demo demo- .seg --verbose
 
-The Makefile wires the two together, writing a log and reading it back::
-
-    make tcslog-sample
-    make tcslog-dump
-
-Both targets write into ``$(TMPDIR)/tcslog-sample`` and use the prefix
-``prefix_`` and suffix ``_suffix``; override ``TCSLOG_SAMPLE_DIR``,
-``TCSLOG_SAMPLE_PREFIX``, or ``TCSLOG_SAMPLE_SUFFIX`` to change that.
+Its own documentation covers the rest.
 
 Examining one segment file
 --------------------------

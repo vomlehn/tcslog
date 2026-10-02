@@ -16,10 +16,9 @@ Create a Rust library named Tcslog for onboard logging of telemetry data
 for systems such as as spacecraft and autonomous underwater vehicles that
 must store telemetry onboard until opportunies arise for transmission.
 
-The deliverable is a Cargo workspace of five crates: ``tcslog``, the
-library, and four binaries -- ``tcslog-dump``, ``tcslog-dumphdr``,
-``tcslog-gen``, and ``tcslog-sample`` -- specified under "Support
-Binaries". The workspace shares one version, which is the version of the
+The deliverable is a Cargo workspace of four crates: ``tcslog``, the
+library, and three binaries -- ``tcslog-dump``, ``tcslog-dumphdr``, and
+``tcslog-gen`` -- specified under "Support Binaries". The workspace shares one version, which is the version of the
 on-disk format described here. The build-time timer resolution is
 supplied to every crate as described under "Segment IDs".
 
@@ -1397,10 +1396,10 @@ Free Functions
 
 Support Binaries
 ================
-Four binary crates ship alongside the library. The first three are what
-the error-recovery test suite drives, and that suite compares their
-output against stored files, so the output wording specified below is
-part of the requirement rather than an illustration of it.
+Three binary crates ship alongside the library. All three are what the
+error-recovery test suite drives, and that suite compares their output
+against stored files, so the output wording specified below is part of
+the requirement rather than an illustration of it.
 
 tcslog-gen
 ----------
@@ -1498,12 +1497,6 @@ a segment file that has been renamed or copied out of its log -- the case
 in which the name is exactly what cannot be trusted. Only the header is
 read, leaving the stdin form usable on a pipe whose writer is still
 running. A read failure exits 1, a usage error exits 2.
-
-tcslog-sample
--------------
-Writes a small demonstration log, taking the directory, prefix, and
-suffix as positional arguments, so that it and ``tcslog-dump`` form a
-runnable pair for someone new to the crate.
 
 Testing
 =======

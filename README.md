@@ -27,8 +27,8 @@ Installing
 make install
 ```
 
-Installs two binaries — `tcslog-sample` and `tcslog-dump` — into
-`$HOME/bin/`. Make sure `$HOME/bin` is on your `PATH`.
+Installs `tcslog-dump` into `$HOME/bin/`. Make sure `$HOME/bin` is on your
+`PATH`.
 
 Uninstalling
 ------------
@@ -36,7 +36,7 @@ Uninstalling
 make uninstall
 ```
 
-Removes `tcslog-sample` and `tcslog-dump` from `$HOME/bin/`.
+Removes `tcslog-dump` from `$HOME/bin/`.
 
 Documentation
 -------------

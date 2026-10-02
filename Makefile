@@ -11,10 +11,6 @@ SHELL := /bin/bash
 RM      := rm -f
 RMDIR   := rm -rf
 
-# Output directory for tcslog-sample, passed to it as its first argument.
-TMPDIR ?= /tmp
-TCSLOG_SAMPLE_DIR ?= $(TMPDIR)/tcslog-sample
-
 # Extra flags for `cargo build`; `make release` sets it to --release.
 RELEASE =
 
@@ -51,21 +47,6 @@ test:				## Run all tests
 	cargo test
 	$(MAKE) -C test
 	@echo "[OK] Tests complete"
-
-# Segment file naming used by the tcslog-sample / tcslog-dump demo pair.
-TCSLOG_SAMPLE_PREFIX ?= prefix_
-TCSLOG_SAMPLE_SUFFIX ?= _suffix
-
-# Write a demo log into $(TCSLOG_SAMPLE_DIR). Both binaries take the
-# log directory, prefix, and suffix as their three positional
-# arguments, in that order.
-.PHONY: tcslog-sample
-tcslog-sample:			## Write a demo log with tcslog-sample
-	cargo run -p tcslog-sample -- \
-		$(TCSLOG_SAMPLE_DIR) \
-		$(TCSLOG_SAMPLE_PREFIX) \
-		$(TCSLOG_SAMPLE_SUFFIX) \
-		--verbose
 
 # Clean build artifacts
 .PHONY: clean
