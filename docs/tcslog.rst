@@ -252,60 +252,27 @@ fills, which leaves the files in the directory. That suits development
 and the examples above. A program storing telemetry in earnest should
 replace the ``send`` member; see `Handing over a segment file`_.
 
-Building, installing, and running tcslog-dump
----------------------------------------------
+Inspecting a log: tcslog-tools
+------------------------------
 
-``tcslog-dump`` reads a log and prints it. It and ``tcslog-dumphdr`` are
-a separate crate, ``tcslog-tools``, in its own repository: they only read
-a log, so they want neither the library's ``write`` feature nor the
-build-time timer resolution that comes with it, and someone who only
-needs to look at a log should not have to build the writing side to do
-it. Install both from the registry::
+``tcslog-dump`` reads a whole log and prints it, and ``tcslog-dumphdr``
+prints one segment file's header. They are a separate crate,
+``tcslog-tools``, in its own repository: they only read a log, so they
+want neither the library's ``write`` feature nor the build-time timer
+resolution that comes with it, and someone who only needs to look at a
+log should not have to build the writing side to do it. Install both
+from the registry::
 
     cargo install tcslog-tools
 
-Or from a checkout beside this one::
-
-    git clone https://github.com/vomlehn/tcslog-tools.git
-    make -C ../tcslog-tools install
-
-That installs under your home directory; ``PREFIX`` chooses somewhere
-else and ``DESTDIR`` stages the install for packaging, and ``make
-uninstall`` removes both binaries again, honouring the same two
-variables::
-
-    make -C ../tcslog-tools install PREFIX=/usr/local
-    make -C ../tcslog-tools install PREFIX=/usr DESTDIR=/tmp/stage
+Their own documentation -- installing them, their arguments, and their
+options -- is ``docs/tcslog-tools.rst`` in the `tcslog-tools repository
+<https://github.com/vomlehn/tcslog-tools>`_.
 
 The error-recovery suite under ``test/`` drives both tools, so it needs
-that checkout too. ``bin/tcslog-tool`` is what finds it: it expects
-``../tcslog-tools`` beside this repository, and ``TCSLOG_TOOLS`` points
-it somewhere else.
-
-Run it on a log by naming the directory, prefix, and suffix, in that
-order::
-
-    tcslog-dump /var/telemetry tlm- .seg
-
-Without options it prints one line per record and nothing else, which is
-what to pipe into something else. The options are:
-
-``-v``, ``--verbose``
-    Also print a block for every segment file the read passed through,
-    a notice wherever telemetry was lost or a record did not fit, a
-    marker at each session boundary, and totals at the end.
-
-``-t``, ``--text``
-    Decode payloads as UTF-8 text. Without it each payload byte is
-    printed as one character, which is what to use for telemetry that is
-    not text.
-
-``-h``, ``--help``
-    Print the options and exit. A usage error exits with status 2.
-
-From a checkout, without installing::
-
-    ./bin/tcslog-tool tcslog-dump /var/telemetry tlm- .seg --verbose
+a checkout of that repository. ``bin/tcslog-tool`` is what finds it: it
+expects ``../tcslog-tools`` beside this repository, and ``TCSLOG_TOOLS``
+points it somewhere else.
 
 Running the sample
 ------------------
@@ -331,21 +298,6 @@ the segment files it wrote, and deletes the directory afterwards::
 The example's source, ``tcslog/examples/sample.rs``, is the shortest
 complete illustration of the writing side: the segment size it picks,
 the callbacks it supplies, and what it does with the session ID.
-
-Examining one segment file
---------------------------
-
-``tcslog-dumphdr``, the other half of ``tcslog-tools``, prints one
-segment file's header on a single line::
-
-    ./bin/tcslog-tool tcslog-dumphdr /var/telemetry/tlm-18d9-eafc-543b-c443.seg
-
-It reads the file named on its command line, or standard input when none
-is named, and never consults the file's name. That is what makes it
-useful for a file that has been renamed or copied out of its log, which
-is exactly the case in which the name cannot be trusted. It reads only
-the header, so the standard input form works on a pipe whose writer is
-still running. A read failure exits 1 and a usage error exits 2.
 
 Record Formats
 ==============
