@@ -214,7 +214,7 @@ created. A program that only reads can take the crate without the
 default features and supply no value at all::
 
     [dependencies]
-    tcslog = { version = "0.1", default-features = false }
+    tcslog = { version = "0.2", default-features = false }
 
 Building a program against the library
 --------------------------------------
@@ -222,7 +222,7 @@ Building a program against the library
 Name the crate as a dependency::
 
     [dependencies]
-    tcslog = "0.1"
+    tcslog = "0.2"
 
 Or, working inside a checkout of this repository::
 
