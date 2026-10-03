@@ -19,9 +19,12 @@ must store telemetry onboard until opportunies arise for transmission.
 The deliverable is a Cargo workspace of two crates: ``tcslog``, the
 library, and ``tcslog-gen``, specified under "Support Binaries". The
 library also carries the ``sample`` example specified there. The
-workspace shares one version, which is the version of the on-disk format
-described here. The build-time timer resolution is supplied to every
-crate as described under "Segment IDs".
+workspace shares one version, which is the crate version. The on-disk
+format described here carries its own version, in VERSION_MAJOR,
+VERSION_MINOR and VERSION_PATCH, and moves only when what is written
+changes; a release that alters the API alone leaves it where it was.
+The build-time timer resolution is supplied to every crate as described
+under "Segment IDs".
 
 Two further binaries, ``tcslog-dump`` and ``tcslog-dumphdr``, are
 specified under "Support Binaries" but are not part of this workspace.

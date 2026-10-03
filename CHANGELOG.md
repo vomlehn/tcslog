@@ -3,9 +3,14 @@
 All notable changes to this project are documented in this file.
 
 The format is based on [Keep a Changelog][kac], and the project follows
-[Semantic Versioning][semver]. The version is also the version of the on-disk
-segment file format: a build reads a file whose major version matches its own
-and whose minor version is no greater.
+[Semantic Versioning][semver].
+
+The version here is the crate's. The on-disk segment file format is versioned
+separately, by `VERSION_MAJOR`, `VERSION_MINOR` and `VERSION_PATCH`: a build
+reads a file whose major version matches its own and whose minor version is no
+greater. The two started out the same number and need not stay that way — a
+release that changes the API without touching what is written leaves the stored
+format where it was. Each entry below says whether the stored format moved.
 
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
@@ -20,8 +25,8 @@ or a time fix from the ground can step it backwards. This release takes the
 identifiers off that clock, and makes the one build-time figure the library
 asks for forgiving of a wrong answer.
 
-The stored format is untouched — still 0.1.0 — so files written before and
-after this release are read by either.
+Stored format: unchanged, 0.1.0. Files written before and after this release
+are read by either.
 
 ### Added
 
@@ -100,6 +105,8 @@ Records are appended to the file being written; when it fills, the library
 hands it to a caller-supplied function and opens the next one. That shape is
 what makes a log downlinkable a piece at a time, and what bounds the damage any
 single bad sector can do.
+
+Stored format: 0.1.0, the first.
 
 ### Added
 
