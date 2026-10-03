@@ -637,31 +637,71 @@ impl LogWrite {
     ///
     /// * `buf` -- a path buffer to build the name in, so that creating a
     ///   segment file need not allocate one.
-    fn create_unique_file(&mut self, mut buf: PathBuf) -> Result<(SegId, PathBuf, File), LogError> {
+    fn create_unique_file(&mut self, buf: PathBuf) -> Result<(SegId, PathBuf, File), LogError> {
+        self.create_unique_file_with(buf, create_new)
+    }
+
+    /// The retry loop, with the creation attempt supplied rather than
+    /// performed, which is what lets a test reach it.
+    ///
+    /// Collisions cannot be arranged from outside. A pre-existing file
+    /// cannot cause one, since [`Clock::advance_past`] seeds the clock
+    /// past the highest identifier in the directory; so a collision
+    /// needs the clock to mint one writer's own name twice, which on a
+    /// machine whose clock ticks faster than a file can be created never
+    /// happens. Substituting the attempt is therefore the only way to
+    /// exercise the widening, and the alternative -- planting a dense
+    /// run of names ahead of a running writer and timing a roll into it
+    /// -- is slow, platform-tuned and flaky.
+    ///
+    /// * `buf` -- a path buffer to build the name in, so that creating a
+    ///   segment file need not allocate one.
+    /// * `attempt` -- creates the file at the path it is given, or says
+    ///   why not. [`ErrorKind::AlreadyExists`] is what drives the retry;
+    ///   every other error ends it.
+    fn create_unique_file_with(
+        &mut self,
+        mut buf: PathBuf,
+        mut attempt: impl FnMut(&Path) -> std::io::Result<File>,
+    ) -> Result<(SegId, PathBuf, File), LogError> {
         let mut collided_before = false;
         loop {
             let id = self.clock.now_seg_id();
             build_name(&mut self.name_buf, &self.prefix, id, &self.suffix);
             buf.set_file_name(&self.name_buf);
-            match OpenOptions::new().write(true).create_new(true).open(&buf) {
+            match attempt(&buf) {
                 Ok(file) => return Ok((id, buf, file)),
                 Err(e) if e.kind() == ErrorKind::AlreadyExists => {
-                    let wider = widened(self.timer_resolution, collided_before);
-                    // Only a value that actually changed is a new
-                    // resolution to report: not the first collision,
-                    // which leaves it alone, and not a doubling that
-                    // saturated, which would otherwise report the same
-                    // figure for as long as the collisions lasted.
-                    if wider != self.timer_resolution {
-                        self.timer_resolution = wider;
-                        (self.callbacks.timer_resolution_adjusted)(wider);
-                    }
+                    let nap = self.note_collision(collided_before);
                     collided_before = true;
-                    thread::sleep(nap_for(self.timer_resolution));
+                    thread::sleep(nap);
                 }
                 Err(e) => return Err(LogError::IoError(e)),
             }
         }
+    }
+
+    /// Takes account of a collision and says how long to wait before
+    /// trying again.
+    ///
+    /// * `collided_before` -- whether naming this file had already
+    ///   collided once, a second collision being what says the
+    ///   resolution is too small.
+    ///
+    /// Returns the sleep to take. Widens
+    /// [`timer_resolution`](Self::timer_resolution) and reports the new
+    /// value through the callback when, and only when, the value
+    /// actually changed: not for a first collision, which leaves it
+    /// alone, and not for a doubling that saturated, which would
+    /// otherwise report the same figure for as long as the collisions
+    /// lasted.
+    fn note_collision(&mut self, collided_before: bool) -> Duration {
+        let wider = widened(self.timer_resolution, collided_before);
+        if wider != self.timer_resolution {
+            self.timer_resolution = wider;
+            (self.callbacks.timer_resolution_adjusted)(wider);
+        }
+        nap_for(self.timer_resolution)
     }
 
     /// A path inside this log's directory whose last component is about
@@ -836,6 +876,20 @@ impl Drop for LogWrite {
     }
 }
 
+/// Creates a segment file, failing if anything of that name is there
+/// already.
+///
+/// This is the attempt [`LogWrite::create_unique_file`] makes, named so
+/// that the loop under it can be handed a different one by a test.
+///
+/// * `path` -- where the segment file is to be created.
+///
+/// Returns the open file, or [`ErrorKind::AlreadyExists`] when the name
+/// is taken, which is what drives the retry.
+fn create_new(path: &Path) -> std::io::Result<File> {
+    OpenOptions::new().write(true).create_new(true).open(path)
+}
+
 /// How long to wait for the clock to leave a colliding reading behind.
 ///
 /// Twice the resolution, so that the next reading is past the tick the
@@ -1005,7 +1059,180 @@ impl Clock {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
+
     use super::*;
+
+    /// A resolution report that is thrown away, for the tests that make
+    /// the writer widen but are not about what it says when it does.
+    /// The default callback would print to standard error instead.
+    fn unreported(_ns: u64) {}
+
+    /// A writer on a fresh directory, reporting resolution changes
+    /// through `adjusted`.
+    ///
+    /// Each test that counts reports owns the counters `adjusted` writes
+    /// to, because the tests run in parallel and callbacks are plain
+    /// function pointers with nowhere to put per-test state.
+    ///
+    /// * `adjusted` -- the callback to install.
+    ///
+    /// Returns the writer and the directory, which must outlive it.
+    fn writer_with(adjusted: fn(u64)) -> (LogWrite, tempfile::TempDir) {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let w = LogWrite::new(
+            dir.path().to_str().expect("a UTF-8 temporary path"),
+            "seg-",
+            ".log",
+            SEGMENT_FILE_HEADER_LEN + 64,
+            Format::VariableSimple,
+            WriteCallbacks {
+                timer_resolution_adjusted: adjusted,
+                ..WriteCallbacks::default()
+            },
+        )
+        .expect("a writer on a fresh directory");
+        (w, dir)
+    }
+
+    /// An attempt that reports the name taken `n` times over, then
+    /// creates the file for real.
+    ///
+    /// * `n` -- how many collisions to stage.
+    ///
+    /// Returns the attempt, for [`LogWrite::create_unique_file_with`].
+    fn taken_times(n: usize) -> impl FnMut(&Path) -> std::io::Result<File> {
+        let mut left = n;
+        move |path| {
+            if left > 0 {
+                left -= 1;
+                Err(std::io::Error::from(ErrorKind::AlreadyExists))
+            } else {
+                create_new(path)
+            }
+        }
+    }
+
+    static ONE_REPORTS: AtomicUsize = AtomicUsize::new(0);
+    fn one_report(_ns: u64) {
+        ONE_REPORTS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn one_collision_costs_a_wait_and_nothing_else() {
+        let (mut w, _dir) = writer_with(one_report);
+        let supplied = w.timer_resolution();
+        let buf = w.placeholder_path();
+
+        w.create_unique_file_with(buf, taken_times(1))
+            .expect("the second attempt to succeed");
+
+        assert_eq!(
+            w.timer_resolution(),
+            supplied,
+            "a first collision widened the resolution"
+        );
+        assert_eq!(
+            ONE_REPORTS.load(Ordering::Relaxed),
+            0,
+            "a first collision was reported"
+        );
+    }
+
+    static MANY_REPORTS: AtomicUsize = AtomicUsize::new(0);
+    static MANY_LAST: AtomicU64 = AtomicU64::new(0);
+    fn many_reports(ns: u64) {
+        MANY_REPORTS.fetch_add(1, Ordering::Relaxed);
+        MANY_LAST.store(ns, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn each_collision_past_the_first_doubles_and_is_reported() {
+        let (mut w, _dir) = writer_with(many_reports);
+        let supplied = w.timer_resolution();
+        let buf = w.placeholder_path();
+
+        // Four collisions: the first leaves the value alone and the
+        // other three double it, so three reports and a value eight
+        // times what was supplied.
+        w.create_unique_file_with(buf, taken_times(4))
+            .expect("the fifth attempt to succeed");
+
+        assert_eq!(w.timer_resolution(), supplied * 8);
+        assert_eq!(MANY_REPORTS.load(Ordering::Relaxed), 3);
+        assert_eq!(
+            MANY_LAST.load(Ordering::Relaxed),
+            supplied * 8,
+            "the last value reported is not the one in force"
+        );
+    }
+
+    #[test]
+    fn the_widened_resolution_carries_into_the_next_file() {
+        let (mut w, _dir) = writer_with(unreported);
+        let supplied = w.timer_resolution();
+
+        let buf = w.placeholder_path();
+        w.create_unique_file_with(buf, taken_times(2))
+            .expect("a free name");
+        let learned = w.timer_resolution();
+        assert_eq!(learned, supplied * 2);
+
+        // The next file starts from what was learned rather than from
+        // the build value, so one collision there leaves it alone.
+        let buf = w.placeholder_path();
+        w.create_unique_file_with(buf, taken_times(1))
+            .expect("a free name");
+        assert_eq!(w.timer_resolution(), learned);
+    }
+
+    #[test]
+    fn the_retry_returns_the_name_it_succeeded_with() {
+        let (mut w, _dir) = writer_with(unreported);
+        let buf = w.placeholder_path();
+
+        let (id, path, _file) = w
+            .create_unique_file_with(buf, taken_times(3))
+            .expect("a free name");
+
+        assert!(path.exists(), "the file named was not created");
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .expect("a UTF-8 file name");
+        assert_eq!(
+            name,
+            format!("seg-{id}.log"),
+            "the name and the identifier disagree"
+        );
+    }
+
+    static DENIED_REPORTS: AtomicUsize = AtomicUsize::new(0);
+    fn denied_report(_ns: u64) {
+        DENIED_REPORTS.fetch_add(1, Ordering::Relaxed);
+    }
+
+    #[test]
+    fn an_error_that_is_not_a_collision_ends_the_retry() {
+        let (mut w, _dir) = writer_with(denied_report);
+        let supplied = w.timer_resolution();
+        let buf = w.placeholder_path();
+
+        let outcome = w.create_unique_file_with(buf, |_| {
+            Err(std::io::Error::from(ErrorKind::PermissionDenied))
+        });
+
+        assert!(
+            matches!(outcome, Err(LogError::IoError(ref e)) if e.kind() == ErrorKind::PermissionDenied),
+            "a permission failure was not reported as itself"
+        );
+        assert_eq!(
+            w.timer_resolution(),
+            supplied,
+            "a failure that is not a collision widened the resolution"
+        );
+        assert_eq!(DENIED_REPORTS.load(Ordering::Relaxed), 0);
+    }
 
     #[test]
     fn clock_refuses_an_unset_real_time_clock() {
