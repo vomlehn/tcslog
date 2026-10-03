@@ -69,6 +69,6 @@ single bad sector can do.
   the worked example of depending on the crate from outside:
   <https://github.com/vomlehn/tcslog-sample>
 - User documentation is `docs/tcslog.rst`.
-- Requires Rust 1.75 or later. MIT licensed.
+- Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
 [0.1.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.1.0
