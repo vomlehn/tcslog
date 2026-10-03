@@ -18,25 +18,33 @@ From the repository root:
 make build
 ```
 
-This compiles the library and binaries and builds the user documentation
-under `docs/`.
+This compiles the library and builds the user documentation under `docs/`.
 
-Installing
-----------
+Trying it out
+-------------
 ```sh
-make install
+./bin/run-sample --verbose
 ```
 
-Installs `tcslog-dump` into `$HOME/bin/`. Make sure `$HOME/bin` is on your
-`PATH`.
+Writes a sample log into a temporary directory, lists the segment files, and
+removes the directory again. The example's source is
+`tcslog/examples/sample.rs`.
 
-Uninstalling
-------------
+Tools
+-----
+`tcslog-dump` and `tcslog-dumphdr` are the
+[tcslog-tools](https://github.com/vomlehn/tcslog-tools) crate, in its own
+repository, because they only read a log and so need neither the `write`
+feature nor the build-time timer resolution it requires:
+
 ```sh
-make uninstall
+cargo install tcslog-tools
 ```
 
-Removes `tcslog-dump` from `$HOME/bin/`.
+The error-recovery suite under `test/` drives both, so running `make test`
+needs that checkout. `bin/tcslog-tool` finds it, expecting
+`../tcslog-tools` beside this repository; set `TCSLOG_TOOLS` to look
+elsewhere.
 
 Documentation
 -------------

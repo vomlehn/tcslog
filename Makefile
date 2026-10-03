@@ -66,30 +66,18 @@ distclean: clean		## Remove build artifacts and all generated files
 	$(MAKE) -C docs distclean
 	@echo "[OK] Project reset"
 
-# Install binaries. Defaults to $HOME; override PREFIX for other locations,
-# and DESTDIR for staged installs (packaging).
-PREFIX  ?= $(HOME)
-DESTDIR ?=
-
-.PHONY: install
-install: build			## Install the binary globally
-	@echo "Installing tcslog-dump to $(DESTDIR)$(PREFIX)/bin..."
-	cargo install --path tcslog-dump --root $(DESTDIR)$(PREFIX)
-	@echo "[OK] Installed to $(DESTDIR)$(PREFIX)/bin/"
-
-# Uninstall binaries from the same location `install` uses.
-.PHONY: uninstall
-uninstall:			## Remove installed binaries
-	@echo "Removing tcslog-dump from $(DESTDIR)$(PREFIX)/bin..."
-	$(RM) $(DESTDIR)$(PREFIX)/bin/tcslog-dump
-	@echo "[OK] Uninstalled from $(DESTDIR)$(PREFIX)/bin/"
+# There is no install target here. The only binaries worth installing,
+# tcslog-dump and tcslog-dumphdr, are the tcslog-tools crate in its own
+# repository, and `make -C ../tcslog-tools install` installs them.
+# tcslog-gen stays uninstalled on purpose: it exists to give the tests
+# segment files to read, and it writes deliberately damaged ones.
 
 # Check code quality
 .PHONY: check
 check:				## Run cargo check, clippy, and fmt --check
 	@echo "Running cargo check..."
-	cargo check
-	cargo clippy -- -D warnings
+	cargo check --all-targets
+	cargo clippy --all-targets -- -D warnings
 	cargo fmt -- --check
 
 # Format code

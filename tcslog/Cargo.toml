@@ -19,6 +19,9 @@ thiserror.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+# Used only by examples/sample.rs, which cargo builds under the dev
+# profile, so this stays out of a dependent's tree.
+clap.workspace = true
 
 [lints]
 workspace = true

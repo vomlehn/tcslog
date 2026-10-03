@@ -9,7 +9,7 @@ set -eu
 # value would show the tail of the header as if it were payload.
 dumpseg() {
     (
-        if cargo run -q -p tcslog-dumphdr "$@"; then
+        if "$(dirname "$0")/tcslog-tool" tcslog-dumphdr "$@"; then
             if hexdump -C --skip 53 "$@"; then
                 :
             else

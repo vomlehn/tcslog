@@ -16,11 +16,20 @@ Create a Rust library named Tcslog for onboard logging of telemetry data
 for systems such as as spacecraft and autonomous underwater vehicles that
 must store telemetry onboard until opportunies arise for transmission.
 
-The deliverable is a Cargo workspace of four crates: ``tcslog``, the
-library, and three binaries -- ``tcslog-dump``, ``tcslog-dumphdr``, and
-``tcslog-gen`` -- specified under "Support Binaries". The workspace shares one version, which is the version of the
-on-disk format described here. The build-time timer resolution is
-supplied to every crate as described under "Segment IDs".
+The deliverable is a Cargo workspace of two crates: ``tcslog``, the
+library, and ``tcslog-gen``, specified under "Support Binaries". The
+library also carries the ``sample`` example specified there. The
+workspace shares one version, which is the version of the on-disk format
+described here. The build-time timer resolution is supplied to every
+crate as described under "Segment IDs".
+
+Two further binaries, ``tcslog-dump`` and ``tcslog-dumphdr``, are
+specified under "Support Binaries" but are not part of this workspace.
+They are the ``tcslog-tools`` crate in its own repository, because they
+only read a log: they take the library with its ``write`` feature off and
+so need no timer resolution, and someone who only wants to read a log
+should not have to build the writing side. The error-recovery suite
+drives them from there through ``bin/tcslog-tool``.
 
 It can be used in conjunction with live transmission of telemetry data
 to ensure data from corrupted live transmission can be recovered. It
@@ -1396,10 +1405,13 @@ Free Functions
 
 Support Binaries
 ================
-Three binary crates ship alongside the library. All three are what the
-error-recovery test suite drives, and that suite compares their output
-against stored files, so the output wording specified below is part of
-the requirement rather than an illustration of it.
+Three binaries and one example ship alongside the library:
+``tcslog-gen`` in this workspace, ``tcslog-dump`` and ``tcslog-dumphdr``
+in the ``tcslog-tools`` repository, and the ``sample`` example in the
+library crate. The three binaries are what the error-recovery test suite
+drives, and that suite compares their output against stored files, so the
+output wording specified below is part of the requirement rather than an
+illustration of it.
 
 tcslog-gen
 ----------
@@ -1497,6 +1509,26 @@ a segment file that has been renamed or copied out of its log -- the case
 in which the name is exactly what cannot be trusted. Only the header is
 read, leaving the stdin form usable on a pipe whose writer is still
 running. A read failure exits 1, a usage error exits 2.
+
+sample
+------
+An example of the library crate, at ``tcslog/examples/sample.rs``, rather
+than a crate of its own: it is the shortest complete illustration of the
+writing side, so it belongs with the API it illustrates and is compiled
+by ``cargo test`` along with everything else.
+
+Writes a small demonstration log, taking the directory, prefix, and
+suffix as positional arguments -- the same three ``tcslog-dump`` takes --
+so that it and ``tcslog-dump`` form a runnable pair for someone new to
+the crate. It caps the segment size low enough to force rollover after a
+handful of records, so the chain it leaves has several segment files to
+inspect, and it supplies a ``send`` callback that announces each
+completed segment file rather than doing nothing, so the handover point
+is visible. ``-v``/``--verbose`` adds the sizes it chose, a column ruler,
+and a closing count.
+
+``bin/run-sample`` runs it against a temporary directory, lists the
+segment files it wrote, and deletes the directory afterwards.
 
 Testing
 =======

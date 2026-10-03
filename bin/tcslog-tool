@@ -1,0 +1,38 @@
+#!/bin/bash
+#
+# Runs one of the tcslog-tools binaries, which the error-recovery suite
+# and the development scripts here drive but which no longer live in
+# this workspace.
+#
+# Usage: tcslog-tool <binary> [args...]
+#
+# Arguments follow the binary name directly; the separator cargo needs
+# is supplied here, so a caller passing its own would reach the tool as
+# a literal argument.
+#
+# The tools are expected in a sibling checkout of the tcslog-tools
+# repository. Set TCSLOG_TOOLS to its directory to look elsewhere. The
+# run is quiet so that output captured for comparison against the files
+# under test/expected carries no cargo progress lines.
+
+set -eu
+
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <binary> [args...]" 1>&2
+    exit 2
+fi
+
+tool="$1"
+shift
+
+TCSLOG_TOOLS="${TCSLOG_TOOLS:-$(dirname "$0")/../../tcslog-tools}"
+
+if [ ! -f "$TCSLOG_TOOLS/Cargo.toml" ]; then
+    echo "$0: no tcslog-tools checkout at $TCSLOG_TOOLS" 1>&2
+    echo "$0: clone https://github.com/vomlehn/tcslog-tools.git beside" 1>&2
+    echo "$0: this repository, or set TCSLOG_TOOLS to where it lives." 1>&2
+    exit 1
+fi
+
+exec cargo run --quiet --manifest-path "$TCSLOG_TOOLS/Cargo.toml" \
+    --bin "$tool" -- "$@"

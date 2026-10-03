@@ -255,23 +255,32 @@ replace the ``send`` member; see `Handing over a segment file`_.
 Building, installing, and running tcslog-dump
 ---------------------------------------------
 
-``tcslog-dump`` reads a log and prints it. Build it with::
+``tcslog-dump`` reads a log and prints it. It and ``tcslog-dumphdr`` are
+a separate crate, ``tcslog-tools``, in its own repository: they only read
+a log, so they want neither the library's ``write`` feature nor the
+build-time timer resolution that comes with it, and someone who only
+needs to look at a log should not have to build the writing side to do
+it. Install both from the registry::
 
-    cargo build -p tcslog-dump
+    cargo install tcslog-tools
 
-Install it under your home directory::
+Or from a checkout beside this one::
 
-    make install
+    git clone https://github.com/vomlehn/tcslog-tools.git
+    make -C ../tcslog-tools install
 
-Or choose somewhere else, and stage it if you are packaging::
+That installs under your home directory; ``PREFIX`` chooses somewhere
+else and ``DESTDIR`` stages the install for packaging, and ``make
+uninstall`` removes both binaries again, honouring the same two
+variables::
 
-    make install PREFIX=/usr/local
-    make install PREFIX=/usr DESTDIR=/tmp/stage
+    make -C ../tcslog-tools install PREFIX=/usr/local
+    make -C ../tcslog-tools install PREFIX=/usr DESTDIR=/tmp/stage
 
-``make uninstall`` removes it again, honouring the same two variables.
-Installing without the Makefile works too::
-
-    cargo install --path tcslog-dump --root "$HOME"
+The error-recovery suite under ``test/`` drives both tools, so it needs
+that checkout too. ``bin/tcslog-tool`` is what finds it: it expects
+``../tcslog-tools`` beside this repository, and ``TCSLOG_TOOLS`` points
+it somewhere else.
 
 Run it on a log by naming the directory, prefix, and suffix, in that
 order::
@@ -296,37 +305,40 @@ what to pipe into something else. The options are:
 
 From a checkout, without installing::
 
-    cargo run -p tcslog-dump -- /var/telemetry tlm- .seg --verbose
+    ./bin/tcslog-tool tcslog-dump /var/telemetry tlm- .seg --verbose
 
-Building and running tcslog-sample
-----------------------------------
+Running the sample
+------------------
 
-``tcslog-sample`` writes a small demonstration log, so that it and
+The ``sample`` example writes a small demonstration log, so that it and
 ``tcslog-dump`` form a runnable pair for someone meeting the crate for
-the first time. It is a separate repository rather than part of this
-one, because it is also the worked example of depending on the crate
-from outside::
-
-    git clone git@github.com:vomlehn/tcslog-sample.git
-    cd tcslog-sample
-    cargo build
+the first time. It is an example of the library crate, so it needs no
+separate build step and is compiled by ``cargo test`` along with
+everything else.
 
 It takes the log directory, prefix, and suffix as positional arguments,
 in that order -- the same three ``tcslog-dump`` takes, so a log written
 by one is read back by the other::
 
-    cargo run -- /tmp/demo demo- .seg --verbose
-    tcslog-dump /tmp/demo demo- .seg --verbose
+    cargo run --example sample -- /tmp/demo demo- .seg --verbose
+    ./bin/tcslog-tool tcslog-dump /tmp/demo demo- .seg --verbose
 
-Its own documentation covers the rest.
+``bin/run-sample`` does the same against a temporary directory, lists
+the segment files it wrote, and deletes the directory afterwards::
+
+    ./bin/run-sample --verbose
+
+The example's source, ``tcslog/examples/sample.rs``, is the shortest
+complete illustration of the writing side: the segment size it picks,
+the callbacks it supplies, and what it does with the session ID.
 
 Examining one segment file
 --------------------------
 
-``tcslog-dumphdr`` prints one segment file's header on a single line::
+``tcslog-dumphdr``, the other half of ``tcslog-tools``, prints one
+segment file's header on a single line::
 
-    cargo build -p tcslog-dumphdr
-    cargo run -p tcslog-dumphdr -- /var/telemetry/tlm-18d9-eafc-543b-c443.seg
+    ./bin/tcslog-tool tcslog-dumphdr /var/telemetry/tlm-18d9-eafc-543b-c443.seg
 
 It reads the file named on its command line, or standard input when none
 is named, and never consults the file's name. That is what makes it

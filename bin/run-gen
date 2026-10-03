@@ -56,6 +56,6 @@ done
 echo
 echo tcslog-dump output
 
-cargo run -p tcslog-dump -- \
+"$(dirname "$0")/tcslog-tool" tcslog-dump \
     --verbose \
     $TMP_DIR $PFX $SFX

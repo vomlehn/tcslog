@@ -40,11 +40,14 @@ single bad sector can do.
   exceptions are operations a caller asks for explicitly and are documented as
   such: directory enumeration, `LogRead::iter`, and
   `LogRead::take_opened_headers`.
-- `tcslog-dump`, which reads a log and prints it.
-- `tcslog-dumphdr`, which prints one segment file's header and never consults
-  the file's name, for files renamed or copied out of their directory.
 - `tcslog-gen`, which writes generated records to give tests segment files to
   damage.
+- `tcslog-dump`, which reads a log and prints it, and `tcslog-dumphdr`, which
+  prints one segment file's header and never consults the file's name, for
+  files renamed or copied out of their directory. Both are the `tcslog-tools`
+  crate, in its own repository, since they only read and so need neither the
+  `write` feature nor the timer resolution it requires:
+  <https://github.com/vomlehn/tcslog-tools>
 
 ### Error recovery
 
@@ -65,9 +68,8 @@ single bad sector can do.
 
 ### Notes
 
-- A runnable sample application lives in its own repository, where it doubles as
-  the worked example of depending on the crate from outside:
-  <https://github.com/vomlehn/tcslog-sample>
+- A runnable sample lives in `tcslog/examples/sample.rs`; `bin/run-sample` runs
+  it against a temporary directory.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 

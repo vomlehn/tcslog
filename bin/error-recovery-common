@@ -12,7 +12,7 @@ set -eu
 # show the tail of the header as if it were payload.
 dumphdr() {
     (
-        cargo run -q -p tcslog-dumphdr "$@"
+        "$(dirname "$0")/tcslog-tool" tcslog-dumphdr "$@"
         hexdump -C --skip 53 "$@"
     )
 }
@@ -393,7 +393,7 @@ actual_cmp=$(mktemp)
 # `sequence` are the fields the reader's own loss detection rests on.
 # Discarding them left the suite unable to see a reader that computed
 # either one wrongly unless the record set happened to change with it.
-cargo run --quiet -p tcslog-dump -- \
+"$(dirname "$0")/tcslog-tool" tcslog-dump \
     "$TMP_DIR" "$PFX" "$SFX" --verbose > "$actual_file"
 cat "$actual_file"
 
@@ -433,7 +433,8 @@ normalize() {
 # form, so assert it directly rather than leave the quiet mode uncovered.
 check_quiet_mode() {
     local quiet
-    quiet=$(cargo run --quiet -p tcslog-dump -- "$TMP_DIR" "$PFX" "$SFX")
+    quiet=$("$(dirname "$0")/tcslog-tool" tcslog-dump \
+        "$TMP_DIR" "$PFX" "$SFX")
     if printf '%s\n' "$quiet" | grep -qE \
         '^(=== segment file:|    (segment_id|session_id|max_size|remaining|format|sequence):|    -- |    \(payload larger than|--- End of Session|read [0-9]+ message)'
     then
