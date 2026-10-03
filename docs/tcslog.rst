@@ -1327,3 +1327,10 @@ What a caller should do with each outcome
     The storage itself failed. Read again: the reader gives up the file
     it was on and resynchronizes. Persistent errors from every file mean
     the storage, not the log, needs attention.
+
+Taken together, these reduce to one rule: read again until ``Eof``. Every
+other outcome is news about the telemetry -- a session boundary, a loss, a
+buffer too small, a bad sector -- and none of them is a reason to stop
+reading or to do anything to the reader first. A caller can write one loop
+that reads until the log is finished and treats everything else as an
+annotation on the records it got.
