@@ -10,6 +10,84 @@ and whose minor version is no greater.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+A segment file's identifier is the time it was created, and a reader replays
+segment files in identifier order while checking them by the dense sequence
+number in each header. Those two agreed only as long as the clock the
+identifiers came from rose, and the real-time clock does not: NTP, an operator,
+or a time fix from the ground can step it backwards. This release takes the
+identifiers off that clock, and makes the one build-time figure the library
+asks for forgiving of a wrong answer.
+
+The stored format is untouched — still 0.1.0 — so files written before and
+after this release are read by either.
+
+### Added
+
+- `LogWrite::timer_resolution()`, which reports how finely a writer believes
+  its clock advances. Above the value the build supplied, it says the supplied
+  one was too small for this machine and names the figure to build with next.
+- `WriteCallbacks::timer_resolution_adjusted`, invoked with the new value each
+  time the resolution is widened. It returns nothing and the writer carries on
+  regardless, so the choice of what a widening means stays with the caller: a
+  deployed system will usually record it and keep logging, since the log is
+  unharmed, while a system under development may prefer to stop where the
+  faulty value was found.
+- `LogWrite::new` now refuses a real-time clock that does not read later than
+  the UNIX epoch, which is what an unset clock reads on most systems, reporting
+  `ClockError` without creating a log. The clock is read once, so it must hold
+  the correct time before any Tcslog function is called; a correction arriving
+  later cannot mend identifiers already minted.
+- A writer seeds its clock past the highest identifier already in its
+  directory, taken from the same scan that hands pre-existing files to `send`,
+  so a backward step of the real-time clock between two writers cannot put the
+  later one behind the earlier one's files.
+
+### Changed
+
+- Segment identifiers and record timestamps now come from the real-time clock's
+  epoch advanced by the monotonic clock, paired once when the writer is
+  constructed. An identifier is still nanoseconds since the UNIX epoch; what
+  orders it is a clock that cannot step.
+- `TIMER_RESOLUTION` is still required at build time with no default, but it is
+  now a starting point rather than a figure that has to be right. One collision
+  while naming a segment file is ordinary; a second says the value is too small,
+  so the writer doubles it, doubling again for each collision after that, and
+  keeps what it arrived at. The true figure is otherwise hard to come by:
+  nothing in the standard library reports it, and what `thread::sleep` waits for
+  a given duration is bounded only loosely.
+- `WriteCallbacks` has a third member, which breaks a literal that names every
+  field. Naming only the fields that matter and taking the rest from
+  `..WriteCallbacks::default()` keeps a literal working when a callback is
+  added, and is now what the documentation recommends.
+- `WriteCallbacks::default()` no longer does nothing in every case: it reports a
+  widened resolution on standard error, silence being the wrong default for a
+  figure that is not otherwise visible.
+- `ClockError` now reports an unset real-time clock rather than one set before
+  the epoch, and is raised only by `LogWrite::new`. `write` can no longer return
+  it, the clock a record is stamped from having been validated at construction.
+
+### Fixed
+
+- A complete, undamaged log could read back as a damaged one. If the real-time
+  clock was stepped backwards while a writer was running, a segment file created
+  afterwards took an identifier below one created before it; the reader then
+  replayed the files in an order its sequence checks disagreed with and reported
+  segment files lost, with the records out of order. No data was ever missing,
+  and a genuine fault is announced the same way, so the two could not be told
+  apart.
+
+### Notes
+
+- `docs/tcslog.rst` gains "The real-time clock must be set" under Prerequisites,
+  and "The clock a writer keeps" and "Learning the timer resolution" under
+  Theory of Operation. "What a caller should do with each outcome" is now a
+  top-level section, and closes with the rule its six entries add up to: read
+  again until `Eof`.
+- `base-prompt` is removed. `docs/tcslog-prompt.rst` is no longer used to
+  generate code, so the instruction it held had nothing left to drive.
+
 ## [0.1.0] - 2026-10-02
 
 First release of tcslog, a Rust library for storing telemetry on board a
@@ -73,4 +151,5 @@ single bad sector can do.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.1.0
