@@ -173,11 +173,20 @@ The timer resolution
 --------------------
 
 A segment file is identified by the time it was created, so Tcslog needs
-to know how finely the system clock advances. It cannot guess: a value
-too small would let two files created in quick succession collide, and
-the resulting failure would appear far from its cause. The value is
-therefore supplied at build time, in nanoseconds, as
-``TIMER_RESOLUTION``. There is deliberately no default.
+to know how finely the writer's clock advances: when two files are named
+within one tick of it, the writer waits for the clock to move on, and it
+has to be told how long that is. The value is supplied at build time, in
+nanoseconds, as ``TIMER_RESOLUTION``. There is deliberately no default,
+since a value guessed in the source would be wrong on some machine.
+
+**It need not be exact.** The true figure is hard to come by: nothing in
+the Rust standard library reports it, and what ``thread::sleep`` actually
+waits for a given duration is only loosely bounded -- on Linux it is
+subject to the scheduler's timer slack rather than to any stated clock
+granularity. So a writer corrects a value that proves too small, by the
+rule in `Learning the timer resolution`_, and ``timer_resolution()``
+reports what it arrived at. A value of 1 is a reasonable place to
+start.
 
 The usual way is a per-machine Cargo configuration file, which keeps the
 value out of the source tree. Copy the example and edit it::
@@ -197,7 +206,8 @@ command line::
 
 A missing or unparseable value stops the build. A value of zero builds,
 and ``LogWrite::new`` then refuses to start a log, reporting
-``TimerResolutionZero``.
+``TimerResolutionZero``: zero is the one value the widening rule cannot
+correct, since doubling it leaves it zero.
 
 Reading a log needs no timer resolution, because nothing is being
 created. A program that only reads can take the crate without the
@@ -511,6 +521,14 @@ Writing: LogWrite
 ``LogWrite::current_segment_id(&self) -> SegId``
     *Returns* the identifier of the segment file being written.
 
+``LogWrite::timer_resolution(&self) -> u64``
+    *Returns* how finely this writer believes its clock advances, in
+    nanoseconds: the build-time ``TIMER_RESOLUTION`` to begin with, and
+    whatever the rule in `Learning the timer resolution`_ has widened it
+    to since. A value above the one supplied says the supplied one was
+    too small for this machine, and is the figure the next build should
+    be given.
+
 ``LogWrite::last_meta(&self) -> Meta``
     *Returns* the metadata stored with the most recently written record.
     For ``Format::VariableTsRc`` this is how a caller learns the
@@ -623,10 +641,19 @@ Reading: LogRead
 Callbacks: WriteCallbacks
 -------------------------
 
-A structure of two function pointers, rather than closures or trait
+A structure of three function pointers, rather than closures or trait
 objects, so that it sits inside a ``LogWrite`` with no allocation and no
 dynamic dispatch. ``WriteCallbacks::default()`` supplies functions that
-do nothing, which suits development.
+do nothing, apart from reporting a widened timer resolution on standard
+error, which suits development.
+
+Naming only the fields that matter and taking the rest from the default
+keeps a literal working when a callback is added::
+
+    WriteCallbacks {
+        send: ship_it,
+        ..WriteCallbacks::default()
+    }
 
 ``record_complete: fn(&mut File) -> std::io::Result<()>``
     Invoked after each record has been written, with the segment file the
@@ -645,6 +672,41 @@ do nothing, which suits development.
 
     *Returns* success, or an error that reaches the caller of ``write``
     as ``IoError``.
+
+``timer_resolution_adjusted: fn(u64)``
+    Invoked when the timer resolution has been widened, with the value
+    now in force in nanoseconds.
+
+    A widening says the build-time ``TIMER_RESOLUTION`` is below what
+    this machine needs -- see `Learning the timer resolution`_ for when
+    that is concluded. It is reported once per doubling, and not at all
+    for a first collision, which computes no new value, nor once the
+    value has saturated and a doubling leaves it unchanged.
+
+    *Returns* nothing, and the writer waits and retries whatever the
+    callback does. It is a notification, not a decision.
+
+**Detecting a too-small resolution.** Taking no return value, this
+callback leaves the choice of what a widening means with the caller, and
+the two reasonable answers point in opposite directions.
+
+A deployed system will usually want to record the value and carry on. The
+widening is the writer repairing itself: the log is unharmed, every record
+is written, and the only cost is the wait that was spent discovering the
+right figure. Stopping a vehicle's telemetry over it would trade a sound
+log for no log.
+
+A system under development will usually want the opposite. A too-small
+value is a configuration fault, and the easiest place to act on it is
+where it was found, so a callback that panics or aborts here stops the
+program with the faulty value in hand. That is the reason this is a
+callback rather than something the library decides: the same code should
+be able to behave both ways.
+
+The default does the conservative half -- it prints a message naming the
+new value on standard error and returns, so the log keeps being written
+and the figure is not lost. The value passed is the one to put in
+``TIMER_RESOLUTION`` for the next build.
 
 .. _Handing over a segment file:
 
@@ -822,8 +884,9 @@ Results and errors
         this one returns that session's first record.
 
     ``TimerResolutionZero``
-        The build-time timer resolution is zero, so segment file
-        identifiers could not be generated.
+        The build-time timer resolution is zero, so no wait could
+        separate two segment identifiers, and doubling zero cannot change
+        that. No log was created. See `Learning the timer resolution`_.
 
     ``VersionMismatch``
         The segment file was written by a version of the stored format
@@ -868,7 +931,8 @@ writer keeps`_. If a file of that name already exists -- which means two
 were created within one tick of that clock -- the writer sleeps for twice
 the clock's resolution and tries again; since the clock never goes
 backwards, the next reading is larger than every previous one, so the
-retry terminates quickly.
+retry terminates quickly. What it does when the resolution it was given
+is too short for that is `Learning the timer resolution`_.
 
 ``write`` appends the record's bookkeeping and then its payload. The
 record goes in wherever the current file has room for even one byte of
@@ -970,6 +1034,46 @@ long run. ``CLOCK_MONOTONIC`` does not advance while the system is
 suspended, so a writer that outlives a suspend records times short by
 however long it lasted; the standard library exposes no clock that counts
 suspended time.
+
+Learning the timer resolution
+-----------------------------
+
+The retry above rests on the supplied ``TIMER_RESOLUTION`` really being as
+coarse as the clock. That figure is awkward to establish: it is a property
+of the machine, the standard library does not report it, and the sleep it
+is used for is bounded only loosely -- a ``thread::sleep`` of a stated
+length may return later than asked, and on Linux how much later is set by
+the scheduler's timer slack rather than by any clock granularity. A value
+that has to be right would be a poor thing to ask a caller for.
+
+So the value is treated as a first guess, and a writer corrects it. One
+collision is ordinary: it is the event the resolution exists to resolve,
+and the wait that follows is expected to clear it. A second collision
+while naming the same file is different -- the wait did not clear it, so
+the value is too short for this machine. The writer doubles the
+resolution, waits again, and doubles it again for every further
+collision, until an attempt finds a free name.
+
+What it arrived at is kept and used from then on, so a log pays the cost
+of learning it once rather than at every roll. It only ever grows: a
+resolution large enough to break the tie once is large enough next time,
+and letting it decay would re-learn the same thing at the cost of another
+collision.
+
+``timer_resolution()`` reports the figure in force. A value above the one
+supplied says the supplied one was too small, and is the figure to give
+the next build -- which is the practical way to arrive at a number for a
+machine whose resolution is unknown: start at 1, run, and read it back.
+
+Each widening is also announced through the
+``timer_resolution_adjusted`` callback, so a caller need not poll for it.
+What to do about it is the caller's choice, and `Callbacks:
+WriteCallbacks`_ sets out the two usual answers.
+
+Doubling cannot rescue a resolution of zero, which stays zero however
+often it is doubled. That is why ``LogWrite::new`` refuses that value
+outright, with ``TimerResolutionZero``, rather than leaving the retry to
+discover that it cannot widen its way out.
 
 The cost of filling every file
 ------------------------------

@@ -195,9 +195,17 @@ fn send(p: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Reports that the build-time timer resolution was too small for this
+/// machine and has been widened, which is worth seeing while developing
+/// even though the writer carries on regardless.
+fn timer_resolution_adjusted(ns: u64) {
+    println!("--> Timer resolution widened to {ns} ns");
+}
+
 const SAMPLE_WRITE_CALLBACKS: WriteCallbacks = WriteCallbacks {
     record_complete: noop_record_complete,
     send,
+    timer_resolution_adjusted,
 };
 
 /// Creates a log chain in `dir_name` using the given file-name `prefix`

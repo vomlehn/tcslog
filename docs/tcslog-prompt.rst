@@ -418,6 +418,27 @@ The sleep time is twice the system-dependent time resolution, used in the
 Rust thread::sleep() function. This value is named
 TIMER_RESOLUTION and is specified in nanoseconds.
 
+TIMER_RESOLUTION is a starting point, not a figure that has to be right.
+It is hard to establish from outside: nothing in the Rust standard
+library reports it, and what thread::sleep() actually waits for a given
+duration is bounded only loosely -- on Linux by the scheduler's timer
+slack rather than by any stated clock granularity. So a writer corrects a
+value that proves too small. One collision while naming a segment file is
+ordinary, being the event the resolution exists to resolve. If the sleep
+that follows does not clear it -- a second collision on the same file --
+the value is too short for this machine, so the writer doubles the
+resolution and sleeps again, doubling once more for each further
+collision, until an attempt finds a free name. The value it arrives at is
+kept and used from then on, so the cost of learning it is paid once
+rather than at every roll, and it only ever grows.
+
+LogWrite::timer_resolution() reports the value in force. One above the
+value supplied says the supplied one was too small and is the figure the
+next build should be given, which is how a number is arrived at for a
+machine whose resolution is unknown: start at 1, run, and read it back.
+Zero is the one value this cannot correct, since doubling it leaves it
+zero, which is why LogWrite::new() refuses it.
+
 TIMER_RESOLUTION must not be defined in the code proper but is supplied
 from outside as an environment variable, either from .cargo/config.toml
 (see .cargo/config.toml.example) or on the command line.
@@ -979,8 +1000,10 @@ pub fn new(dir: &str, prefix: &str, suffix: &str, seg_size_max: u32, format: For
     library's hands and starts a session of its own.
 
     The errors are TimerResolutionZero when the build-time timer
-    resolution is zero, PathDelimiterNotAllowed for a prefix or suffix
-    holding a path separator, SegSizeTooSmall for a seg_size_max that is
+    resolution is zero, ClockError when the real-time clock does not read
+    later than the UNIX epoch and so has not been set,
+    PathDelimiterNotAllowed for a prefix or suffix holding a path
+    separator, SegSizeTooSmall for a seg_size_max that is
     not strictly greater than the segment header plus one data header,
     FixedLenMismatch for Format::Fixed(0), InvalidPathname when dir does
     not name a directory, and IoError from directory enumeration, the
@@ -1001,6 +1024,14 @@ pub fn session_id(&self) -> SegId
 pub fn current_segment_id(&self) -> SegId
 
     The segment ID of the segment file being written.
+
+pub fn timer_resolution(&self) -> u64
+
+    How finely this writer believes its clock advances, in nanoseconds:
+    the build-time TIMER_RESOLUTION to begin with, and whatever the
+    widening rule under `Segment IDs`_ has raised it to since. A value
+    above the one supplied says the supplied one was too small for this
+    machine and is the figure the next build should be given.
 
 pub fn last_meta(&self) -> Meta
 
@@ -1275,7 +1306,7 @@ LogError
     TimerResolutionZero
 
         The build-time timer resolution is zero, so segment ID generation
-        could not make progress.
+        could not make progress, and doubling zero cannot change that.
 
     VersionMismatch
 
@@ -1369,9 +1400,12 @@ WriteCallbacks
     writing operations. Its members are plain function pointers rather
     than trait objects or closures, so that the structure can be stored
     inline in a LogWrite with no heap allocation and no dynamic dispatch.
-    A default is provided whose members do nothing, which suits local
+    A default is provided whose members do nothing, apart from reporting
+    a widened timer resolution on standard error, which suits local
     development; a user storing telemetry for real is expected to replace
-    the send member.
+    the send member. A literal naming only the members it cares about and
+    taking the rest from the default keeps working when a member is
+    added.
 
     record_complete: fn(&mut File) -> std::io::Result<()>
 
@@ -1401,6 +1435,36 @@ WriteCallbacks
         This function may perform other operations. It may, for example,
         be helpful to flush data to the file in order to reduce the chance
         of corruption due to a system restart.
+
+    timer_resolution_adjusted: fn(u64)
+
+        Called when the timer resolution has been widened, with the value
+        now in force in nanoseconds. See `Segment IDs`_ for when a
+        widening is concluded. It is called once per doubling, and not
+        for a first collision, which computes no new value, nor once the
+        value has saturated and a doubling leaves it unchanged.
+
+        It returns nothing, and the writer waits and retries whatever the
+        implementation does, so it is a notification rather than a
+        decision. That leaves the choice of what a widening means with
+        user code, and the two reasonable answers differ.
+
+        A deployed system will usually record the value and continue. The
+        widening is the writer correcting itself: the log is unharmed and
+        every record is written, so stopping telemetry over it would
+        trade a sound log for no log.
+
+        A system under development will usually prefer the opposite. A
+        too-small value is a configuration fault, and the easiest place
+        to act on it is where it was found, so an implementation that
+        panics or aborts here stops the program with the faulty value in
+        hand. That is why this is a callback rather than something the
+        library decides: the same code must be able to behave both ways.
+
+        The default takes the conservative half, printing a message
+        naming the new value on standard error and returning, so the log
+        keeps being written and the figure is not lost. The value passed
+        is the one to put in TIMER_RESOLUTION for the next build.
 
 SegId
 -----

@@ -74,14 +74,54 @@ pub struct WriteCallbacks {
     /// intended rather than a loss: once this callback has taken a file,
     /// the library accounts for it no further.
     pub send: fn(&Path) -> std::io::Result<()>,
+
+    /// Reports that the build-time timer resolution was too small and
+    /// has been widened, with the value now in force in nanoseconds.
+    ///
+    /// Called each time naming a segment file collides again after the
+    /// wait that was supposed to clear it, which is the evidence that
+    /// `TIMER_RESOLUTION` is below what this machine needs -- see
+    /// [`LogWrite::timer_resolution`]. Not called for the first
+    /// collision, which the supplied value exists to resolve and which
+    /// computes no new resolution, nor once the value has saturated and
+    /// a doubling leaves it where it was.
+    ///
+    /// Taking no arguments but the new value, and returning nothing,
+    /// this is a notification rather than a decision: the writer goes on
+    /// to wait and retry whatever the callback does. That leaves the
+    /// choice of how to treat it with the caller. A deployed system will
+    /// usually want to record the value and carry on, since the widening
+    /// is the writer repairing itself and the log is unharmed. A system
+    /// under development may prefer not to: panicking or aborting here
+    /// stops the program at the point the too-small value was found,
+    /// which is where it is easiest to act on.
+    ///
+    /// The value passed is the figure to put in `TIMER_RESOLUTION` for
+    /// the next build.
+    pub timer_resolution_adjusted: fn(u64),
 }
 
 impl Default for WriteCallbacks {
-    /// Callbacks that do nothing.
+    /// Callbacks that do nothing, except that a widened timer
+    /// resolution is reported on standard error.
+    ///
+    /// Silence would be the wrong default for that one: a widening says
+    /// the build was given a value this machine does not meet, which is
+    /// worth knowing and is not otherwise visible. Printing and
+    /// continuing is the conservative half of the choice -- it keeps the
+    /// log being written -- and a caller who wants the other half
+    /// supplies a callback that stops the program.
     fn default() -> Self {
         Self {
             record_complete: |_| Ok(()),
             send: |_| Ok(()),
+            timer_resolution_adjusted: |ns| {
+                eprintln!(
+                    "tcslog: the build-time TIMER_RESOLUTION is too small for this \
+                     machine; widened to {ns} ns. Build with TIMER_RESOLUTION={ns} \
+                     to start there."
+                );
+            },
         }
     }
 }
@@ -127,6 +167,16 @@ pub struct LogWrite {
     format: Format,
     /// Callbacks supplied by the caller.
     callbacks: WriteCallbacks,
+    /// How finely the clock is believed to advance, in nanoseconds.
+    ///
+    /// Starts at the build-time `TIMER_RESOLUTION_NS` and is doubled by
+    /// [`create_unique_file`](Self::create_unique_file) when that value
+    /// turns out to be too small, so a figure that is hard to establish
+    /// need only be a starting point. It grows and never shrinks: a
+    /// resolution large enough to break the tie once is large enough
+    /// next time, and letting it decay would re-learn the same thing at
+    /// the cost of another collision.
+    timer_resolution: u64,
     /// The clock segment IDs and record timestamps are minted from,
     /// anchored when the writer was constructed. It is deliberately not
     /// re-anchored by `clear`: a session that began after a backward
@@ -232,6 +282,7 @@ impl LogWrite {
             seg_size_max,
             format,
             callbacks,
+            timer_resolution: TIMER_RESOLUTION_NS,
             clock,
             current: None,
             session_id: SegId::from_u64(0),
@@ -260,6 +311,28 @@ impl LogWrite {
         }
         log.start_session()?;
         Ok(log)
+    }
+
+    /// How finely this writer believes the clock advances, in
+    /// nanoseconds.
+    ///
+    /// The build-time `TIMER_RESOLUTION` to begin with. Naming a new
+    /// segment file takes the time from the clock, so two files named
+    /// within one tick of it collide; the writer then waits twice this
+    /// value for the clock to move on and tries again. One collision is
+    /// what the value exists to resolve, but a second says it is too
+    /// small for this machine, so the writer doubles it, and doubles it
+    /// again for each collision after that, and keeps what it arrived
+    /// at.
+    ///
+    /// A value above the one supplied therefore says the supplied one
+    /// was too small, which is worth recording or reporting: it is the
+    /// figure the next build should be given.
+    ///
+    /// Returns the resolution in force.
+    #[must_use]
+    pub fn timer_resolution(&self) -> u64 {
+        self.timer_resolution
     }
 
     /// The segment ID of this session's first segment file.
@@ -545,17 +618,47 @@ impl LogWrite {
     /// larger, and [`Clock`] never going backwards guarantees it is
     /// larger than every earlier one of this writer, so the retry
     /// terminates.
+    ///
+    /// That holds only if the resolution is really as coarse as the
+    /// clock, and the true figure is hard to establish from outside: it
+    /// is a property of the machine, and one that a `thread::sleep` of
+    /// the stated length is only approximately bounded by. So the
+    /// supplied value is treated as a first guess. A single collision is
+    /// what that value exists to resolve and is taken as ordinary. A
+    /// second says the value is too small for this machine, so the
+    /// resolution is doubled, and doubled again for every collision
+    /// after that, until one attempt succeeds. The widened value is kept
+    /// in [`timer_resolution`](Self#structfield.timer_resolution) and
+    /// used from then on, so a log pays the cost of learning it once
+    /// rather than at every roll.
+    ///
+    /// Doubling cannot rescue a resolution of zero, which stays zero;
+    /// [`new`](Self::new) refuses that value outright.
+    ///
     /// * `buf` -- a path buffer to build the name in, so that creating a
     ///   segment file need not allocate one.
     fn create_unique_file(&mut self, mut buf: PathBuf) -> Result<(SegId, PathBuf, File), LogError> {
-        let nap = Duration::from_nanos(TIMER_RESOLUTION_NS.saturating_mul(2));
+        let mut collided_before = false;
         loop {
             let id = self.clock.now_seg_id();
             build_name(&mut self.name_buf, &self.prefix, id, &self.suffix);
             buf.set_file_name(&self.name_buf);
             match OpenOptions::new().write(true).create_new(true).open(&buf) {
                 Ok(file) => return Ok((id, buf, file)),
-                Err(e) if e.kind() == ErrorKind::AlreadyExists => thread::sleep(nap),
+                Err(e) if e.kind() == ErrorKind::AlreadyExists => {
+                    let wider = widened(self.timer_resolution, collided_before);
+                    // Only a value that actually changed is a new
+                    // resolution to report: not the first collision,
+                    // which leaves it alone, and not a doubling that
+                    // saturated, which would otherwise report the same
+                    // figure for as long as the collisions lasted.
+                    if wider != self.timer_resolution {
+                        self.timer_resolution = wider;
+                        (self.callbacks.timer_resolution_adjusted)(wider);
+                    }
+                    collided_before = true;
+                    thread::sleep(nap_for(self.timer_resolution));
+                }
                 Err(e) => return Err(LogError::IoError(e)),
             }
         }
@@ -730,6 +833,38 @@ impl Drop for LogWrite {
         drop(current.file);
         let send = self.callbacks.send;
         let _ = send(&current.path);
+    }
+}
+
+/// How long to wait for the clock to leave a colliding reading behind.
+///
+/// Twice the resolution, so that the next reading is past the tick the
+/// collision happened in rather than merely at its edge.
+///
+/// * `resolution` -- how finely the clock is believed to advance, in
+///   nanoseconds.
+///
+/// Returns the sleep to take before the next attempt.
+fn nap_for(resolution: u64) -> Duration {
+    Duration::from_nanos(resolution.saturating_mul(2))
+}
+
+/// The resolution to carry forward after a collision.
+///
+/// * `resolution` -- the resolution in force, in nanoseconds.
+/// * `collided_before` -- whether this attempt to name a file had
+///   already collided once.
+///
+/// Returns `resolution` unchanged for a first collision, which is what
+/// the resolution exists to resolve, and twice it for any after that,
+/// a second collision being evidence that the value is too small. The
+/// doubling saturates: a resolution a `u64` of nanoseconds cannot hold
+/// is centuries long, and nothing about naming a file may panic.
+const fn widened(resolution: u64, collided_before: bool) -> u64 {
+    if collided_before {
+        resolution.saturating_mul(2)
+    } else {
+        resolution
     }
 }
 
@@ -959,6 +1094,44 @@ mod tests {
         let first = clock.now_seg_id();
         thread::sleep(Duration::from_millis(2));
         assert!(clock.now_seg_id() > first);
+    }
+
+    #[test]
+    fn a_first_collision_leaves_the_resolution_where_it_was() {
+        // One collision is what the supplied resolution exists to
+        // resolve, so it is not evidence that the value is wrong.
+        assert_eq!(widened(64, false), 64);
+    }
+
+    #[test]
+    fn each_collision_after_the_first_doubles_the_resolution() {
+        let mut resolution = 64;
+        for expected in [128, 256, 512, 1_024] {
+            resolution = widened(resolution, true);
+            assert_eq!(resolution, expected);
+        }
+    }
+
+    #[test]
+    fn doubling_the_resolution_saturates_rather_than_wrapping() {
+        let huge = widened(u64::MAX, true);
+        assert_eq!(huge, u64::MAX);
+        // A wrap would make the nap shorter than the one before it,
+        // which is the one thing the widening must never do.
+        assert!(nap_for(huge) >= nap_for(u64::MAX / 2));
+    }
+
+    #[test]
+    fn doubling_cannot_rescue_a_resolution_of_zero() {
+        // Which is why `new` refuses it rather than leaving the retry to
+        // discover that it cannot widen its way out.
+        assert_eq!(widened(0, true), 0);
+    }
+
+    #[test]
+    fn the_nap_is_twice_the_resolution() {
+        assert_eq!(nap_for(500), Duration::from_micros(1));
+        assert_eq!(nap_for(0), Duration::ZERO);
     }
 
     #[test]

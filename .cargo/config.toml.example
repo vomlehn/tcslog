@@ -7,6 +7,13 @@
 # is enabled and baked in as the `TIMER_RESOLUTION_NS` constant. There
 # is deliberately no default; a missing value causes a build failure.
 #
+# It need not be exact. A writer that finds the value too small -- a
+# second collision while naming one segment file -- doubles it, and goes
+# on doubling until a name is free, keeping what it arrived at.
+# `LogWrite::timer_resolution()` reports the figure in force, which is
+# the one to put here for the next build. A value of 1 is a fine place
+# to start.
+#
 # Alternatively, set the environment variable directly on the command
 # line (e.g. `TIMER_RESOLUTION=1 cargo build`) — either mechanism works.
 

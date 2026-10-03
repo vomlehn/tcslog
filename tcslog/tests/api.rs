@@ -11,7 +11,7 @@
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use tempfile::TempDir;
@@ -515,6 +515,7 @@ fn send_runs_once_per_segment_file_with_data_and_complete_once_per_record() {
             WriteCallbacks {
                 record_complete: roll_complete,
                 send: roll_send,
+                ..WriteCallbacks::default()
             },
         )
         .expect("a writer on a fresh directory");
@@ -564,8 +565,8 @@ fn drop_sends_the_segment_file_still_being_written() {
             log.seg_size_max,
             Format::VariableSimple,
             WriteCallbacks {
-                record_complete: WriteCallbacks::default().record_complete,
                 send: drop_send,
+                ..WriteCallbacks::default()
             },
         )
         .expect("a writer on a fresh directory");
@@ -604,8 +605,8 @@ fn a_new_writer_hands_over_what_it_finds_rather_than_appending() {
         log.seg_size_max,
         Format::VariableSimple,
         WriteCallbacks {
-            record_complete: WriteCallbacks::default().record_complete,
             send: existing_send,
+            ..WriteCallbacks::default()
         },
     )
     .expect("a writer on a directory holding a log");
@@ -639,7 +640,7 @@ fn a_failing_record_complete_propagates_and_leaves_the_writer_usable() {
             Format::VariableSimple,
             WriteCallbacks {
                 record_complete: failing_complete,
-                send: WriteCallbacks::default().send,
+                ..WriteCallbacks::default()
             },
         )
         .expect("a writer on a fresh directory");
@@ -667,8 +668,8 @@ fn a_failing_send_propagates_from_the_roll_that_invoked_it() {
         log.seg_size_max,
         Format::Fixed(4),
         WriteCallbacks {
-            record_complete: WriteCallbacks::default().record_complete,
             send: failing_send,
+            ..WriteCallbacks::default()
         },
     )
     .expect("a writer on a fresh directory");
@@ -1534,5 +1535,86 @@ fn a_new_writer_mints_identifiers_above_what_the_directory_holds() {
     assert!(!fresh.is_empty(), "the new writer created no segment file");
     for id in fresh {
         assert!(id > planted, "{id} does not follow the planted {planted}");
+    }
+}
+
+#[test]
+fn the_timer_resolution_starts_at_the_build_value_and_never_shrinks() {
+    let log = Log::new(8);
+    let mut w = log.writer(Format::VariableSimple);
+    let supplied = w.timer_resolution();
+    assert!(supplied > 0, "a zero resolution would have failed `new`");
+
+    // Sixty-four segment files, each named from the clock. Whether any
+    // pair of them lands in one tick of it depends on how coarse that
+    // clock is on this machine, so the resolution is not asserted to be
+    // unchanged -- widening is the mechanism working. What must hold is
+    // that it only ever grows, since a resolution that shrank would make
+    // a later nap shorter than one that had already proved too short.
+    let mut last = supplied;
+    for _ in 0..64 {
+        w.write(b"abcd").expect("a writable payload");
+        let now = w.timer_resolution();
+        assert!(now >= last, "{now} is below the earlier {last}");
+        last = now;
+    }
+}
+
+/// How many times `count_adjustment` has been told of a new resolution,
+/// and the last value it was told.
+static ADJUSTMENTS: AtomicUsize = AtomicUsize::new(0);
+static ADJUSTED_TO: AtomicU64 = AtomicU64::new(0);
+
+fn count_adjustment(ns: u64) {
+    ADJUSTMENTS.fetch_add(1, Ordering::Relaxed);
+    ADJUSTED_TO.store(ns, Ordering::Relaxed);
+}
+
+#[test]
+fn the_default_adjustment_callback_reports_and_carries_on() {
+    // The default must not stop the program: a deployed system is meant
+    // to keep logging through a widening, so this call has to return.
+    (WriteCallbacks::default().timer_resolution_adjusted)(4_096);
+}
+
+#[test]
+fn an_adjustment_is_reported_exactly_when_the_resolution_changes() {
+    ADJUSTMENTS.store(0, Ordering::Relaxed);
+    ADJUSTED_TO.store(0, Ordering::Relaxed);
+
+    let log = Log::new(8);
+    let mut w = LogWrite::new(
+        log.path(),
+        PREFIX,
+        SUFFIX,
+        log.seg_size_max,
+        Format::VariableSimple,
+        WriteCallbacks {
+            timer_resolution_adjusted: count_adjustment,
+            ..WriteCallbacks::default()
+        },
+    )
+    .expect("a writer on a fresh directory");
+
+    let supplied = w.timer_resolution();
+    for _ in 0..64 {
+        w.write(b"abcd").expect("a writable payload");
+    }
+    let in_force = w.timer_resolution();
+    drop(w);
+
+    // Whether this machine's clock is coarse enough to widen anything is
+    // not the point. What must hold is that the callback and the value
+    // agree: no report without a change, and no change unreported.
+    let reports = ADJUSTMENTS.load(Ordering::Relaxed);
+    if in_force == supplied {
+        assert_eq!(reports, 0, "reported an adjustment that did not happen");
+    } else {
+        assert!(reports > 0, "widened to {in_force} without reporting it");
+        assert_eq!(
+            ADJUSTED_TO.load(Ordering::Relaxed),
+            in_force,
+            "the last value reported is not the one in force"
+        );
     }
 }

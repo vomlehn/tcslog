@@ -1,17 +1,26 @@
 //! Bakes the system's timer resolution into the crate.
 //!
-//! The segment ID of a segment file is the wall-clock time at which it
-//! was created, so two segment files created within one tick of the
-//! system clock would collide. The writer resolves a collision by
+//! The segment ID of a segment file is the time at which it was
+//! created, so two segment files created within one tick of the
+//! writer's clock would collide. The writer resolves a collision by
 //! sleeping for twice the clock's resolution and reading the time
-//! again, which is guaranteed to yield a larger value.
+//! again, which is expected to yield a larger value.
 //!
 //! That resolution is a property of the machine rather than of the
 //! code, so it is supplied from outside as the `TIMER_RESOLUTION`
 //! environment variable, in nanoseconds -- usually from
 //! `.cargo/config.toml`. There is deliberately no default: a value
-//! guessed here would be wrong on some machine, and the failure it
-//! caused would look like a duplicate-file error far from its cause.
+//! guessed here would be wrong on some machine.
+//!
+//! The value is a starting point rather than a figure that has to be
+//! right. It is genuinely hard to establish from outside -- nothing in
+//! the standard library reports it, and what a `thread::sleep` of a
+//! given length actually waits is bounded only loosely -- so a writer
+//! corrects a value that proves too small. One collision is what the
+//! value exists to resolve; a second doubles it, and each collision
+//! after that doubles it again, and the writer keeps what it arrived
+//! at. `LogWrite::timer_resolution` reports that figure, which is the
+//! one to give the next build.
 //!
 //! A missing or unparseable value is a build failure. A zero value
 //! builds, because zero is a number the caller can be told about at
