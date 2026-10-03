@@ -446,9 +446,16 @@ TIMER_RESOLUTION must not be defined in the code proper but is supplied
 from outside as an environment variable, either from .cargo/config.toml
 (see .cargo/config.toml.example) or on the command line.
 The tcslog/build.rs file is then used to define it in the code.
-Unparseable and zero values will result
-either in a compile error or an error from LogWrite::new(). There is no
-default value for TIMER_RESOLUTION.
+
+Nothing is guessed for it. Left unset it is zero: the crate still
+builds, and LogWrite::new() then refuses to open a log and reports
+TimerResolutionZero. The crate has to build without a value, because a
+dependent taking tcslog from a registry has no .cargo/config.toml of
+this repository's and a build that stopped would leave it with a failure
+inside somebody else's build script rather than anything it could act
+on. A value that is not a nanosecond count is a build failure: not
+setting the variable says nobody said, while setting it to nonsense says
+somebody said something wrong.
 
 Operations
 ==========
@@ -1310,6 +1317,8 @@ LogError
 
         The build-time timer resolution is zero, so segment ID generation
         could not make progress, and doubling zero cannot change that.
+        Zero is what an unset TIMER_RESOLUTION leaves, so this is what a
+        dependent that has supplied no value sees.
 
     VersionMismatch
 

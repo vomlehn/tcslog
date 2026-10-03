@@ -114,7 +114,17 @@ pub enum LogError {
 
     /// The build-time timer resolution is zero, so the writer could not
     /// guarantee that a fresh segment ID differs from the last one.
-    #[error("the build-time timer resolution is zero")]
+    ///
+    /// Zero is what an unset `TIMER_RESOLUTION` leaves behind, so this
+    /// is what a dependent who has not supplied one sees: the crate
+    /// builds, and says so here rather than in somebody else's build
+    /// script. It is also the one value the widening rule cannot
+    /// correct, doubling zero leaving it zero.
+    #[error(
+        "the build-time timer resolution is zero: build with TIMER_RESOLUTION \
+         set to the system timer resolution in nanoseconds, or 1 to have the \
+         writer find it"
+    )]
     TimerResolutionZero,
 
     /// The segment file was written by a version of the on-disk format

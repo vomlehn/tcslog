@@ -176,8 +176,8 @@ A segment file is identified by the time it was created, so Tcslog needs
 to know how finely the writer's clock advances: when two files are named
 within one tick of it, the writer waits for the clock to move on, and it
 has to be told how long that is. The value is supplied at build time, in
-nanoseconds, as ``TIMER_RESOLUTION``. There is deliberately no default,
-since a value guessed in the source would be wrong on some machine.
+nanoseconds, as ``TIMER_RESOLUTION``. Nothing is guessed for you, since a
+figure guessed in the source would be wrong on some machine.
 
 **It need not be exact.** The true figure is hard to come by: nothing in
 the Rust standard library reports it, and what ``thread::sleep`` actually
@@ -204,10 +204,19 @@ command line::
 
     TIMER_RESOLUTION=1 cargo build
 
-A missing or unparseable value stops the build. A value of zero builds,
-and ``LogWrite::new`` then refuses to start a log, reporting
-``TimerResolutionZero``: zero is the one value the widening rule cannot
-correct, since doubling it leaves it zero.
+**Supplying nothing is allowed, and is reported at run time.** Left unset,
+the value is zero: the crate builds, and ``LogWrite::new`` then refuses to
+open a log and reports ``TimerResolutionZero``. That is deliberate. A
+program taking Tcslog from a registry has no ``.cargo/config.toml`` of
+this repository's, and a build that stopped would leave it with a failure
+inside somebody else's build script rather than anything it could act on;
+an error from ``LogWrite::new`` names itself and says what to set. Zero is
+also the one value the widening rule cannot correct, doubling it leaving
+it zero, so it cannot simply be treated as a small number.
+
+A value that is not a nanosecond count does stop the build. Not setting
+the variable says nobody said; setting it to nonsense says somebody said
+something wrong, which is worth stopping for.
 
 Reading a log needs no timer resolution, because nothing is being
 created. A program that only reads can take the crate without the
@@ -886,7 +895,9 @@ Results and errors
     ``TimerResolutionZero``
         The build-time timer resolution is zero, so no wait could
         separate two segment identifiers, and doubling zero cannot change
-        that. No log was created. See `Learning the timer resolution`_.
+        that. No log was created. This is what an unset
+        ``TIMER_RESOLUTION`` gives, so it is what a program that has
+        supplied no value sees. See `The timer resolution`_.
 
     ``VersionMismatch``
         The segment file was written by a version of the stored format
@@ -1073,7 +1084,9 @@ WriteCallbacks`_ sets out the two usual answers.
 Doubling cannot rescue a resolution of zero, which stays zero however
 often it is doubled. That is why ``LogWrite::new`` refuses that value
 outright, with ``TimerResolutionZero``, rather than leaving the retry to
-discover that it cannot widen its way out.
+discover that it cannot widen its way out -- and why an unset
+``TIMER_RESOLUTION``, which leaves zero behind, is refused there rather
+than corrected here.
 
 The cost of filling every file
 ------------------------------

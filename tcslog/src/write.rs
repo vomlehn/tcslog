@@ -169,7 +169,9 @@ pub struct LogWrite {
     callbacks: WriteCallbacks,
     /// How finely the clock is believed to advance, in nanoseconds.
     ///
-    /// Starts at the build-time `TIMER_RESOLUTION_NS` and is doubled by
+    /// Starts at the build-time `TIMER_RESOLUTION_NS`, which is zero
+    /// when nothing supplied one -- a log cannot be opened then, so this
+    /// field is never zero in a writer that exists. It is doubled by
     /// [`create_unique_file`](Self::create_unique_file) when that value
     /// turns out to be too small, so a figure that is hard to establish
     /// need only be a starting point. It grows and never shrinks: a
@@ -240,7 +242,8 @@ impl LogWrite {
     /// # Errors
     ///
     /// Returns [`LogError::TimerResolutionZero`] when the build-time
-    /// timer resolution is zero, [`LogError::ClockError`] when the
+    /// timer resolution is zero, which is what an unset
+    /// `TIMER_RESOLUTION` leaves, [`LogError::ClockError`] when the
     /// real-time clock does not read later than the UNIX epoch, which is
     /// what an unset clock reads on most systems,
     /// [`LogError::PathDelimiterNotAllowed`]

@@ -55,13 +55,25 @@ are read by either.
   epoch advanced by the monotonic clock, paired once when the writer is
   constructed. An identifier is still nanoseconds since the UNIX epoch; what
   orders it is a clock that cannot step.
-- `TIMER_RESOLUTION` is still required at build time with no default, but it is
-  now a starting point rather than a figure that has to be right. One collision
-  while naming a segment file is ordinary; a second says the value is too small,
-  so the writer doubles it, doubling again for each collision after that, and
-  keeps what it arrived at. The true figure is otherwise hard to come by:
-  nothing in the standard library reports it, and what `thread::sleep` waits for
-  a given duration is bounded only loosely.
+- `TIMER_RESOLUTION` is no longer required at build time. Left unset it is
+  zero, the crate builds, and `LogWrite::new` refuses to open a log and reports
+  `TimerResolutionZero`. The crate has to build without one: a dependent taking
+  tcslog from a registry has no `.cargo/config.toml` of this repository's, so a
+  build that stopped would leave it with a panic inside somebody else's build
+  script, and no documentation on docs.rs either. A value that is not a
+  nanosecond count is still a build failure — not setting the variable says
+  nobody said, while setting it to nonsense says somebody said something wrong.
+  An empty or blank setting counts as unset. Reading a log needs no resolution
+  at all.
+- When one is supplied it is now a starting point rather than a figure that has
+  to be right. One collision while naming a segment file is ordinary; a second
+  says the value is too small, so the writer doubles it, doubling again for each
+  collision after that, and keeps what it arrived at. The true figure is
+  otherwise hard to come by: nothing in the standard library reports it, and
+  what `thread::sleep` waits for a given duration is bounded only loosely.
+- `TimerResolutionZero`'s message now says what to do about it, that error
+  having gone from something only a deliberate zero could produce to what every
+  dependent sees before supplying a value.
 - `WriteCallbacks` has a third member, which breaks a literal that names every
   field. Naming only the fields that matter and taking the rest from
   `..WriteCallbacks::default()` keeps a literal working when a callback is

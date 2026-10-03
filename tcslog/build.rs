@@ -9,7 +9,7 @@
 //! That resolution is a property of the machine rather than of the
 //! code, so it is supplied from outside as the `TIMER_RESOLUTION`
 //! environment variable, in nanoseconds -- usually from
-//! `.cargo/config.toml`. There is deliberately no default: a value
+//! `.cargo/config.toml`. No figure is guessed here, because a figure
 //! guessed here would be wrong on some machine.
 //!
 //! The value is a starting point rather than a figure that has to be
@@ -22,9 +22,19 @@
 //! at. `LogWrite::timer_resolution` reports that figure, which is the
 //! one to give the next build.
 //!
-//! A missing or unparseable value is a build failure. A zero value
-//! builds, because zero is a number the caller can be told about at
-//! run time: `LogWrite::new` rejects it with `TimerResolutionZero`.
+//! An absent value is zero rather than a build failure. The crate has
+//! to build without one: a dependent taking tcslog from a registry has
+//! no `.cargo/config.toml` of this repository's, and a build that
+//! stopped would leave them with a failure in somebody else's build
+//! script rather than anything they could act on. Zero is instead a
+//! number the caller is told about at run time, where it can name
+//! itself: `LogWrite::new` refuses to open a log and reports
+//! `TimerResolutionZero`. Reading a log is unaffected either way.
+//!
+//! An unparseable value is still a build failure. Absence means nobody
+//! said; a value that is not a nanosecond count means somebody said
+//! something wrong, which is worth stopping for rather than silently
+//! reading as zero.
 //!
 //! Only the `write` feature needs the value, so a read-only build does
 //! not require one.
@@ -41,25 +51,27 @@ fn main() {
         return;
     }
 
-    let raw = env::var("TIMER_RESOLUTION").unwrap_or_else(|_| {
-        panic!(
-            "TIMER_RESOLUTION is not set. It is the system timer \
-             resolution in nanoseconds and has no default. Set it in \
-             .cargo/config.toml (see .cargo/config.toml.example) or in \
-             the environment, e.g. TIMER_RESOLUTION=1 cargo build."
-        )
-    });
-
-    let ns: u64 = raw
-        .trim()
-        .parse()
-        .unwrap_or_else(|e| panic!("TIMER_RESOLUTION={raw:?} is not a nanosecond count: {e}"));
+    // Absent is zero, which `LogWrite::new` reports at run time. An
+    // empty or blank setting counts as absent: it says no more than not
+    // setting the variable at all.
+    let ns: u64 = match env::var("TIMER_RESOLUTION") {
+        Err(_) => 0,
+        Ok(raw) if raw.trim().is_empty() => 0,
+        Ok(raw) => raw.trim().parse().unwrap_or_else(|e| {
+            panic!(
+                "TIMER_RESOLUTION={raw:?} is not a nanosecond count: {e}. \
+                 Give it a count in nanoseconds, or leave it unset -- an \
+                 unset value builds, and LogWrite::new then reports \
+                 TimerResolutionZero."
+            )
+        }),
+    };
 
     let out_dir = env::var("OUT_DIR").expect("cargo sets OUT_DIR for build scripts");
     let dest = Path::new(&out_dir).join("timer_resolution.rs");
     let text = format!(
         "/// System timer resolution in nanoseconds, from the \
-         build-time `TIMER_RESOLUTION`.\n\
+         build-time `TIMER_RESOLUTION`, or zero if it was not set.\n\
          pub const TIMER_RESOLUTION_NS: u64 = {ns};\n"
     );
     fs::write(&dest, text).unwrap_or_else(|e| panic!("cannot write {}: {e}", dest.display()));
