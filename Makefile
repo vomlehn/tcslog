@@ -32,13 +32,14 @@ help:				## Show this help
 # Build the project. The subshell groups the whole build so that one
 # `tee` captures all of it.
 .PHONY: build
-build:				## Build the Rust project
-	( \
-		echo "Building the project..."; \
-		cargo build $(RELEASE); \
-		$(MAKE) -C docs; \
-		echo "[OK] Build complete"; \
-	) 2>&1 | tee build.out
+build:	docs			## Build the Rust project
+	echo "Building the project..."
+	cargo build $(RELEASE)
+	echo "[OK] Build complete"
+
+.PHONY: docs
+docs:
+	$(MAKE) -C docs
 
 # Run tests
 .PHONY: test
@@ -68,9 +69,8 @@ distclean: clean		## Remove build artifacts and all generated files
 
 # There is no install target here. The only binaries worth installing,
 # tcslog-dump and tcslog-dumphdr, are the tcslog-tools crate in its own
-# repository, and `make -C ../tcslog-tools install` installs them.
-# tcslog-gen stays uninstalled on purpose: it exists to give the tests
-# segment files to read, and it writes deliberately damaged ones.
+# repository. tcslog-gen stays uninstalled on purpose: it exists to give
+# the tests segment files to read
 
 # Check code quality
 .PHONY: check
