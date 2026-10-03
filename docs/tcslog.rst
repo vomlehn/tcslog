@@ -1297,7 +1297,11 @@ leaves it unable to continue. A caller may therefore treat
 the reader, and simply read again.
 
 What a caller should do with each outcome
------------------------------------------
+=========================================
+
+Reading a log produces one of six outcomes. What each asks of a caller
+follows; that the reader is always fit to continue is the subject of
+`Progress is guaranteed`_.
 
 ``Ok``
     A whole record. Use ``n`` bytes of the buffer.
