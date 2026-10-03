@@ -12,11 +12,12 @@ use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use tempfile::TempDir;
 
 use tcslog::{
-    Format, LogError, LogRead, LogWrite, Meta, RecSize, SegmentHeader, WriteCallbacks,
+    Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, SegmentHeader, WriteCallbacks,
     SEGMENT_FILE_HEADER_LEN,
 };
 
@@ -1437,5 +1438,101 @@ fn write_returns_the_payload_plus_its_data_header() {
         let mut w = log.writer(format);
         let n = w.write(b"abcdef").expect("a writable payload");
         assert_eq!(n, header_len + 6, "format {format:?}");
+    }
+}
+
+#[test]
+fn segment_ids_are_unix_epoch_times_in_creation_order() {
+    let before = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock set past the epoch")
+        .as_nanos();
+
+    // Eight segment files, each holding one record, written as fast as
+    // the writer will go.
+    let log = Log::new(8);
+    log.write_session(Format::VariableSimple, &vec![b"abcd".to_vec(); 8]);
+
+    let after = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("a clock set past the epoch")
+        .as_nanos();
+
+    // Sorting the names sorted the files by identifier, so the sequence
+    // numbers coming back in order is what says that identifier order
+    // and creation order are the same thing.
+    let headers = log.headers();
+    assert_eq!(headers.len(), 8);
+    for (i, h) in headers.iter().enumerate() {
+        assert_eq!(h.sequence.as_u64(), i as u64, "file {i} is out of order");
+    }
+
+    // An identifier is still nanoseconds since the UNIX epoch, not a
+    // reading of the monotonic clock the writer advances it with.
+    for h in &headers {
+        let id = u128::from(h.segment_id.as_u64());
+        assert!(
+            id >= before && id <= after,
+            "{} is outside the window the log was written in",
+            h.segment_id
+        );
+    }
+
+    let ids: Vec<u64> = headers.iter().map(|h| h.segment_id.as_u64()).collect();
+    for pair in ids.windows(2) {
+        assert!(pair[1] > pair[0], "{} does not follow {}", pair[1], pair[0]);
+    }
+}
+
+#[test]
+fn a_new_writer_mints_identifiers_above_what_the_directory_holds() {
+    let log = Log::new(8);
+    log.write_session(Format::VariableSimple, &vec![b"abcd".to_vec(); 2]);
+
+    // Rename the newest file to an identifier an hour ahead of now,
+    // which is what a writer reading a real-time clock an hour later
+    // would have minted -- and so what a backward step of that clock
+    // between two writers leaves behind. Only the name matters here: a
+    // writer seeds itself from the names in the directory, not from the
+    // headers inside them.
+    let now = u64::try_from(
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("a clock set past the epoch")
+            .as_nanos(),
+    )
+    .expect("nanoseconds that fit in a u64");
+    let planted = SegId::from_u64(now + 3_600_000_000_000);
+    let newest = log.segment_files().pop().expect("a written segment file");
+    fs::rename(
+        &newest,
+        newest.with_file_name(format!("{PREFIX}{planted}{SUFFIX}")),
+    )
+    .expect("a renamable segment file");
+    let existing = log.segment_files();
+
+    // This writer anchors on the real-time clock, which reads an hour
+    // behind the planted identifier, and has to step past it anyway.
+    let mut w = log.writer(Format::VariableSimple);
+    w.write(b"abcd").expect("a writable payload");
+    drop(w);
+
+    let fresh: Vec<SegId> = log
+        .segment_files()
+        .into_iter()
+        .filter(|p| !existing.contains(p))
+        .map(|p| {
+            let name = p
+                .file_name()
+                .and_then(|n| n.to_str())
+                .expect("a UTF-8 name");
+            SegId::parse(&name[PREFIX.len()..name.len() - SUFFIX.len()])
+                .expect("a well-formed segment file name")
+        })
+        .collect();
+
+    assert!(!fresh.is_empty(), "the new writer created no segment file");
+    for id in fresh {
+        assert!(id > planted, "{id} does not follow the planted {planted}");
     }
 }

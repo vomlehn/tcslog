@@ -4,7 +4,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::error::LogError;
 use crate::format::{Format, Meta};
@@ -53,6 +53,26 @@ pub struct WriteCallbacks {
     /// When it returns there must be no file at the path it was given,
     /// and none matching this log's naming pattern, because the space is
     /// no longer being accounted for by this library.
+    ///
+    /// The cheapest way to satisfy that is to rename the file to
+    /// something that cannot be a segment file name of this log -- a
+    /// name that does not both begin with the prefix and end with the
+    /// suffix -- and deal with it under the new name. A rename within a
+    /// directory is a metadata operation, where a copy is not.
+    ///
+    /// It also takes the file out of what [`LogWrite::new`] has to look
+    /// at. Constructing a writer enumerates the log's directory, parses
+    /// the identifier out of every name matching the pattern, and sorts
+    /// them: that one scan is both what finds the files to hand over
+    /// here and what seeds the writer's clock, and it costs time in
+    /// proportion to how many such files there are. A `send` that leaves
+    /// them in the log's namespace makes every later `LogWrite::new`
+    /// pay for all of them, and hands each of them over again.
+    ///
+    /// A file renamed out of the namespace no longer seeds the clock a
+    /// later writer starts from, which is the contract working as
+    /// intended rather than a loss: once this callback has taken a file,
+    /// the library accounts for it no further.
     pub send: fn(&Path) -> std::io::Result<()>,
 }
 
@@ -107,6 +127,12 @@ pub struct LogWrite {
     format: Format,
     /// Callbacks supplied by the caller.
     callbacks: WriteCallbacks,
+    /// The clock segment IDs and record timestamps are minted from,
+    /// anchored when the writer was constructed. It is deliberately not
+    /// re-anchored by `clear`: a session that began after a backward
+    /// step of the real-time clock would otherwise take identifiers
+    /// below those of the files already in the directory.
+    clock: Clock,
     /// The segment file being written, absent after `clear`.
     current: Option<Current>,
     /// Identifier of this session's first segment file.
@@ -164,7 +190,10 @@ impl LogWrite {
     /// # Errors
     ///
     /// Returns [`LogError::TimerResolutionZero`] when the build-time
-    /// timer resolution is zero, [`LogError::PathDelimiterNotAllowed`]
+    /// timer resolution is zero, [`LogError::ClockError`] when the
+    /// real-time clock does not read later than the UNIX epoch, which is
+    /// what an unset clock reads on most systems,
+    /// [`LogError::PathDelimiterNotAllowed`]
     /// for a prefix or suffix holding a path separator,
     /// [`LogError::SegSizeTooSmall`] for a `seg_size_max` that is not
     /// strictly greater than the segment header plus one data header,
@@ -190,6 +219,10 @@ impl LogWrite {
         if format == Format::Fixed(0) {
             return Err(LogError::FixedLenMismatch);
         }
+        // Anchored before the directory is touched: an unset real-time
+        // clock cannot be corrected once the anchor is taken, so it is
+        // refused here rather than left to misdate segment files.
+        let clock = Clock::new()?;
         let dir = check_log_location(dir, prefix, suffix)?;
 
         let mut log = Self {
@@ -199,6 +232,7 @@ impl LogWrite {
             seg_size_max,
             format,
             callbacks,
+            clock,
             current: None,
             session_id: SegId::from_u64(0),
             sequence: SeqId::ZERO,
@@ -217,7 +251,13 @@ impl LogWrite {
         // Hand over what is already there before writing anything, so
         // that the storage the older files occupy stops being this
         // library's concern before more is committed to.
-        log.send_existing()?;
+        // Seeded from the files already there, before any is created:
+        // this writer anchored its clock on a fresh reading of the
+        // real-time clock, which may have been stepped backwards since
+        // the writer that minted those identifiers read it.
+        if let Some(highest) = log.send_existing()? {
+            log.clock.advance_past(highest);
+        }
         log.start_session()?;
         Ok(log)
     }
@@ -310,9 +350,10 @@ impl LogWrite {
     /// [`RecSize::MAX`](crate::RecSize), or if the payload plus its data
     /// header would exceed the `u32` this function returns -- a count
     /// that wrapped would understate what was written.
-    /// [`LogError::ClockError`] if a timestamp is needed and the clock
-    /// is before the epoch, and [`LogError::IoError`] as encountered,
-    /// including from creating a segment file on a roll.
+    /// [`LogError::IoError`] as encountered, including from creating a
+    /// segment file on a roll. A timestamp cannot fail here: the clock a
+    /// record is stamped from was validated when the writer was
+    /// constructed.
     pub fn write(&mut self, msg: &[u8]) -> Result<u32, LogError> {
         if let Format::Fixed(n) = self.format {
             if msg.len() != n as usize {
@@ -401,12 +442,19 @@ impl LogWrite {
     pub fn clear(&mut self) -> Result<(), LogError> {
         self.current = None;
         self.record_bytes_left = 0;
+        // The highest identifier is of no use here: every file carrying
+        // one is being removed, and this writer's clock is already past
+        // them all.
         self.for_each_segment_file(|path| fs::remove_file(path))
+            .map(|_| ())
     }
 
     /// Hands every pre-existing segment file of this log to the `send`
     /// callback.
-    fn send_existing(&mut self) -> Result<(), LogError> {
+    ///
+    /// Returns the highest identifier those files carried, which is what
+    /// [`Clock::advance_past`] needs, or `None` if there were none.
+    fn send_existing(&mut self) -> Result<Option<SegId>, LogError> {
         let send = self.callbacks.send;
         self.for_each_segment_file(send)
     }
@@ -418,18 +466,25 @@ impl LogWrite {
     /// list it, so this is the one operation a caller can reach that
     /// does allocate. The steady-state paths -- `write` and everything
     /// under it -- do not.
+    ///
+    /// Returns the highest identifier found, or `None` for a directory
+    /// holding no segment file of this log. It is taken from the scan
+    /// before `action` runs, so it is still reported for files the action
+    /// goes on to remove or rename.
     fn for_each_segment_file(
         &mut self,
         mut action: impl FnMut(&Path) -> std::io::Result<()>,
-    ) -> Result<(), LogError> {
+    ) -> Result<Option<SegId>, LogError> {
         let ids = scan_segment_ids(&self.dir, &self.prefix, &self.suffix)?;
+        // The scan sorts, so the highest is the last.
+        let highest = ids.last().copied();
         let mut path = self.placeholder_path();
         for id in ids {
             build_name(&mut self.name_buf, &self.prefix, id, &self.suffix);
             path.set_file_name(&self.name_buf);
             action(&path)?;
         }
-        Ok(())
+        Ok(highest)
     }
 
     /// Starts a session: resets the record count and sequence, then
@@ -487,14 +542,15 @@ impl LogWrite {
     /// The segment ID is the current time, so a collision means two
     /// files were created within one tick of the clock. Sleeping for
     /// twice the clock's resolution guarantees that the next reading is
-    /// larger, and the clock being monotonic guarantees it is larger
-    /// than every earlier one, so the retry terminates.
+    /// larger, and [`Clock`] never going backwards guarantees it is
+    /// larger than every earlier one of this writer, so the retry
+    /// terminates.
     /// * `buf` -- a path buffer to build the name in, so that creating a
     ///   segment file need not allocate one.
     fn create_unique_file(&mut self, mut buf: PathBuf) -> Result<(SegId, PathBuf, File), LogError> {
         let nap = Duration::from_nanos(TIMER_RESOLUTION_NS.saturating_mul(2));
         loop {
-            let id = now_seg_id()?;
+            let id = self.clock.now_seg_id();
             build_name(&mut self.name_buf, &self.prefix, id, &self.suffix);
             buf.set_file_name(&self.name_buf);
             match OpenOptions::new().write(true).create_new(true).open(&buf) {
@@ -552,7 +608,7 @@ impl LogWrite {
                 Ok((4, Meta::VariableSimple))
             }
             Format::VariableTsRc => {
-                let ts = now_nanos()?;
+                let ts = self.clock.now();
                 self.record_count += 1;
                 let rc = self.record_count;
                 self.header_buf[0..4].copy_from_slice(&n.to_le_bytes());
@@ -677,23 +733,239 @@ impl Drop for LogWrite {
     }
 }
 
-/// The current time as nanoseconds since the UNIX epoch.
+/// The clock a writer takes its segment IDs and record timestamps from:
+/// the real-time clock's epoch, advanced by the monotonic clock.
 ///
-/// # Errors
+/// A segment ID is nanoseconds since the UNIX epoch, which rules out
+/// using [`Instant`] as one. An `Instant` is opaque -- no epoch, no
+/// accessor, and a zero point that differs from one boot to the next --
+/// so it can be subtracted from another `Instant` and nothing else.
 ///
-/// Returns [`LogError::ClockError`] if the clock is set before the epoch,
-/// which leaves no timestamp to record.
-fn now_nanos() -> Result<Timestamp, LogError> {
-    let dur = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| LogError::ClockError)?;
-    // A u64 of nanoseconds runs to the year 2554, so saturation here is
-    // unreachable in practice; it is written out rather than asserted so
-    // that no input can panic.
-    Ok(u64::try_from(dur.as_nanos()).unwrap_or(u64::MAX))
+/// Reading [`SystemTime`] afresh for each ID, though, makes the IDs only
+/// as ordered as the real-time clock, and that clock is not ordered at
+/// all: NTP or a manual setting can step it backwards, after which a
+/// file created later takes an ID below one created earlier. No data is
+/// lost, but a reader sorts segment files by ID and validates them by
+/// sequence, so the two disagree and it reports an intact log as one
+/// missing segment files.
+///
+/// Pairing the two clocks once gives an ID that is both: `delta` is the
+/// distance from the UNIX epoch to the monotonic reading `mono`, and
+/// every later time is `delta` plus however far `mono` has advanced
+/// since. The real-time clock is read exactly once per writer, which is
+/// why it has to be set by then -- see [`Clock::new`].
+///
+/// On Linux an `Instant` is `CLOCK_MONOTONIC`, which NTP slews but never
+/// steps, so a derived time follows real time's *rate* while staying
+/// immune to its jumps. It does not advance while the system is
+/// suspended, so a writer that outlives a suspend reports times short by
+/// however long that lasted; nothing in the standard library exposes a
+/// clock that counts suspended time.
+struct Clock {
+    /// Nanoseconds from the UNIX epoch to the moment `mono` was taken.
+    delta: Timestamp,
+    /// The monotonic reading `delta` was paired with.
+    mono: Instant,
 }
 
-/// The current time as a segment identifier.
-fn now_seg_id() -> Result<SegId, LogError> {
-    Ok(SegId::from_u64(now_nanos()?))
+impl Clock {
+    /// Pairs the real-time clock with the monotonic one, fixing the
+    /// epoch every later reading is measured from.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::ClockError`] if the real-time clock does not
+    /// read later than the UNIX epoch. That is what an unset clock reads
+    /// on most systems: it sits at the epoch, or before it. Such a clock
+    /// yields no usable time, and because the pairing is made here and
+    /// never remade, a correction arriving later would not reach the
+    /// times already minted -- so it is refused rather than reported
+    /// once and worked around.
+    fn new() -> Result<Self, LogError> {
+        // The real-time reading is taken first, so that the gap between
+        // the two biases every later reading early by that gap rather
+        // than late: a segment ID never names a moment after the file it
+        // identifies was created.
+        let since_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_err(|_| LogError::ClockError)?;
+        Self::anchor(since_epoch, Instant::now())
+    }
+
+    /// Pairs a real-time reading already taken with a monotonic one.
+    ///
+    /// Split out of [`new`](Self::new) because a test cannot set the
+    /// system clock, and the reading this takes is the whole of what
+    /// `new` decides on.
+    ///
+    /// * `since_epoch` -- how far the real-time clock reads past the
+    ///   UNIX epoch.
+    /// * `mono` -- the monotonic reading taken alongside it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::ClockError`] if `since_epoch` is zero, the
+    /// real-time clock reading at the epoch itself.
+    fn anchor(since_epoch: Duration, mono: Instant) -> Result<Self, LogError> {
+        // A u64 of nanoseconds runs to the year 2554, so saturation here
+        // is unreachable in practice; it is written out rather than
+        // asserted so that no clock reading can panic.
+        let delta = u64::try_from(since_epoch.as_nanos()).unwrap_or(u64::MAX);
+        if delta == 0 {
+            return Err(LogError::ClockError);
+        }
+        Ok(Self { delta, mono })
+    }
+
+    /// The current time as nanoseconds since the UNIX epoch.
+    ///
+    /// Never decreases, and increases between any two calls far enough
+    /// apart for the monotonic clock to have ticked.
+    fn now(&self) -> Timestamp {
+        // Saturating for the same reason as in `new`: the sum cannot
+        // reach the end of a u64 of nanoseconds within any mission, and
+        // reading the clock must not be able to panic.
+        let elapsed = u64::try_from(self.mono.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        self.delta.saturating_add(elapsed)
+    }
+
+    /// The current time as a segment identifier.
+    fn now_seg_id(&self) -> SegId {
+        SegId::from_u64(self.now())
+    }
+
+    /// Shifts the epoch forward, if it has to, so that this clock reads
+    /// past `id`.
+    ///
+    /// Anchoring keeps one writer's identifiers in order, but each
+    /// writer anchors on its own reading of the real-time clock, so a
+    /// backward step between two of them leaves the later writer behind
+    /// the identifiers the earlier one minted. The only record of the
+    /// earlier clock is those identifiers themselves, so a writer starts
+    /// by stepping its epoch past the highest it finds.
+    ///
+    /// The epoch moves once, rather than each identifier being clamped
+    /// to `id` + 1. Clamping would mint that same value over and over
+    /// until real time caught up, and since a file of that name exists
+    /// already, [`LogWrite::create_unique_file`] would retry for as long
+    /// as that took.
+    ///
+    /// The cost is accuracy: past a backward step, this clock reads ahead
+    /// of real time by the size of the step for the life of the writer.
+    /// Ordering is what a reader depends on and accuracy is not, so that
+    /// is the direction to err in, but it is a trade and not a free win.
+    ///
+    /// * `id` -- the highest identifier the log's directory already
+    ///   holds.
+    fn advance_past(&mut self, id: SegId) {
+        let now = self.now();
+        if id.as_u64() >= now {
+            // Saturating for the same reason as elsewhere here: a clock
+            // this cannot move past is one no mission will see, and
+            // nothing about reading a clock may panic.
+            self.delta = self.delta.saturating_add(id.as_u64() - now + 1);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clock_refuses_an_unset_real_time_clock() {
+        let err = Clock::anchor(Duration::ZERO, Instant::now());
+        assert!(
+            matches!(err, Err(LogError::ClockError)),
+            "a clock reading the epoch itself was accepted"
+        );
+    }
+
+    #[test]
+    fn clock_accepts_a_set_real_time_clock() {
+        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now())
+            .expect("one nanosecond past the epoch is a set clock");
+        assert!(clock.now() >= 1);
+    }
+
+    #[test]
+    fn clock_measures_from_the_real_time_epoch() {
+        // The anchor is the floor of every later reading, and the gap
+        // above it is time this test actually took.
+        let delta = 1_700_000_000_000_000_000;
+        let clock =
+            Clock::anchor(Duration::from_nanos(delta), Instant::now()).expect("a set clock");
+        let now = clock.now();
+        assert!(now >= delta, "{now} is below the anchor {delta}");
+        assert!(
+            u128::from(now - delta) < Duration::from_secs(60).as_nanos(),
+            "{} ns of drift from the anchor",
+            now - delta
+        );
+    }
+
+    #[test]
+    fn clock_never_goes_backwards() {
+        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now()).expect("a set clock");
+        let mut last = clock.now();
+        for _ in 0..10_000 {
+            let now = clock.now();
+            assert!(now >= last, "{now} follows {last}");
+            last = now;
+        }
+    }
+
+    #[test]
+    fn clock_advances_across_a_sleep() {
+        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now()).expect("a set clock");
+        let before = clock.now();
+        thread::sleep(Duration::from_millis(2));
+        assert!(clock.now() > before);
+    }
+
+    #[test]
+    fn advance_past_steps_over_an_identifier_from_a_later_clock() {
+        let mut clock =
+            Clock::anchor(Duration::from_micros(1), Instant::now()).expect("a set clock");
+        let ahead = SegId::from_u64(5_000_000_000);
+        clock.advance_past(ahead);
+        assert!(
+            clock.now() > ahead.as_u64(),
+            "{} did not step past {ahead}",
+            clock.now()
+        );
+    }
+
+    #[test]
+    fn advance_past_leaves_a_clock_already_ahead_where_it_was() {
+        let delta = 1_700_000_000_000_000_000;
+        let mut clock =
+            Clock::anchor(Duration::from_nanos(delta), Instant::now()).expect("a set clock");
+        clock.advance_past(SegId::from_u64(delta - 1_000_000_000));
+        assert_eq!(
+            clock.delta, delta,
+            "the epoch moved for an older identifier"
+        );
+    }
+
+    #[test]
+    fn a_seeded_clock_still_advances_rather_than_sticking() {
+        // The point of moving the epoch instead of clamping each
+        // identifier: a clamped clock would mint one value until real
+        // time caught up, and `create_unique_file` would spin on it.
+        let mut clock =
+            Clock::anchor(Duration::from_micros(1), Instant::now()).expect("a set clock");
+        clock.advance_past(SegId::from_u64(5_000_000_000));
+        let first = clock.now_seg_id();
+        thread::sleep(Duration::from_millis(2));
+        assert!(clock.now_seg_id() > first);
+    }
+
+    #[test]
+    fn segment_ids_follow_the_clock() {
+        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now()).expect("a set clock");
+        let first = clock.now_seg_id();
+        thread::sleep(Duration::from_millis(2));
+        assert!(clock.now_seg_id() > first);
+    }
 }

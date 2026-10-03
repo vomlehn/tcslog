@@ -19,9 +19,13 @@ use crate::RecSize;
 /// exactly as a deleted file's would.
 #[derive(Debug, thiserror::Error)]
 pub enum LogError {
-    /// The system clock reported a time before the UNIX epoch, so no
-    /// segment ID or record timestamp could be minted from it.
-    #[error("the system clock is set before the UNIX epoch")]
+    /// The real-time clock did not read later than the UNIX epoch when
+    /// a writer was being constructed, which is what an unset clock
+    /// reads on most systems. No segment ID or record timestamp can be
+    /// minted from such a clock, and a writer reads it only once, so a
+    /// correction arriving later would not mend the times already
+    /// minted.
+    #[error("the real-time clock is not set: it does not read later than the UNIX epoch")]
     ClockError,
 
     /// No more data records are available: the reader has exhausted its

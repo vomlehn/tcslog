@@ -12,6 +12,13 @@ use crate::error::LogError;
 /// is what [`SeqId`](crate::SeqId), the segment header's sequence field,
 /// is for. Nanoseconds that fit in a `u64` run to the year 2554, so the
 /// identifiers of one log cannot collide within any plausible mission.
+///
+/// What makes one rise is the writer's clock rather than the real-time
+/// clock, which can be stepped backwards: a writer fixes its epoch once
+/// and advances it monotonically from there, so the identifiers it mints
+/// are in creation order. Identifiers from two writers separated by a
+/// backward step of the real-time clock are not, which is why the
+/// real-time clock has to be set before a log is opened.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct SegId(u64);
 

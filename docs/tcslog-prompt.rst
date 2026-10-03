@@ -372,13 +372,51 @@ gets a new current time and tries to create the file again.
 This ensures that it
 will quickly find an unused segment ID.
 
+The current time is not read from the real-time clock each time. The
+real-time clock does not increase monotonically: NTP, an operator, or a
+time fix from the ground can step it backwards, and a segment file created
+after such a step would take an ID below one created before it. A reader
+replays segment files in ID order but validates them by the dense sequence
+number in each header, so the two would disagree and it would report an
+intact log as one missing segment files.
+
+A LogWrite therefore reads the real-time clock exactly once, when it is
+constructed, and keeps the difference between that reading and a monotonic
+clock reading taken alongside it. Every segment ID and record timestamp it
+mints afterwards is that difference plus however far the monotonic clock
+has advanced since: nanoseconds since the UNIX epoch, as before, but
+ordered by a clock that cannot step. clear() does not re-read the
+real-time clock, since a session begun after a backward step would
+otherwise take IDs below those of files already in the directory.
+
+Because the real-time clock is read once, it must hold the correct time
+before any Tcslog function is called; a correction arriving later does not
+reach the IDs already minted. Most systems leave an unset real-time clock
+at the UNIX epoch or before it, so LogWrite::new() refuses a clock that
+does not read later than the epoch, returning ClockError without creating
+the log. A clock that is set but wrong cannot be detected and is not
+checked for.
+
+Each LogWrite anchors on its own reading, so a backward step of the
+real-time clock between two of them would leave the later one behind the
+IDs the earlier one minted. The IDs in the directory are the only record
+of the earlier clock, so LogWrite::new() takes the highest of them -- from
+the same scan that hands the pre-existing segment files to the send
+callback -- and moves its epoch forward if its own clock does not already
+read past that. The epoch moves once; clamping each ID to one past the
+highest would instead mint a single value until real time caught up, and
+the retry above would spin on the file that already has that name. This
+covers the files still in the directory, not files the send callback has
+already taken.
+
+By sleeping for twice the timer resolution, the next time the writer's
+clock is read, it must be greater than the previous value. Since that
+clock never decreases, it must be greater than any previous time of this
+writer and so is unique.
+
 The sleep time is twice the system-dependent time resolution, used in the
 Rust thread::sleep() function. This value is named
 TIMER_RESOLUTION and is specified in nanoseconds.
-By sleeping for this amount of time, the next time the system time is
-read, it must be greater than the previous value. Since the system
-time increases monotonically, it must be greater than any previous
-time and so is unique.
 
 TIMER_RESOLUTION must not be defined in the code proper but is supplied
 from outside as an environment variable, either from .cargo/config.toml
@@ -1153,7 +1191,8 @@ LogError
 
     ClockError
 
-        The system clock returned a value before the UNIX epoch.
+        The real-time clock did not read later than the UNIX epoch when
+        LogWrite::new() was called, so it has not been set.
 
     Eof
 
@@ -1366,9 +1405,11 @@ WriteCallbacks
 SegId
 -----
 This is the data structure that holds the segment file ID. Segment file IDs
-are based on u64 values and are wall-clock timestamps, so they increase but
-are not dense: they cannot be used to count segment files or to detect a
-gap, which is what the sequence field of the segment header is for.
+are based on u64 values and are times since the UNIX epoch, so they
+increase but are not dense: they cannot be used to count segment files or
+to detect a gap, which is what the sequence field of the segment header is
+for. What makes them increase is the writer's own clock rather than the
+real-time clock, which can be stepped backwards; see `Segment IDs`_.
 
 Using an u64 value as the segment ID assures that a huge number of segment
 files can be created. Nanosecond timestamps that fit in a u64 run to the

@@ -148,6 +148,27 @@ A Rust toolchain of version 1.75 or later. Tcslog depends on nothing
 outside the standard library except a small error-handling helper, so
 there is nothing else to install.
 
+The real-time clock must be set
+-------------------------------
+
+**The system's real-time clock must hold the correct time before any
+Tcslog function is called.** On a system that acquires the time from
+elsewhere -- a ground station, a GPS receiver, an NTP server, a
+real-time clock chip read at boot -- that acquisition has to complete
+first.
+
+``LogWrite::new`` checks what it can. Most systems leave an unset clock
+at the UNIX epoch or before it, so a clock that does not read later than
+the epoch is taken as unset and refused with ``ClockError``; the log is
+not created and nothing is written. A clock that is set but wrong cannot
+be detected, and Tcslog does not try: the times it records are then
+wrong by however much the clock is, and nothing later corrects them.
+
+The reason the requirement is this strict, rather than a matter of tidy
+timestamps, is in `The clock a writer keeps`_: a writer reads the
+real-time clock exactly once, when it is constructed, and a correction
+arriving after that does not reach the identifiers already minted.
+
 The timer resolution
 --------------------
 
@@ -421,9 +442,15 @@ Writing: LogWrite
         complete and segment files fill.
 
     *Returns* the new writer, with its first segment file created, or one
-    of ``TimerResolutionZero``, ``PathDelimiterNotAllowed``,
+    of ``TimerResolutionZero``, ``ClockError`` (the real-time clock does
+    not read later than the UNIX epoch, so it has not been set -- see
+    `The real-time clock must be set`_), ``PathDelimiterNotAllowed``,
     ``SegSizeTooSmall``, ``FixedLenMismatch`` (for ``Format::Fixed(0)``),
     ``InvalidPathname``, or ``IoError``.
+
+    The real-time clock is read once, here, and paired with the monotonic
+    clock; every time this writer records afterwards is measured from that
+    pairing. See `The clock a writer keeps`_.
 
 ``LogWrite::write(&mut self, msg) -> Result<u32, LogError>``
     Writes a byte array to the log as one record. The record may span
@@ -438,8 +465,9 @@ Writing: LogWrite
     *Returns* the total number of bytes written, counting the per-record
     data header as well as the payload, or one of ``FixedLenMismatch``
     (the format is ``Fixed(n)`` and ``msg`` is not ``n`` bytes, an empty
-    payload included), ``PayloadTooLarge``, ``ClockError``, or
-    ``IoError``.
+    payload included), ``PayloadTooLarge``, or ``IoError``. A timestamp
+    cannot fail here: the clock a record is stamped from was validated
+    when the writer was constructed.
 
 ``LogWrite::write_str(&mut self, msg) -> Result<u32, LogError>``
     Writes the UTF-8 bytes of a string as one record, by calling
@@ -635,6 +663,27 @@ by the library. The default ``send``, which does nothing, therefore lets
 segment files accumulate, and is not suitable for a log that runs for
 long.
 
+**Rename the file rather than leave it.** The cheapest way to satisfy the
+contract is to rename the file to something that cannot be a segment file
+name of this log -- a name that does not both begin with the prefix and
+end with the suffix -- and to work on it under that name. A rename within
+a directory is a metadata operation; a copy is not.
+
+It also keeps the file out of what ``LogWrite::new`` has to look at.
+Constructing a writer enumerates the log's directory, parses the
+identifier out of every name matching the prefix and suffix, and sorts
+them. That one scan does two jobs -- it finds the files to hand to
+``send``, and it supplies the clock seed described in `The clock a writer
+keeps`_ -- and it costs time in proportion to how many such files there
+are. A ``send`` that leaves them in the log's namespace makes every later
+``LogWrite::new`` pay for all of them, and hands each of them over again.
+On a system that opens a log at every restart, that cost grows without
+bound.
+
+A file renamed out of the namespace stops seeding the clock as well. That
+is the contract working as intended rather than something lost: once
+``send`` has taken a file, the library accounts for it no further.
+
 Results and errors
 ------------------
 
@@ -661,11 +710,13 @@ Results and errors
     the ``n`` of ``Fixed``, or zero for the others.
 
 ``SegId``
-    A segment file's identifier. It increases with time but is not dense,
-    so it cannot be used to count files or to notice a gap between two of
-    them. Displaying one yields a fixed-length string of
-    ``SegId::STR_LEN`` characters, which is the part of a segment file
-    name between the prefix and the suffix.
+    A segment file's identifier: nanoseconds since the UNIX epoch, taken
+    when the file was created, from the clock described in `The clock a
+    writer keeps`_. It increases with time but is not dense, so it cannot
+    be used to count files or to notice a gap between two of them.
+    Displaying one yields a fixed-length string of ``SegId::STR_LEN``
+    characters, which is the part of a segment file name between the
+    prefix and the suffix.
 
 ``SeqId``
     A segment file's position within its session. Unlike ``SegId`` this
@@ -713,8 +764,10 @@ Results and errors
     and no variant exists that nothing raises.
 
     ``ClockError``
-        The system clock is set before the UNIX epoch, so there was no
-        time to record.
+        The real-time clock did not read later than the UNIX epoch when
+        ``LogWrite::new`` was called, which is what an unset clock reads
+        on most systems. No log was created. See `The real-time clock
+        must be set`_.
 
     ``Eof``
         No more records are available.
@@ -810,10 +863,11 @@ The writer
 ``LogWrite::new`` hands over whatever segment files it finds, so the
 library stops accounting for their storage, and then starts a session by
 creating that session's first segment file. Each new file is named for
-the time it was created. If a file of that name already exists -- which
-means two were created within one tick of the clock -- the writer sleeps
-for twice the clock's resolution and tries again; since the clock is
-monotonic, the next reading is larger than every previous one, so the
+the time it was created, as read from the clock described in `The clock a
+writer keeps`_. If a file of that name already exists -- which means two
+were created within one tick of that clock -- the writer sleeps for twice
+the clock's resolution and tries again; since the clock never goes
+backwards, the next reading is larger than every previous one, so the
 retry terminates quickly.
 
 ``write`` appends the record's bookkeeping and then its payload. The
@@ -837,6 +891,85 @@ owed. A record spanning several files therefore rolls several times, and
 Dropping a ``LogWrite`` flushes the file being written and hands it to
 ``send`` if it holds any records, so the last records written are not
 stranded in a file nobody was told about.
+
+The clock a writer keeps
+------------------------
+
+A segment file's identifier is the time it was created, in nanoseconds
+since the UNIX epoch, and a reader relies on those identifiers sorting
+into the order the files were written: it collects the files by name,
+sorts them, and replays them in that order.
+
+The system's real-time clock cannot be trusted to give identifiers that
+sort that way. It is not a rising clock. NTP can step it, an operator
+can set it, and a time fix from a ground station can correct it, each of
+which can move it backwards. A file created after such a step takes an
+identifier below one created before it, and then the reader's two
+sources of order disagree: it replays the files in identifier order but
+checks them by the dense sequence number in each header. Seeing sequence
+2 where it expected 0, it concludes that files are missing. The log is
+whole, every record is on disk, and the reader reports segment files
+lost and hands the records back out of order. A fault would be announced
+the same way, so there would be no telling the two apart.
+
+The monotonic clock has the opposite problem. It never goes backwards,
+but it has no epoch: its zero point is an arbitrary moment, different
+after every boot, and the standard library offers no way to read a value
+out of it. It can say how much time has passed and nothing else, so it
+cannot name a file and cannot be a timestamp.
+
+A writer therefore keeps a clock made of both. When it is constructed it
+reads the real-time clock once and takes a monotonic reading alongside
+it, and keeps the difference between them -- the distance from the UNIX
+epoch to that monotonic reading. Every time it needs afterwards, for a
+segment identifier or a record timestamp, is that difference plus
+however far the monotonic clock has advanced since. The result is
+nanoseconds since the UNIX epoch, exactly as before, but its ordering
+comes from a clock that cannot step.
+
+Two consequences follow, and both are deliberate.
+
+The real-time clock is read once per writer, so it has to be right by
+then. That is the requirement in `The real-time clock must be set`_. A
+clock set after a writer was constructed, or corrected afterwards, does
+not affect the times that writer records: it goes on measuring from the
+epoch it captured. This is what makes a step harmless, and it is equally
+what makes a late correction ineffective. Opening a new ``LogWrite``
+takes a fresh reading; ``clear()`` deliberately does not, since a session
+begun after a backward step would otherwise take identifiers below those
+of files already in the directory.
+
+Each writer anchors on its own reading, so a backward step between two of
+them would leave the later writer behind the identifiers the earlier one
+minted. What the later writer has to go on is those identifiers
+themselves: they are the only surviving record of the earlier clock. It
+therefore takes the highest identifier in the directory -- from the same
+scan that hands the pre-existing files to ``send`` -- and, if its own
+clock does not already read past that, moves its epoch forward until it
+does.
+
+The epoch moves once rather than each identifier being clamped. A clamped
+clock would mint the same value over and over until real time caught up,
+and since a file of that name exists already, the writer would retry for
+as long as that took. Moving the epoch instead leaves a clock that
+advances normally from its new starting point.
+
+This covers the files still in the log's directory, which is all a reader
+of that directory can see. It does not cover files ``send`` has already
+taken: the new writer has no record of their identifiers, so if the
+real-time clock was stepped backwards after they were shipped, what
+received them can still be given later files with earlier identifiers.
+Only the real-time clock being correct from the start prevents that,
+which is the requirement above.
+
+On Linux the monotonic clock is ``CLOCK_MONOTONIC``, which NTP slews but
+never steps. A writer's clock therefore follows real time's *rate*,
+staying as close to it as a slewed clock is, while being immune to its
+jumps -- so the times recorded do not drift away from real time over a
+long run. ``CLOCK_MONOTONIC`` does not advance while the system is
+suspended, so a writer that outlives a suspend records times short by
+however long it lasted; the standard library exposes no clock that counts
+suspended time.
 
 The cost of filling every file
 ------------------------------
