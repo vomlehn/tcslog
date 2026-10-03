@@ -1,1 +1,0 @@
-Generate Rust code (tcslog), auditing and patching against the code if it exists and creating it if not. Do not generate docs/tcslog.rst; it is maintained by hand.
