@@ -206,6 +206,39 @@ typedef struct TcslogRead TcslogRead;
 typedef struct TcslogWrite TcslogWrite;
 
 /**
+ * The callbacks a writer is given, and the context it hands back to
+ * each of them.
+ *
+ * Any of the three function pointers may be null, which is that
+ * callback unset. `ctx` is passed to each one and is never examined
+ * here: it may be null, a pointer to anything, or an integer cast to a
+ * pointer. The library does not own it, so it must outlive the writer.
+ */
+typedef struct TcslogCallbacks {
+    /**
+     * Called with the path of a segment file being handed over.
+     * Returning non-zero makes the write that triggered it report
+     * [`TcslogStatus::IoError`].
+     */
+    int (*send)(void *ctx, const char *path);
+    /**
+     * Called with the descriptor of the segment file a record ended
+     * in, which the library still owns: do not close it. Returning
+     * non-zero makes the write report [`TcslogStatus::IoError`].
+     */
+    int (*record_complete)(void *ctx, int fd);
+    /**
+     * Called with the widened timer resolution, in nanoseconds, when
+     * the build-time value turned out too small for this machine.
+     */
+    void (*timer_resolution_adjusted)(void *ctx, uint64_t resolution_ns);
+    /**
+     * Handed to each callback above, untouched.
+     */
+    void *ctx;
+} TcslogCallbacks;
+
+/**
  * What a read produced.
  *
  * Which fields mean anything depends on the status the read returned,
@@ -248,29 +281,6 @@ extern "C" {
 #endif // __cplusplus
 
 /**
- * Stores the `send` callback for every writer opened afterwards.
- *
- * Passing null unsets it, which is the default and means a filled
- * segment file is left in the log's directory.///
- * The pointer passed must match [`TcslogSendFn`]. It is spelled out in
- * the signature rather than named, because the generated header can
- * only render a nullable function pointer from the literal form.
- */
-void tcslog_set_send_callback(int (*f)(const char *path));
-
-/**
- * Stores the `record_complete` callback for every writer opened
- * afterwards. Passing null unsets it.
- */
-void tcslog_set_record_complete_callback(int (*f)(int fd));
-
-/**
- * Stores the `timer_resolution_adjusted` callback for every writer
- * opened afterwards. Passing null unsets it.
- */
-void tcslog_set_timer_resolution_adjusted_callback(void (*f)(uint64_t resolution_ns));
-
-/**
  * Writes the stored format version this build reads and writes.
  *
  * A build reads a segment file whose major version matches this one
@@ -306,13 +316,21 @@ const char *tcslog_status_str(TcslogStatus status);
  * [`TcslogFormat::Fixed`]. A tag outside the three is refused as
  * [`TcslogStatus::InvalidFormat`].
  *
+ * `cb` is the callbacks this writer is to use and the context to hand
+ * them, and may be null for none. It is copied, so the structure
+ * itself need not outlive the call -- but the `ctx` it holds is used
+ * until the writer is closed, so that must outlive the writer. Each
+ * writer has its own, so two logs in one process can have different
+ * callbacks and different contexts.
+ *
  * On success `*out` holds a writer to pass to
  * [`tcslog_write_close`]. On failure `*out` is left null.
  *
  * # Safety
  *
- * The three strings must be NUL-terminated, and `out` must point to
- * writable storage for one pointer.
+ * The three strings must be NUL-terminated, `cb` must be null or point
+ * to a readable [`TcslogCallbacks`], and `out` must point to writable
+ * storage for one pointer.
  */
 TcslogStatus tcslog_write_open(const char *dir,
                                const char *prefix,
@@ -320,6 +338,7 @@ TcslogStatus tcslog_write_open(const char *dir,
                                uint32_t seg_size_max,
                                uint32_t format_tag,
                                uint32_t fixed_len,
+                               const struct TcslogCallbacks *cb,
                                struct TcslogWrite **out);
 
 /**

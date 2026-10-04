@@ -18,7 +18,7 @@ use tempfile::TempDir;
 
 use tcslog::{
     Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, SegmentHeader, WriteCallbacks,
-    SEGMENT_FILE_HEADER_LEN,
+    WriteHandler, SEGMENT_FILE_HEADER_LEN,
 };
 
 const PREFIX: &str = "seg-";
@@ -543,6 +543,132 @@ fn send_runs_once_per_segment_file_with_data_and_complete_once_per_record() {
         ROLL_COMPLETES.load(Ordering::Relaxed),
         written.len(),
         "record_complete did not run once per record"
+    );
+}
+
+/// Counts what it was asked to do, in itself rather than in a static.
+///
+/// The test above has to count in `AtomicUsize`es because a
+/// `WriteCallbacks` field is a bare `fn` with nowhere to put a context,
+/// and the suite runs in parallel so one test's counters would reach
+/// another's. A handler needs neither: each writer owns its own.
+struct Counting<'a> {
+    sends: usize,
+    completes: usize,
+    widenings: usize,
+    /// Borrowed, so the last file -- handed over by the writer's own
+    /// drop -- is still counted somewhere the test can read.
+    sends_after_drop: &'a mut usize,
+}
+
+impl WriteHandler for Counting<'_> {
+    fn record_complete(&mut self, _f: &mut File) -> io::Result<()> {
+        self.completes += 1;
+        Ok(())
+    }
+
+    fn send(&mut self, _p: &Path) -> io::Result<()> {
+        self.sends += 1;
+        *self.sends_after_drop += 1;
+        Ok(())
+    }
+
+    fn timer_resolution_adjusted(&mut self, _ns: u64) {
+        self.widenings += 1;
+    }
+}
+
+#[test]
+fn a_handler_carries_its_own_context() {
+    let log = Log::new(10);
+    let written = payloads(12, 9);
+    let mut sends_after_drop = 0;
+    {
+        let mut w = LogWrite::new(
+            log.path(),
+            PREFIX,
+            SUFFIX,
+            log.seg_size_max,
+            Format::VariableSimple,
+            Counting {
+                sends: 0,
+                completes: 0,
+                widenings: 0,
+                sends_after_drop: &mut sends_after_drop,
+            },
+        )
+        .expect("a writer on a fresh directory");
+        for payload in &written {
+            w.write(payload).expect("a writable payload");
+        }
+
+        // The context is reachable while the writer is open, and holds
+        // what this writer did rather than what every writer did.
+        let seen = w.handler();
+        assert_eq!(
+            seen.completes,
+            written.len(),
+            "record_complete did not run once per record"
+        );
+        assert_eq!(
+            seen.sends,
+            log.segment_files().len() - 1,
+            "a filled segment file went unsent"
+        );
+        assert_eq!(seen.widenings, 0, "the timer resolution needed no widening");
+
+        // And it is reachable mutably, which is what lets a handler be
+        // reset or re-aimed between records.
+        w.handler_mut().completes = 0;
+        assert_eq!(w.handler().completes, 0);
+    }
+
+    // The drop handed over the file that was still open, and the
+    // borrowed counter saw it where the handler's own field could no
+    // longer be read.
+    assert_eq!(
+        sends_after_drop,
+        log.segment_files().len(),
+        "the file still open at the drop was not handed over"
+    );
+}
+
+/// A handler that reports a failure, which must reach the caller of the
+/// write that triggered it rather than being swallowed.
+struct Refusing;
+
+impl WriteHandler for Refusing {
+    fn send(&mut self, _p: &Path) -> io::Result<()> {
+        Err(io::Error::other("the downlink queue is full"))
+    }
+}
+
+#[test]
+fn a_handler_that_refuses_a_file_stops_the_write() {
+    let log = Log::new(10);
+    let mut w = LogWrite::new(
+        log.path(),
+        PREFIX,
+        SUFFIX,
+        log.seg_size_max,
+        Format::VariableSimple,
+        Refusing,
+    )
+    .expect("a writer on a fresh directory");
+
+    // Writing until a segment file fills is what reaches `send`. A
+    // refusal there means the storage bound has stopped holding, so it
+    // is reported rather than hidden.
+    let mut outcome = Ok(0);
+    for _ in 0..16 {
+        outcome = w.write(b"0123456789");
+        if outcome.is_err() {
+            break;
+        }
+    }
+    assert!(
+        matches!(outcome, Err(LogError::IoError(_))),
+        "a refusing send was swallowed: {outcome:?}"
     );
 }
 

@@ -110,40 +110,62 @@ static int segment_files(const char *dir, char names[][NAME_LEN], int max) {
     return count;
 }
 
-/* Opens a writer with the callbacks left as the scenario set them. */
+/* What the callbacks count, one per writer. Nothing here is file-scope
+ * state: each scenario keeps its own on the stack and hands a pointer
+ * to the writer, which is what carrying a context is for. */
+typedef struct {
+    int sends;
+    int completes;
+    int adjustments;
+    /* Non-zero makes send refuse, so one callback serves both the
+     * counting scenarios and the refusing one. */
+    int refuse_send;
+} Counters;
+
+static int on_send(void *ctx, const char *path) {
+    Counters *c = ctx;
+    (void)path;
+    if (c == NULL) {
+        return 0;
+    }
+    c->sends++;
+    return c->refuse_send;
+}
+
+static int on_record_complete(void *ctx, int fd) {
+    Counters *c = ctx;
+    (void)fd;
+    if (c != NULL) {
+        c->completes++;
+    }
+    return 0;
+}
+
+static void on_timer_resolution_adjusted(void *ctx, uint64_t resolution_ns) {
+    Counters *c = ctx;
+    (void)resolution_ns;
+    if (c != NULL) {
+        c->adjustments++;
+    }
+}
+
+/* All three callbacks, aimed at one scenario's counters. */
+static TcslogCallbacks callbacks_for(Counters *c) {
+    TcslogCallbacks cb;
+    cb.send = on_send;
+    cb.record_complete = on_record_complete;
+    cb.timer_resolution_adjusted = on_timer_resolution_adjusted;
+    cb.ctx = c;
+    return cb;
+}
+
+/* Opens a writer with the callbacks given, or none when cb is NULL. */
 static TcslogStatus open_writer(const char *dir, uint32_t data_bytes, uint32_t format_tag,
-                                uint32_t fixed_len, TcslogWrite **w) {
+                                uint32_t fixed_len, const TcslogCallbacks *cb,
+                                TcslogWrite **w) {
     return tcslog_write_open(dir, PREFIX, SUFFIX,
                              tcslog_segment_file_header_len() + data_bytes, format_tag,
-                             fixed_len, w);
-}
-
-static int sent = 0;
-static int on_send(const char *path) {
-    (void)path;
-    sent++;
-    return 0;
-}
-
-static int record_completions = 0;
-static int on_record_complete(int fd) {
-    (void)fd;
-    record_completions++;
-    return 0;
-}
-
-/* Refuses every file, which must reach the caller as an I/O error:
- * a send that cannot take a file means the storage bound has stopped
- * holding, and silence would be the wrong answer. */
-static int on_send_failing(const char *path) {
-    (void)path;
-    return 1;
-}
-
-static int adjustments = 0;
-static void on_timer_resolution_adjusted(uint64_t resolution_ns) {
-    (void)resolution_ns;
-    adjustments++;
+                             fixed_len, cb, w);
 }
 
 /* ---------------------------------------------------------- scenarios */
@@ -158,17 +180,15 @@ static void scenario_round_trip(const char *base) {
     }
     printf("-- round trip, variable-tsrc\n");
 
-    /* send is left in place but does not move the file, so the reader
-     * below still finds it. A consumer's send must take the file; this
-     * one departs from that deliberately, there being nothing to read
-     * back otherwise. */
-    sent = 0;
-    record_completions = 0;
-    tcslog_set_send_callback(on_send);
-    tcslog_set_record_complete_callback(on_record_complete);
+    /* send counts but does not move the file, so the reader below
+      * still finds it. A consumer's send must take the file; this one
+      * departs from that deliberately, there being nothing to read back
+      * otherwise. */
+    Counters counters = {0, 0, 0, 0};
+    TcslogCallbacks cb = callbacks_for(&counters);
 
     TcslogWrite *w = NULL;
-    TcslogStatus s = open_writer(dir, 4096, TCSLOG_FORMAT_VARIABLE_TS_RC, 0, &w);
+    TcslogStatus s = open_writer(dir, 4096, TCSLOG_FORMAT_VARIABLE_TS_RC, 0, &cb, &w);
     check_status(s, TCSLOG_STATUS_OK, "a writer opens");
     if (s != TCSLOG_STATUS_OK) {
         return;
@@ -198,7 +218,9 @@ static void scenario_round_trip(const char *base) {
 
     check_status(tcslog_write_flush(w), TCSLOG_STATUS_OK, "the writer flushes");
     tcslog_write_close(w);
-    check(record_completions == (int)msg_count, "record_complete ran once per record");
+    check(counters.completes == (int)msg_count,
+          "record_complete ran once per record, counted in the context");
+    check(counters.sends == 1, "the close handed the open segment file over");
 
     TcslogRead *r = NULL;
     s = tcslog_read_open(dir, PREFIX, SUFFIX, &r);
@@ -256,11 +278,8 @@ static void scenario_fixed_format(const char *base) {
     }
     printf("-- fixed format\n");
 
-    tcslog_set_send_callback(NULL);
-    tcslog_set_record_complete_callback(NULL);
-
     TcslogWrite *w = NULL;
-    TcslogStatus s = open_writer(dir, 4096, TCSLOG_FORMAT_FIXED, 8, &w);
+    TcslogStatus s = open_writer(dir, 4096, TCSLOG_FORMAT_FIXED, 8, NULL, &w);
     check_status(s, TCSLOG_STATUS_OK, "a fixed-format writer opens");
     if (s != TCSLOG_STATUS_OK) {
         return;
@@ -310,13 +329,14 @@ static void scenario_invalid_format(const char *base) {
     printf("-- an unrecognized format tag\n");
 
     TcslogWrite *w = NULL;
-    TcslogStatus s = open_writer(dir, 4096, 3, 0, &w);
+    TcslogStatus s = open_writer(dir, 4096, 3, 0, NULL, &w);
     check_status(s, TCSLOG_STATUS_INVALID_FORMAT, "a tag outside the three is refused");
     check(w == NULL, "a refused open leaves the handle null");
 
     /* A segment size with no room for a record is the other thing an
      * open has to refuse. */
-    s = tcslog_write_open(dir, PREFIX, SUFFIX, 1, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &w);
+    s = tcslog_write_open(dir, PREFIX, SUFFIX, 1, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, NULL,
+                          &w);
     check_status(s, TCSLOG_STATUS_SEG_SIZE_TOO_SMALL, "too small a segment size is refused");
     check(w == NULL, "a refused open leaves the handle null");
 }
@@ -333,16 +353,13 @@ static void scenario_read_overflow(const char *base) {
     }
     printf("-- a record larger than the buffer\n");
 
-    tcslog_set_send_callback(NULL);
-    tcslog_set_record_complete_callback(NULL);
-
     uint8_t payload[200];
     for (size_t i = 0; i < sizeof payload; i++) {
         payload[i] = (uint8_t)('a' + (i % 26));
     }
 
     TcslogWrite *w = NULL;
-    TcslogStatus s = open_writer(dir, 4096, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &w);
+    TcslogStatus s = open_writer(dir, 4096, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, NULL, &w);
     check_status(s, TCSLOG_STATUS_OK, "a writer opens");
     if (s != TCSLOG_STATUS_OK) {
         return;
@@ -397,11 +414,8 @@ static void scenario_truncation(const char *base) {
 
     /* No send, so every filled file stays where the reader will find
      * it. A small data section makes several files out of few records. */
-    tcslog_set_send_callback(NULL);
-    tcslog_set_record_complete_callback(NULL);
-
     TcslogWrite *w = NULL;
-    TcslogStatus s = open_writer(dir, 32, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &w);
+    TcslogStatus s = open_writer(dir, 32, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, NULL, &w);
     check_status(s, TCSLOG_STATUS_OK, "a writer opens");
     if (s != TCSLOG_STATUS_OK) {
         return;
@@ -495,11 +509,11 @@ static void scenario_send_failure(const char *base) {
     }
     printf("-- a send callback that refuses the file\n");
 
-    tcslog_set_send_callback(on_send_failing);
-    tcslog_set_record_complete_callback(NULL);
+    Counters counters = {0, 0, 0, 1};
+    TcslogCallbacks cb = callbacks_for(&counters);
 
     TcslogWrite *w = NULL;
-    TcslogStatus s = open_writer(dir, 32, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &w);
+    TcslogStatus s = open_writer(dir, 32, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &cb, &w);
     check_status(s, TCSLOG_STATUS_OK, "a writer opens");
     if (s != TCSLOG_STATUS_OK) {
         return;
@@ -516,9 +530,8 @@ static void scenario_send_failure(const char *base) {
     }
     check_status(last, TCSLOG_STATUS_IO_ERROR, "a refusing send reaches the caller");
     check(writes < 32, "the refusal came within the bound");
+    check(counters.sends >= 1, "the refusing send was reached through its context");
     tcslog_write_close(w);
-
-    tcslog_set_send_callback(NULL);
 }
 
 /* Clearing a log, which must leave nothing for a reader to find. */
@@ -530,11 +543,8 @@ static void scenario_clear(const char *base) {
     }
     printf("-- clearing a log\n");
 
-    tcslog_set_send_callback(NULL);
-    tcslog_set_record_complete_callback(NULL);
-
     TcslogWrite *w = NULL;
-    TcslogStatus s = open_writer(dir, 32, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &w);
+    TcslogStatus s = open_writer(dir, 32, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, NULL, &w);
     check_status(s, TCSLOG_STATUS_OK, "a writer opens");
     if (s != TCSLOG_STATUS_OK) {
         return;
@@ -567,13 +577,11 @@ static void scenario_timer_resolution_callback(const char *base) {
     }
     printf("-- the timer resolution callback\n");
 
-    adjustments = 0;
-    tcslog_set_send_callback(NULL);
-    tcslog_set_record_complete_callback(NULL);
-    tcslog_set_timer_resolution_adjusted_callback(on_timer_resolution_adjusted);
+    Counters counters = {0, 0, 0, 0};
+    TcslogCallbacks cb = callbacks_for(&counters);
 
     TcslogWrite *w = NULL;
-    TcslogStatus s = open_writer(dir, 4096, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &w);
+    TcslogStatus s = open_writer(dir, 4096, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &cb, &w);
     check_status(s, TCSLOG_STATUS_OK, "a writer opens with the callback set");
     if (s != TCSLOG_STATUS_OK) {
         return;
@@ -581,9 +589,66 @@ static void scenario_timer_resolution_callback(const char *base) {
     check_status(tcslog_write_record(w, (const uint8_t *)"telemetry", 9, NULL),
                  TCSLOG_STATUS_OK, "a record is written with the callback set");
     tcslog_write_close(w);
-    check(adjustments == 0, "no widening is reported when the resolution is adequate");
+    check(counters.adjustments == 0,
+          "no widening is reported when the resolution is adequate");
+}
 
-    tcslog_set_timer_resolution_adjusted_callback(NULL);
+/* Two logs open at once, each with its own callbacks and its own
+ * context. This is what a context is for and what three process-wide
+ * function pointers could not express: before, both writers would have
+ * called the same functions with no way to say which log a call was
+ * about. */
+static void scenario_two_contexts(const char *base) {
+    char dir_a[PATH_LEN], dir_b[PATH_LEN];
+    if (scenario_dir(base, "two-a", dir_a, sizeof dir_a) != 0 ||
+        scenario_dir(base, "two-b", dir_b, sizeof dir_b) != 0) {
+        failures++;
+        return;
+    }
+    printf("-- two writers, two contexts\n");
+
+    Counters a = {0, 0, 0, 0};
+    Counters b = {0, 0, 0, 0};
+    TcslogCallbacks cb_a = callbacks_for(&a);
+    TcslogCallbacks cb_b = callbacks_for(&b);
+
+    TcslogWrite *wa = NULL, *wb = NULL;
+    TcslogStatus s = open_writer(dir_a, 4096, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &cb_a, &wa);
+    check_status(s, TCSLOG_STATUS_OK, "the first writer opens");
+    if (s != TCSLOG_STATUS_OK) {
+        return;
+    }
+    s = open_writer(dir_b, 4096, TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &cb_b, &wb);
+    check_status(s, TCSLOG_STATUS_OK, "the second writer opens");
+    if (s != TCSLOG_STATUS_OK) {
+        tcslog_write_close(wa);
+        return;
+    }
+
+    /* Three records to one log and one to the other, so an exchanged
+     * context would show as the wrong count rather than as no count. */
+    for (int i = 0; i < 3; i++) {
+        check_status(tcslog_write_record(wa, (const uint8_t *)"aaa", 3, NULL),
+                     TCSLOG_STATUS_OK, "a record goes to the first log");
+    }
+    check_status(tcslog_write_record(wb, (const uint8_t *)"b", 1, NULL), TCSLOG_STATUS_OK,
+                 "a record goes to the second log");
+
+    check(a.completes == 3, "the first context counted its own records");
+    check(b.completes == 1, "the second context counted its own records");
+
+    /* The structure passed to open was copied, so overwriting it now
+     * must not reach the writer. */
+    cb_a.ctx = &b;
+    cb_a.record_complete = NULL;
+    check_status(tcslog_write_record(wa, (const uint8_t *)"aaa", 3, NULL), TCSLOG_STATUS_OK,
+                 "a record goes to the first log after its callbacks were overwritten");
+    check(a.completes == 4 && b.completes == 1,
+          "the writer kept the callbacks it was opened with");
+
+    tcslog_write_close(wa);
+    tcslog_write_close(wb);
+    check(a.sends == 1 && b.sends == 1, "each close handed over its own log's file");
 }
 
 /* Arguments the binding has to refuse rather than dereference. */
@@ -634,6 +699,7 @@ int main(int argc, char **argv) {
     scenario_send_failure(base);
     scenario_clear(base);
     scenario_timer_resolution_callback(base);
+    scenario_two_contexts(base);
     scenario_null_arguments();
 
     if (failures == 0) {

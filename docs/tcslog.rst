@@ -342,6 +342,59 @@ The example's source, ``tcslog/examples/sample.rs``, is the shortest
 complete illustration of the writing side: the segment size it picks,
 the callbacks it supplies, and what it does with the session ID.
 
+Callbacks with a context: WriteHandler
+--------------------------------------
+
+``WriteCallbacks`` holds bare function pointers, which have nowhere to
+keep state. A caller whose callbacks must reach its own -- a radio
+handle, a queue of files awaiting a downlink pass, a counter --
+implements ``WriteHandler`` instead and keeps that state in ``self``:
+
+.. code-block:: rust
+
+    use std::path::Path;
+    use tcslog::{Format, LogWrite, WriteHandler, SEGMENT_FILE_HEADER_LEN};
+
+    struct Downlink<'a> {
+        queued: &'a mut usize,
+    }
+
+    impl WriteHandler for Downlink<'_> {
+        fn send(&mut self, path: &Path) -> std::io::Result<()> {
+            std::fs::remove_file(path)?;   // a real one would queue it
+            *self.queued += 1;
+            Ok(())
+        }
+    }
+
+    let mut queued = 0;
+    {
+        let mut log = LogWrite::new(
+            "/var/telemetry", "seg-", ".tcslog",
+            SEGMENT_FILE_HEADER_LEN + 65_536,
+            Format::VariableSimple,
+            Downlink { queued: &mut queued },
+        )?;
+        log.write_str("attitude nominal")?;
+    }
+    println!("{queued} file(s) queued");
+
+The writer is generic over the handler, with ``WriteCallbacks`` as the
+default, so ``LogWrite`` goes on naming what it always named and a
+caller passing ``WriteCallbacks`` needs no change. Every method of the
+trait has a default that does nothing, so an implementation names only
+the callbacks it wants, and each one is called exactly where the
+corresponding field of ``WriteCallbacks`` is called, with the same
+obligations -- in particular ``send`` must leave no file at the path it
+was given.
+
+The writer owns the handler and lends it back through
+``LogWrite::handler`` and ``LogWrite::handler_mut``. Those borrow rather
+than return it, and the last segment file is handed over by the writer's
+own drop, so state that must be read after that belongs behind a
+reference or a shared handle the handler holds, as ``queued`` is above,
+rather than in the handler itself.
+
 Record Formats
 ==============
 
@@ -1059,23 +1112,43 @@ the remedy is a bigger buffer next time rather than a retry now.
 Callbacks from C
 ----------------
 
-The three callbacks ``WriteCallbacks`` holds are bare function pointers
-with no context argument, so there is nowhere to put a per-log C
-context. They are set for the whole process instead::
+A writer is given its callbacks when it is opened, in a
+``TcslogCallbacks`` that also carries the context they are handed back::
 
-    int on_send(const char *path);
-    int on_record_complete(int fd);
-    void on_timer_resolution_adjusted(uint64_t resolution_ns);
+    typedef struct {
+        int (*send)(void *ctx, const char *path);
+        int (*record_complete)(void *ctx, int fd);
+        void (*timer_resolution_adjusted)(void *ctx, uint64_t resolution_ns);
+        void *ctx;
+    } TcslogCallbacks;
 
-    tcslog_set_send_callback(on_send);
-    tcslog_set_record_complete_callback(on_record_complete);
-    tcslog_set_timer_resolution_adjusted_callback(on_adjusted);
+    struct downlink { const char *dir; int queued; };
 
-Passing null unsets one, which is the default. Set them before opening a
-writer: a writer takes the callbacks as they stand when it is opened, so
-a setter called afterwards does not reach a writer already open. A
-caller that must tell its logs apart has the segment file's path, which
-``send`` is given, and the log's directory and prefix are in it.
+    static int on_send(void *ctx, const char *path) {
+        struct downlink *d = ctx;
+        /* must leave nothing at `path` */
+        d->queued++;
+        return 0;
+    }
+
+    struct downlink d = { "/var/downlinked", 0 };
+    TcslogCallbacks cb = { on_send, NULL, NULL, &d };
+    tcslog_write_open(dir, "seg-", ".tcslog", seg_size_max,
+                      TCSLOG_FORMAT_VARIABLE_SIMPLE, 0, &cb, &w);
+
+Any of the three pointers may be null, which is that callback unset, and
+``cb`` itself may be null for none at all. ``ctx`` is never examined: it
+may be null, a pointer to anything, or an integer cast to a pointer.
+
+The structure is copied, so it need not outlive the call -- overwriting
+it afterwards does not reach the writer. The ``ctx`` it holds is used
+until the writer is closed and the library does not own it, so that must
+outlive the writer.
+
+Each writer has its own, so two logs in one process can have different
+callbacks and different contexts. This is ``WriteHandler`` on the Rust
+side, which the binding implements once and aims at whichever C
+functions a writer was opened with.
 
 ``send`` and ``record_complete`` return an ``int``: zero for success,
 and anything else makes the write that triggered the callback report

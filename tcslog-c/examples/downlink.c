@@ -43,9 +43,16 @@
 #define RECORD_COUNT 40
 #define BUF_LEN 256
 
+/* What the callbacks need and what they report back, handed to the
+ * writer as its context. Before the writer could carry one these had to
+ * be file-scope variables, which is why an example like this used to be
+ * unable to run two logs at once. */
+typedef struct {
+    const char *downlink_dir;
+    int downlinked;
+} Downlink;
+
 static const char *log_dir;
-static const char *downlink_dir;
-static int downlinked = 0;
 
 /* Takes a filled segment file out of the log's namespace.
  *
@@ -54,12 +61,13 @@ static int downlinked = 0;
  * answer: if the file cannot be taken, the storage bound the log was
  * given has stopped holding and the caller needs to know.
  */
-static int on_send(const char *path) {
+static int on_send(void *ctx, const char *path) {
+    Downlink *d = ctx;
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
 
     char dest[4096];
-    int n = snprintf(dest, sizeof dest, "%s/%s.sent", downlink_dir, base);
+    int n = snprintf(dest, sizeof dest, "%s/%s.sent", d->downlink_dir, base);
     if (n < 0 || (size_t)n >= sizeof dest) {
         fprintf(stderr, "send: path too long for %s\n", base);
         return 1;
@@ -68,14 +76,15 @@ static int on_send(const char *path) {
         perror("send: rename");
         return 1;
     }
-    downlinked++;
+    d->downlinked++;
     return 0;
 }
 
 /* Reports that TIMER_RESOLUTION was too small for this machine and has
  * been widened. The value passed is the figure to build with next time,
  * so a deployed system records it and carries on. */
-static void on_timer_resolution_adjusted(uint64_t resolution_ns) {
+static void on_timer_resolution_adjusted(void *ctx, uint64_t resolution_ns) {
+    (void)ctx;
     fprintf(stderr,
             "note: timer resolution widened to %lu ns; build with "
             "TIMER_RESOLUTION=%lu next time\n",
@@ -84,12 +93,21 @@ static void on_timer_resolution_adjusted(uint64_t resolution_ns) {
 
 /* Writes RECORD_COUNT records, which is enough to fill several segment
  * files and so to hand several over. */
-static int write_telemetry(void) {
+static int write_telemetry(Downlink *d, int with_send) {
+    /* The callbacks this writer is to use, and the context they get
+     * back. Passing NULL for send is what leaves filled files in the
+     * log; the structure is copied, so it may live on this stack. */
+    TcslogCallbacks cb;
+    cb.send = with_send ? on_send : NULL;
+    cb.record_complete = NULL;
+    cb.timer_resolution_adjusted = on_timer_resolution_adjusted;
+    cb.ctx = d;
+
     TcslogWrite *w = NULL;
     TcslogStatus s = tcslog_write_open(
         log_dir, "seg-", ".tcslog",
         tcslog_segment_file_header_len() + SEG_DATA_BYTES,
-        TCSLOG_FORMAT_VARIABLE_TS_RC, 0, &w);
+        TCSLOG_FORMAT_VARIABLE_TS_RC, 0, &cb, &w);
     if (s != TCSLOG_STATUS_OK) {
         fprintf(stderr, "open for writing: %s\n", tcslog_status_str(s));
         return 1;
@@ -134,7 +152,7 @@ static int write_telemetry(void) {
      */
     tcslog_write_close(w);
     printf("wrote %d records; %d segment file(s) handed to send so far\n",
-           RECORD_COUNT, downlinked);
+           RECORD_COUNT, d->downlinked);
     return 0;
 }
 
@@ -234,34 +252,30 @@ int main(int argc, char **argv) {
         perror("mkdir");
         return 1;
     }
-    downlink_dir = sent;
-
     uint32_t major = 0, minor = 0, patch = 0;
     tcslog_format_version(&major, &minor, &patch);
     printf("tcslog stored format %u.%u.%u\n", major, minor, patch);
 
-    /* Set before opening a writer: a writer takes the callbacks as they
-     * stand when it is opened. */
-    tcslog_set_send_callback(on_send);
-    tcslog_set_timer_resolution_adjusted_callback(on_timer_resolution_adjusted);
+    Downlink downlink = {sent, 0};
 
     printf("\n-- with a send callback: filled files leave the log\n");
-    if (write_telemetry() != 0) {
+    if (write_telemetry(&downlink, 1) != 0) {
         return 1;
     }
     printf("%d segment file(s) are in %s, out of the log's namespace\n",
-           downlinked, downlink_dir);
+           downlink.downlinked, downlink.downlink_dir);
 
-    /* Unsetting it is what null is for. Everything written from here
-     * stays in the log, which is what the reader below needs. */
+    /* A writer opened with no send callback leaves its filled files in
+     * the log, which is what the reader below needs. The context is the
+     * same one, so its count is still the count of what has gone down.
+     */
     printf("\n-- with no send callback: filled files stay in the log\n");
-    tcslog_set_send_callback(NULL);
-    const int before = downlinked;
-    if (write_telemetry() != 0) {
+    const int before = downlink.downlinked;
+    if (write_telemetry(&downlink, 0) != 0) {
         return 1;
     }
-    if (downlinked != before) {
-        fprintf(stderr, "send ran after being unset\n");
+    if (downlink.downlinked != before) {
+        fprintf(stderr, "send ran for a writer that was not given one\n");
         return 1;
     }
 

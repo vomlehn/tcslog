@@ -169,6 +169,14 @@
 //! out of the log's naming pattern. The default `send` does nothing,
 //! which suits development and lets segment files accumulate.
 //!
+//! Those are bare function pointers, with nowhere to keep state.
+//! Callbacks that must reach the caller's own -- a radio handle, a
+//! queue of files awaiting a downlink pass, a counter -- implement
+//! [`WriteHandler`] instead and keep it in `self`, which the writer
+//! then owns and lends back through [`LogWrite::handler`]. The writer
+//! is generic over the handler with `WriteCallbacks` as its default, so
+//! passing `WriteCallbacks` needs no change.
+//!
 //! # Reading
 //!
 //! Reading needs no timer resolution, so a program that only reads can
@@ -269,7 +277,7 @@ pub use segid::SegId;
 pub use seq_id::SeqId;
 pub use util::{format_timestamp, record_trailer};
 #[cfg(feature = "write")]
-pub use write::{LogWrite, WriteCallbacks};
+pub use write::{LogWrite, WriteCallbacks, WriteHandler};
 
 /// The type that holds the size of a data record's telemetry payload.
 ///

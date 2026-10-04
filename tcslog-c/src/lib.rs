@@ -18,29 +18,28 @@
 //! the handle as unusable: the panic happened part way through an
 //! operation and nothing here can say how far.
 //!
-//! # The callbacks are process-wide
+//! # Callbacks carry a context
 //!
-//! [`WriteCallbacks`] holds bare `fn` pointers with no context
-//! argument, so there is nowhere to put a per-log C context. The three
-//! setters here store one C function pointer each for the whole
-//! process, and every writer opened afterwards uses them. A C caller
-//! that needs to tell its logs apart has the segment file's path, which
-//! `send` is given, and the log's own directory and prefix are in it.
+//! [`TcslogCallbacks`] is passed to [`tcslog_write_open`] and holds the
+//! three function pointers along with a `void *ctx` handed back to each
+//! of them. The writer keeps its own copy, so two logs in one process
+//! can have different callbacks and different contexts -- which is
+//! what a C caller needs and what a process-wide set of function
+//! pointers could not express.
 //!
-//! Set them before opening a writer. A writer captures the callbacks as
-//! they stand when it is opened, so a setter called afterwards does not
-//! reach a writer already open.
+//! The structure is copied, so it need not outlive the call. The `ctx`
+//! it holds is used until the writer is closed, and the library does
+//! not own it, so that must outlive the writer.
 
-use std::ffi::{c_char, c_int, CStr};
+use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::fs::File;
 use std::io;
 use std::os::fd::AsRawFd;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
-use std::sync::atomic::{AtomicUsize, Ordering};
 
 use tcslog::{
-    Format, LogError, LogRead, LogWrite, Meta, RecSize, WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
+    Format, LogError, LogRead, LogWrite, Meta, RecSize, WriteHandler, SEGMENT_FILE_HEADER_LEN,
     VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH,
 };
 
@@ -216,7 +215,7 @@ impl TcslogReadResult {
 /// A writer. Opaque to C: made by [`tcslog_write_open`] and released by
 /// [`tcslog_write_close`].
 pub struct TcslogWrite {
-    inner: LogWrite,
+    inner: LogWrite<CHandler>,
 }
 
 /// A reader. Opaque to C: made by [`tcslog_read_open`] and released by
@@ -240,80 +239,97 @@ pub type TcslogRecordCompleteFn = extern "C" fn(fd: c_int) -> c_int;
 /// value passed is the figure to build with next time.
 pub type TcslogTimerResolutionAdjustedFn = extern "C" fn(resolution_ns: u64);
 
-// The C callbacks, as usize because a function pointer is not an
-// AtomicPtr target. Zero means unset, which is why each trampoline
-// checks before transmuting: a null read as a function pointer and
-// called is the one mistake here that would not be recoverable.
-static SEND: AtomicUsize = AtomicUsize::new(0);
-static RECORD_COMPLETE: AtomicUsize = AtomicUsize::new(0);
-static TIMER_RESOLUTION_ADJUSTED: AtomicUsize = AtomicUsize::new(0);
-
-/// Hands a path to the C `send` callback, if one is set.
+/// The callbacks a writer is given, and the context it hands back to
+/// each of them.
 ///
-/// A path that is not valid UTF-8 cannot be made into a C string
-/// without inventing bytes, so it is refused rather than passed on. The
-/// library only ever produces paths from the directory and the prefix
-/// and suffix the caller gave, all of which were UTF-8 to begin with,
-/// so this cannot be reached through this binding.
-fn trampoline_send(path: &Path) -> io::Result<()> {
-    let f = SEND.load(Ordering::Acquire);
-    if f == 0 {
-        return Ok(());
-    }
-    let s = path
-        .to_str()
-        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "path is not UTF-8"))?;
-    let c = std::ffi::CString::new(s)
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "path holds a NUL"))?;
-    // SAFETY: `f` is non-zero, so it is a pointer stored by
-    // `tcslog_set_send_callback`, which only ever stores a
-    // `TcslogSendFn`.
-    let f: TcslogSendFn = unsafe { std::mem::transmute(f) };
-    if f(c.as_ptr()) == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::other("send callback reported failure"))
+/// Any of the three function pointers may be null, which is that
+/// callback unset. `ctx` is passed to each one and is never examined
+/// here: it may be null, a pointer to anything, or an integer cast to a
+/// pointer. The library does not own it, so it must outlive the writer.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct TcslogCallbacks {
+    /// Called with the path of a segment file being handed over.
+    /// Returning non-zero makes the write that triggered it report
+    /// [`TcslogStatus::IoError`].
+    pub send: Option<extern "C" fn(ctx: *mut c_void, path: *const c_char) -> c_int>,
+
+    /// Called with the descriptor of the segment file a record ended
+    /// in, which the library still owns: do not close it. Returning
+    /// non-zero makes the write report [`TcslogStatus::IoError`].
+    pub record_complete: Option<extern "C" fn(ctx: *mut c_void, fd: c_int) -> c_int>,
+
+    /// Called with the widened timer resolution, in nanoseconds, when
+    /// the build-time value turned out too small for this machine.
+    pub timer_resolution_adjusted: Option<extern "C" fn(ctx: *mut c_void, resolution_ns: u64)>,
+
+    /// Handed to each callback above, untouched.
+    pub ctx: *mut c_void,
+}
+
+impl TcslogCallbacks {
+    /// No callbacks at all, which is what a null `cb` argument means.
+    fn none() -> Self {
+        Self {
+            send: None,
+            record_complete: None,
+            timer_resolution_adjusted: None,
+            ctx: std::ptr::null_mut(),
+        }
     }
 }
 
-/// Hands a segment file's descriptor to the C `record_complete`
-/// callback, if one is set.
+/// Routes the library's calls to the C function pointers a writer was
+/// given, with that writer's own context.
 ///
-/// The descriptor is borrowed for the length of the call: the library
-/// still owns the file, so the callback must not close it.
-fn trampoline_record_complete(file: &mut File) -> io::Result<()> {
-    let f = RECORD_COMPLETE.load(Ordering::Acquire);
-    if f == 0 {
-        return Ok(());
-    }
-    // SAFETY: as in `trampoline_send`.
-    let f: TcslogRecordCompleteFn = unsafe { std::mem::transmute(f) };
-    if f(file.as_raw_fd()) == 0 {
-        Ok(())
-    } else {
-        Err(io::Error::other(
-            "record_complete callback reported failure",
-        ))
-    }
+/// Each writer owns one of these, so two logs in one process can have
+/// different callbacks and different contexts -- which is what the
+/// context is for, and what three process-wide function pointers could
+/// not express.
+struct CHandler {
+    cb: TcslogCallbacks,
 }
 
-/// Reports a widened timer resolution to the C callback, if one is set.
-fn trampoline_timer_resolution_adjusted(resolution_ns: u64) {
-    let f = TIMER_RESOLUTION_ADJUSTED.load(Ordering::Acquire);
-    if f == 0 {
-        return;
+impl WriteHandler for CHandler {
+    fn record_complete(&mut self, file: &mut File) -> io::Result<()> {
+        let Some(f) = self.cb.record_complete else {
+            return Ok(());
+        };
+        if f(self.cb.ctx, file.as_raw_fd()) == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::other(
+                "record_complete callback reported failure",
+            ))
+        }
     }
-    // SAFETY: as in `trampoline_send`.
-    let f: TcslogTimerResolutionAdjustedFn = unsafe { std::mem::transmute(f) };
-    f(resolution_ns);
-}
 
-/// The callbacks every writer opened through this binding is given.
-fn callbacks() -> WriteCallbacks {
-    WriteCallbacks {
-        record_complete: trampoline_record_complete,
-        send: trampoline_send,
-        timer_resolution_adjusted: trampoline_timer_resolution_adjusted,
+    /// A path that is not valid UTF-8, or that holds a NUL, cannot be
+    /// made into a C string without inventing bytes, so it is refused
+    /// rather than passed on. Neither is reachable through this
+    /// binding: a log's directory, prefix and suffix all arrived as C
+    /// strings and were checked to be UTF-8, and the identifier between
+    /// them is hexadecimal.
+    fn send(&mut self, path: &Path) -> io::Result<()> {
+        let Some(f) = self.cb.send else {
+            return Ok(());
+        };
+        let s = path
+            .to_str()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "path is not UTF-8"))?;
+        let c = CString::new(s)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "path holds a NUL"))?;
+        if f(self.cb.ctx, c.as_ptr()) == 0 {
+            Ok(())
+        } else {
+            Err(io::Error::other("send callback reported failure"))
+        }
+    }
+
+    fn timer_resolution_adjusted(&mut self, resolution_ns: u64) {
+        if let Some(f) = self.cb.timer_resolution_adjusted {
+            f(self.cb.ctx, resolution_ns);
+        }
     }
 }
 
@@ -385,36 +401,6 @@ fn format_of(tag: u32, fixed_len: u32) -> Result<Format, TcslogStatus> {
         2 => Ok(Format::VariableTsRc),
         _ => Err(TcslogStatus::InvalidFormat),
     }
-}
-
-/// Stores the `send` callback for every writer opened afterwards.
-///
-/// Passing null unsets it, which is the default and means a filled
-/// segment file is left in the log's directory.///
-/// The pointer passed must match [`TcslogSendFn`]. It is spelled out in
-/// the signature rather than named, because the generated header can
-/// only render a nullable function pointer from the literal form.
-#[no_mangle]
-pub extern "C" fn tcslog_set_send_callback(f: Option<extern "C" fn(path: *const c_char) -> c_int>) {
-    SEND.store(f.map_or(0, |f| f as usize), Ordering::Release);
-}
-
-/// Stores the `record_complete` callback for every writer opened
-/// afterwards. Passing null unsets it.
-#[no_mangle]
-pub extern "C" fn tcslog_set_record_complete_callback(
-    f: Option<extern "C" fn(fd: c_int) -> c_int>,
-) {
-    RECORD_COMPLETE.store(f.map_or(0, |f| f as usize), Ordering::Release);
-}
-
-/// Stores the `timer_resolution_adjusted` callback for every writer
-/// opened afterwards. Passing null unsets it.
-#[no_mangle]
-pub extern "C" fn tcslog_set_timer_resolution_adjusted_callback(
-    f: Option<extern "C" fn(resolution_ns: u64)>,
-) {
-    TIMER_RESOLUTION_ADJUSTED.store(f.map_or(0, |f| f as usize), Ordering::Release);
 }
 
 /// Writes the stored format version this build reads and writes.
@@ -501,13 +487,21 @@ pub extern "C" fn tcslog_status_str(status: TcslogStatus) -> *const c_char {
 /// [`TcslogFormat::Fixed`]. A tag outside the three is refused as
 /// [`TcslogStatus::InvalidFormat`].
 ///
+/// `cb` is the callbacks this writer is to use and the context to hand
+/// them, and may be null for none. It is copied, so the structure
+/// itself need not outlive the call -- but the `ctx` it holds is used
+/// until the writer is closed, so that must outlive the writer. Each
+/// writer has its own, so two logs in one process can have different
+/// callbacks and different contexts.
+///
 /// On success `*out` holds a writer to pass to
 /// [`tcslog_write_close`]. On failure `*out` is left null.
 ///
 /// # Safety
 ///
-/// The three strings must be NUL-terminated, and `out` must point to
-/// writable storage for one pointer.
+/// The three strings must be NUL-terminated, `cb` must be null or point
+/// to a readable [`TcslogCallbacks`], and `out` must point to writable
+/// storage for one pointer.
 #[no_mangle]
 pub unsafe extern "C" fn tcslog_write_open(
     dir: *const c_char,
@@ -516,6 +510,7 @@ pub unsafe extern "C" fn tcslog_write_open(
     seg_size_max: u32,
     format_tag: u32,
     fixed_len: u32,
+    cb: *const TcslogCallbacks,
     out: *mut *mut TcslogWrite,
 ) -> TcslogStatus {
     guard(|| {
@@ -538,7 +533,17 @@ pub unsafe extern "C" fn tcslog_write_open(
             Err(e) => return e,
         };
 
-        match LogWrite::new(dir, prefix, suffix, seg_size_max, format, callbacks()) {
+        // Copied rather than borrowed: the caller's structure is
+        // theirs to reuse or discard the moment this returns, where the
+        // ctx inside it has to last as long as the writer.
+        let cb = if cb.is_null() {
+            TcslogCallbacks::none()
+        } else {
+            // SAFETY: the caller guarantees a readable structure.
+            unsafe { *cb }
+        };
+
+        match LogWrite::new(dir, prefix, suffix, seg_size_max, format, CHandler { cb }) {
             Ok(inner) => {
                 let handle = Box::new(TcslogWrite { inner });
                 // SAFETY: `out` was checked non-null above.
@@ -848,6 +853,17 @@ mod tests {
     use super::*;
     use std::ffi::CString;
 
+    /// Counts into the context it is handed, which is a `u32` the test
+    /// owns on its own stack.
+    extern "C" fn count_send(ctx: *mut c_void, _path: *const c_char) -> c_int {
+        if !ctx.is_null() {
+            // SAFETY: the test passes a pointer to its own live `u32`
+            // and the writer is closed before that goes out of scope.
+            unsafe { *ctx.cast::<u32>() += 1 };
+        }
+        0
+    }
+
     /// A directory that removes itself, so a test that opens a log
     /// leaves nothing behind.
     struct TmpDir(std::path::PathBuf);
@@ -881,6 +897,16 @@ mod tests {
         let prefix = CString::new("seg-").unwrap();
         let suffix = CString::new(".log").unwrap();
 
+        // A context the callback counts into, which is the whole
+        // point of carrying one: nothing here is a static.
+        let mut sends = 0u32;
+        let cb = TcslogCallbacks {
+            send: Some(count_send),
+            record_complete: None,
+            timer_resolution_adjusted: None,
+            ctx: std::ptr::addr_of_mut!(sends).cast::<c_void>(),
+        };
+
         let mut w: *mut TcslogWrite = std::ptr::null_mut();
         let status = unsafe {
             tcslog_write_open(
@@ -890,6 +916,7 @@ mod tests {
                 SEGMENT_FILE_HEADER_LEN + 4096,
                 1,
                 0,
+                &cb,
                 &mut w,
             )
         };
@@ -909,6 +936,9 @@ mod tests {
         assert_eq!(written, payload + 4);
         assert_eq!(unsafe { tcslog_write_flush(w) }, TcslogStatus::Ok);
         unsafe { tcslog_write_close(w) };
+        // The close handed the open segment file over, through the
+        // context rather than through any process-wide state.
+        assert_eq!(sends, 1, "the context did not reach the send callback");
 
         let mut r: *mut TcslogRead = std::ptr::null_mut();
         let status =
@@ -961,6 +991,7 @@ mod tests {
                 SEGMENT_FILE_HEADER_LEN + 4096,
                 1,
                 0,
+                std::ptr::null(),
                 &mut w,
             )
         };

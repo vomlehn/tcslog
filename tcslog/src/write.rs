@@ -134,6 +134,141 @@ impl std::fmt::Debug for WriteCallbacks {
     }
 }
 
+/// What a writer calls as segment files fill, with a context of the
+/// caller's own.
+///
+/// [`WriteCallbacks`] is this trait's stateless form: three bare
+/// function pointers, which is all a caller needs when the callbacks
+/// have nothing to remember. A caller that must reach its own state --
+/// a radio handle, a queue of files awaiting a downlink pass, a counter
+/// -- implements this instead and keeps that state in `self`, which the
+/// writer then owns and lends back on every call.
+///
+/// Every method has a default that does nothing, except
+/// `timer_resolution_adjusted`, so an implementation names only the
+/// callbacks it wants. The writer calls them exactly where it calls the
+/// corresponding field of `WriteCallbacks`, and what each one is
+/// obliged to do is identical -- in particular [`send`](Self::send)
+/// must leave no file at the path it was given. The documentation on
+/// `WriteCallbacks` is the fuller account.
+///
+/// A handler is moved into the writer, which lends it back through
+/// [`LogWrite::handler`] and [`LogWrite::handler_mut`]. Those borrow
+/// rather than return it, and the last segment file is handed over by
+/// the writer's own drop, so state that must be read after that -- a
+/// final count, a queue to hand on -- belongs behind a reference or a
+/// shared handle the handler holds rather than in the handler itself.
+/// No lifetime is required of a handler beyond the writer's own, so a
+/// handler borrowing a local is fine.
+///
+/// # Examples
+///
+/// ```no_run
+/// use std::path::Path;
+/// use tcslog::{Format, LogWrite, WriteHandler, SEGMENT_FILE_HEADER_LEN};
+///
+/// /// Counts what has been handed over, which a bare function pointer
+/// /// has nowhere to put. The count is borrowed rather than owned, so
+/// /// it is still readable once the writer -- and with it the handler --
+/// /// is gone.
+/// struct Downlink<'a> {
+///     queued: &'a mut usize,
+/// }
+///
+/// impl WriteHandler for Downlink<'_> {
+///     fn send(&mut self, path: &Path) -> std::io::Result<()> {
+///         // A real one would queue the file for the next pass. It
+///         // must leave nothing at `path`.
+///         std::fs::remove_file(path)?;
+///         *self.queued += 1;
+///         Ok(())
+///     }
+/// }
+///
+/// # fn main() -> Result<(), tcslog::LogError> {
+/// let mut queued = 0;
+/// {
+///     let mut log = LogWrite::new(
+///         "/var/telemetry",
+///         "seg-",
+///         ".tcslog",
+///         SEGMENT_FILE_HEADER_LEN + 65_536,
+///         Format::VariableSimple,
+///         Downlink { queued: &mut queued },
+///     )?;
+///     log.write_str("attitude nominal")?;
+///
+///     // Readable here through the writer, and the drop below hands the
+///     // last segment file over, which this does not yet count.
+///     println!("{} file(s) queued so far", log.handler().queued);
+/// }
+/// println!("{queued} file(s) queued in all");
+/// # Ok(())
+/// # }
+/// ```
+pub trait WriteHandler {
+    /// Called after each data record has been written, with the segment
+    /// file the record ended in.
+    ///
+    /// See [`WriteCallbacks::record_complete`], which this corresponds
+    /// to exactly.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the implementation reports; it reaches the caller of
+    /// the write that triggered this.
+    fn record_complete(&mut self, file: &mut File) -> std::io::Result<()> {
+        let _ = file;
+        Ok(())
+    }
+
+    /// Transfers ownership of a segment file from the library to the
+    /// implementation.
+    ///
+    /// When it returns there must be no file at the path it was given,
+    /// and none matching this log's naming pattern. See
+    /// [`WriteCallbacks::send`], which this corresponds to exactly and
+    /// which sets out why.
+    ///
+    /// # Errors
+    ///
+    /// Whatever the implementation reports. A failure here means the
+    /// storage bound the log was given has stopped holding, so it
+    /// reaches the caller rather than being swallowed.
+    fn send(&mut self, path: &Path) -> std::io::Result<()> {
+        let _ = path;
+        Ok(())
+    }
+
+    /// Reports that the build-time timer resolution was too small and
+    /// has been widened, with the value now in force in nanoseconds.
+    ///
+    /// See [`WriteCallbacks::timer_resolution_adjusted`]. The default
+    /// prints to standard error, as `WriteCallbacks::default` does and
+    /// for the same reason: silence would hide a build given a value
+    /// this machine does not meet.
+    fn timer_resolution_adjusted(&mut self, resolution_ns: u64) {
+        eprintln!("tcslog: timer resolution widened to {resolution_ns} ns");
+    }
+}
+
+/// The stateless callbacks are a handler with no state, so a caller
+/// that has none goes on passing [`WriteCallbacks`] and nothing about
+/// its log changes.
+impl WriteHandler for WriteCallbacks {
+    fn record_complete(&mut self, file: &mut File) -> std::io::Result<()> {
+        (self.record_complete)(file)
+    }
+
+    fn send(&mut self, path: &Path) -> std::io::Result<()> {
+        (self.send)(path)
+    }
+
+    fn timer_resolution_adjusted(&mut self, resolution_ns: u64) {
+        (self.timer_resolution_adjusted)(resolution_ns);
+    }
+}
+
 /// The segment file being written.
 struct Current {
     /// Identifier of this segment file, and of the file it is named for.
@@ -154,7 +289,7 @@ struct Current {
 /// [`WriteCallbacks::send`], and a fresh segment file is created. A new
 /// `LogWrite` therefore never appends to what it finds; it takes the
 /// older files off this library's hands and starts afresh.
-pub struct LogWrite {
+pub struct LogWrite<H: WriteHandler = WriteCallbacks> {
     /// Directory the segment files live in.
     dir: PathBuf,
     /// First part of every segment file name.
@@ -165,8 +300,10 @@ pub struct LogWrite {
     seg_size_max: u32,
     /// How data records are laid out.
     format: Format,
-    /// Callbacks supplied by the caller.
-    callbacks: WriteCallbacks,
+    /// What the caller wants called as segment files fill, and the
+    /// context it keeps: [`WriteCallbacks`] for a caller with no state,
+    /// any [`WriteHandler`] for one with some.
+    handler: H,
     /// How finely the clock is believed to advance, in nanoseconds.
     ///
     /// Starts at the build-time `TIMER_RESOLUTION_NS`, which is zero
@@ -209,7 +346,7 @@ pub struct LogWrite {
     spare_path: Option<PathBuf>,
 }
 
-impl LogWrite {
+impl<H: WriteHandler> LogWrite<H> {
     /// The length of the segment file header, in bytes.
     ///
     /// An alias for the crate-level [`SEGMENT_FILE_HEADER_LEN`],
@@ -261,7 +398,7 @@ impl LogWrite {
         suffix: &str,
         seg_size_max: u32,
         format: Format,
-        callbacks: WriteCallbacks,
+        handler: H,
     ) -> Result<Self, LogError> {
         if TIMER_RESOLUTION_NS == 0 {
             return Err(LogError::TimerResolutionZero);
@@ -284,7 +421,7 @@ impl LogWrite {
             suffix: suffix.to_string(),
             seg_size_max,
             format,
-            callbacks,
+            handler,
             timer_resolution: TIMER_RESOLUTION_NS,
             clock,
             current: None,
@@ -378,6 +515,23 @@ impl LogWrite {
         self.last_meta
     }
 
+    /// Borrows the handler the writer was given.
+    ///
+    /// Useful where the handler counts or records what it was asked to
+    /// do and the caller wants to look while the writer is still open.
+    pub fn handler(&self) -> &H {
+        &self.handler
+    }
+
+    /// Borrows the handler mutably.
+    ///
+    /// The writer calls the handler itself only from `write`, `flush`,
+    /// `clear`, construction and its own drop, so there is no call in
+    /// progress to interfere with.
+    pub fn handler_mut(&mut self) -> &mut H {
+        &mut self.handler
+    }
+
     /// Writes the UTF-8 bytes of a string as one data record.
     ///
     /// * `msg` -- the text to store.
@@ -461,9 +615,11 @@ impl LogWrite {
         self.write_bytes(msg)?;
         self.last_meta = meta;
 
-        let record_complete = self.callbacks.record_complete;
+        // The handler and the open file are separate fields, so one
+        // call can borrow both; `self.current` cannot be reached
+        // through a method here for the same reason.
         if let Some(current) = self.current.as_mut() {
-            record_complete(&mut current.file)?;
+            self.handler.record_complete(&mut current.file)?;
         }
         Ok(total)
     }
@@ -521,7 +677,7 @@ impl LogWrite {
         // The highest identifier is of no use here: every file carrying
         // one is being removed, and this writer's clock is already past
         // them all.
-        self.for_each_segment_file(|path| fs::remove_file(path))
+        self.for_each_segment_file(|_, path| fs::remove_file(path))
             .map(|_| ())
     }
 
@@ -531,8 +687,7 @@ impl LogWrite {
     /// Returns the highest identifier those files carried, which is what
     /// [`Clock::advance_past`] needs, or `None` if there were none.
     fn send_existing(&mut self) -> Result<Option<SegId>, LogError> {
-        let send = self.callbacks.send;
-        self.for_each_segment_file(send)
+        self.for_each_segment_file(WriteHandler::send)
     }
 
     /// Applies `action` to the path of every segment file of this log,
@@ -549,7 +704,7 @@ impl LogWrite {
     /// goes on to remove or rename.
     fn for_each_segment_file(
         &mut self,
-        mut action: impl FnMut(&Path) -> std::io::Result<()>,
+        mut action: impl FnMut(&mut H, &Path) -> std::io::Result<()>,
     ) -> Result<Option<SegId>, LogError> {
         let ids = scan_segment_ids(&self.dir, &self.prefix, &self.suffix)?;
         // The scan sorts, so the highest is the last.
@@ -558,7 +713,7 @@ impl LogWrite {
         for id in ids {
             build_name(&mut self.name_buf, &self.prefix, id, &self.suffix);
             path.set_file_name(&self.name_buf);
-            action(&path)?;
+            action(&mut self.handler, &path)?;
         }
         Ok(highest)
     }
@@ -702,7 +857,7 @@ impl LogWrite {
         let wider = widened(self.timer_resolution, collided_before);
         if wider != self.timer_resolution {
             self.timer_resolution = wider;
-            (self.callbacks.timer_resolution_adjusted)(wider);
+            self.handler.timer_resolution_adjusted(wider);
         }
         nap_for(self.timer_resolution)
     }
@@ -833,8 +988,7 @@ impl LogWrite {
         let mut result = file.flush().map_err(LogError::IoError);
         drop(file);
         if result.is_ok() {
-            let send = self.callbacks.send;
-            result = send(&path).map_err(LogError::IoError);
+            result = self.handler.send(&path).map_err(LogError::IoError);
         }
         self.spare_path = Some(path);
         result
@@ -856,7 +1010,7 @@ impl LogWrite {
     }
 }
 
-impl Drop for LogWrite {
+impl<H: WriteHandler> Drop for LogWrite<H> {
     /// Flushes the current segment file and hands it to `send` if it
     /// holds any data, so that the records written last are not stranded
     /// in a file the caller was never told about.
@@ -874,8 +1028,7 @@ impl Drop for LogWrite {
         }
         let _ = current.file.flush();
         drop(current.file);
-        let send = self.callbacks.send;
-        let _ = send(&current.path);
+        let _ = self.handler.send(&current.path);
     }
 }
 

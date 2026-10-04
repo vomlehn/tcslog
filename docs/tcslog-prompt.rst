@@ -1727,21 +1727,61 @@ o   ``lost`` is the number of segment files found missing, on
 
 Callbacks
 ---------
-``WriteCallbacks`` holds bare ``fn`` pointers with no context argument,
-so a per-log C context cannot be carried through it. The binding
-therefore stores one C function pointer per callback for the whole
-process, and every writer opened afterwards uses them. A caller that
-must tell its logs apart has the segment file's path, which ``send`` is
-given.
+A writer is given its callbacks when it is opened, in a
+``TcslogCallbacks`` holding the three function pointers and the ``void
+*ctx`` each is handed back. Any pointer may be null, which is that
+callback unset, and the structure itself may be null for none.
 
-A writer takes the callbacks as they stand when it is opened, so a
-setter called afterwards does not reach a writer already open. Passing
-null unsets a callback, which is the default.
+The structure must be copied into the writer rather than borrowed: the
+caller's own may be reused or discarded the moment the open returns, so
+overwriting it afterwards must not reach the writer. The ``ctx`` it
+holds is the caller's, used until the writer is closed and owned by
+nothing here, so it must outlive the writer. ``ctx`` is never examined:
+null, a pointer to anything, or an integer cast to a pointer are all
+alike to the binding.
+
+Each writer therefore has its own callbacks and its own context, which
+is the point: two logs in one process may have different ones. On the
+Rust side this is ``WriteHandler``, which the binding implements once,
+holding the C function pointers and the context for the writer it
+belongs to.
 
 ``send`` and ``record_complete`` return an ``int``: zero for success,
 and anything else makes the write that triggered the callback report
 ``TCSLOG_STATUS_IO_ERROR``. ``record_complete`` is handed a file
 descriptor the library still owns and must not close it.
+
+WriteHandler
+------------
+``WriteCallbacks`` is three bare ``fn`` pointers, which have nowhere to
+keep state. ``WriteHandler`` is the same three callbacks as trait
+methods, so an implementation keeps whatever state they need in
+``self``:
+
+o   ``record_complete(&mut self, file: &mut File) -> io::Result<()>``
+
+o   ``send(&mut self, path: &Path) -> io::Result<()>``
+
+o   ``timer_resolution_adjusted(&mut self, resolution_ns: u64)``
+
+Every method has a default. ``record_complete`` and ``send`` do
+nothing; ``timer_resolution_adjusted`` prints to standard error, as
+``WriteCallbacks::default`` does and for the same reason. Each is called
+exactly where the corresponding field of ``WriteCallbacks`` is called
+and is under the same obligations.
+
+``LogWrite`` is generic over the handler with ``WriteCallbacks`` as the
+default type, and ``WriteCallbacks`` implements the trait by calling its
+own fields. A caller that passes ``WriteCallbacks`` is therefore
+unaffected, and ``LogWrite`` named without a parameter goes on meaning
+what it meant.
+
+The writer owns the handler. It must lend it back through ``handler``
+and ``handler_mut`` rather than return it, there being no way to move a
+field out of a type with a destructor without ``unsafe``, which this
+library does not use. The last segment file is handed over by the
+writer's own drop, so state that must be read after that belongs behind
+a reference or a shared handle the handler holds.
 
 Support Binaries
 ================

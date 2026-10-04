@@ -21,6 +21,30 @@ Stored format: unchanged, 0.1.0.
 
 ### Added
 
+- `WriteHandler`, the callbacks as a trait, for a caller whose callbacks
+  must reach its own state. `WriteCallbacks` holds bare `fn` pointers with
+  nowhere to keep any, so a context had to be a static -- as the suite's
+  own callback test shows, counting in `AtomicUsize`es because the tests
+  run in parallel and one test's counters would otherwise reach another's.
+  An implementation keeps that state in `self` instead, and the writer
+  owns it and lends it back through `LogWrite::handler` and
+  `handler_mut`.
+
+  Every method has a default, so an implementation names only the
+  callbacks it wants, and each is called exactly where the corresponding
+  field of `WriteCallbacks` is called. `LogWrite` is generic over the
+  handler with `WriteCallbacks` as its default type, and `WriteCallbacks`
+  implements the trait by calling its own fields: existing code passing
+  `WriteCallbacks`, and existing code naming `LogWrite` without a
+  parameter, are unaffected -- all 108 tests passed unchanged across the
+  change.
+
+  The handler is lent rather than returned because moving a field out of
+  a type with a destructor needs `unsafe`, which this library does not
+  use. State to be read after the writer is gone -- a final count, the
+  last segment file having been handed over by the writer's own drop --
+  belongs behind a reference or a shared handle the handler holds.
+
 - `tcslog-c`, a C ABI over `LogWrite` and `LogRead`, as a third
   workspace member. A C interface has to be built as a `cdylib` and a
   `staticlib`, which a crate cannot be conditionally, so it could not have
@@ -29,6 +53,16 @@ Stored format: unchanged, 0.1.0.
   in this repository rather than one of its own, as `tcslog-gen` does,
   because the binding mirrors the Rust API and a change to both is then one
   commit and one `make check`.
+
+  A writer is given its callbacks when it is opened, in a
+  `TcslogCallbacks` holding the three function pointers and the `void
+  *ctx` each is handed back, so two logs in one process can have different
+  callbacks and different contexts. That is `WriteHandler` underneath,
+  which the binding implements once and aims at whichever C functions a
+  writer was opened with. The structure is copied, so it need not outlive
+  the call; the `ctx` is the caller's and must outlive the writer. There
+  are no process-wide callback setters: the context they lacked is the
+  only reason they would have existed.
 
   Every function returns a `TcslogStatus` and writes what the caller wanted
   through an out-parameter, so no status can be confused with data.
