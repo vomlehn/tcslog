@@ -102,9 +102,19 @@ It then reads back what remains.
 
 `make capi-test` is the other half of that: it compiles
 `tcslog-c/examples/smoke.c` against the header, links the staticlib, and
-checks a round trip. `make test` runs it, because it is the only test
-that would catch a header describing the wrong argument order -- the Rust
-unit tests in `tcslog-c` call the same functions as Rust.
+drives nine scenarios through the ABI -- a round trip, the fixed format,
+a refused format tag, a record too large for the buffer, a segment file
+deleted from the middle of the log, a `send` callback that refuses, a
+cleared log, the resolution callback, and null arguments. `make test`
+runs it, because it is the only test that would catch a header
+describing the wrong argument order -- the Rust unit tests in `tcslog-c`
+call the same functions as Rust.
+
+`make capi-memcheck` runs the same program under the address and
+undefined-behaviour sanitizers, which is what checks the handles for
+leaks and double frees: they are boxed in Rust and released from C, and
+nothing else here would notice a close that leaked one. It is not part
+of `make test`, needing a compiler that has the sanitizers.
 
 Documentation
 -------------

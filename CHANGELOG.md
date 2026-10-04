@@ -67,12 +67,38 @@ Stored format: unchanged, 0.1.0.
 
 - `make capi-test`, run by `make test`, compiles
   `tcslog-c/examples/smoke.c` against the generated header, links the
-  staticlib, and checks a write-then-read round trip -- 36 checks under
-  `-Wall -Wextra -Werror`. The Rust unit tests in `tcslog-c` call the same
-  functions as Rust, so only this would catch a header that described the
-  wrong argument order or struct layout.
+  staticlib, and drives nine scenarios through the ABI under `-Wall
+  -Wextra -Werror`: a round trip, the fixed format and the two lengths it
+  refuses, a format tag outside the three, a record too large for the
+  buffer, a segment file deleted from the middle of the log, a `send`
+  callback that refuses a file, a cleared log, the resolution callback,
+  and the arguments that must be refused rather than dereferenced. Each
+  works in its own directory, so one cannot leave state another depends
+  on. The Rust unit tests in `tcslog-c` call the same functions as Rust,
+  so only this would catch a header that described the wrong argument
+  order or struct layout.
+
+- `make capi-memcheck` runs that program under the address and
+  undefined-behaviour sanitizers, which is what checks the handles for
+  leaks and double frees: they are boxed in Rust and released from C, and
+  nothing else would notice a close that leaked one. The staticlib is
+  built without sanitizers, which is enough -- LeakSanitizer intercepts
+  the process allocator and Rust's default allocator here is the system
+  one. Confirmed to have teeth by leaking a writer on purpose, which it
+  reports. Not part of `make test`, needing a compiler that has them.
 
 ### Fixed
+
+- The C binding documented `ReadOverflow` backwards, in all four places it
+  described it: the status, the result field, the specification, and the
+  user manual. It said the result held the size the record needs with
+  nothing placed in the buffer, and that the next read returned the same
+  record. The library does the opposite, and says so -- the front of the
+  record reaches the buffer and is real telemetry, the rest is skipped,
+  and the next read starts at the record after it. Writing a test for the
+  case is what found it: the test asserted the invented behaviour and
+  failed. The manual now says the name invites the wrong reading, since it
+  invited this one.
 
 - `LogWrite`'s `Drop` flushes the segment file being written and hands it
   to `send` if it holds any records, which the C binding's

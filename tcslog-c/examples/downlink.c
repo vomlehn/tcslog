@@ -184,13 +184,16 @@ static int read_remaining(void) {
                    result.n, (unsigned long)result.lost);
             continue;
         case TCSLOG_STATUS_READ_OVERFLOW:
-            /* Nothing was consumed, so retrying with the same buffer
-             * would loop forever. A real caller grows its buffer to
-             * result.n; this one gives up on the record. */
-            fprintf(stderr, "  record needs %u bytes, buffer holds %zu\n",
-                    result.n, sizeof buf);
-            tcslog_read_close(r);
-            return 1;
+            /* The buffer holds the front of the record and the rest was
+             * skipped, so reading on returns the record after it rather
+             * than this one again. The bytes that did arrive are real
+             * telemetry, so they are reported; the remedy is a bigger
+             * buffer next time, this log having a record that does not
+             * fit in this one. */
+            printf("  -- %u byte(s) of a record too large for a %zu-byte "
+                   "buffer; the rest was skipped\n",
+                   result.n, sizeof buf);
+            continue;
         default:
             fprintf(stderr, "read: %s\n", tcslog_status_str(s));
             tcslog_read_close(r);

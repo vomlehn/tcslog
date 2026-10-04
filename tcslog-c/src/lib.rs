@@ -68,9 +68,12 @@ pub enum TcslogStatus {
     /// segment files missing. Read again to continue.
     ReadTruncated = 3,
 
-    /// The record is larger than the buffer offered. `n` in the result
-    /// holds the size the record needs. Nothing was consumed, so the
-    /// same record is returned by the next read.
+    /// The record was larger than the buffer offered. `n` in the result
+    /// holds how many bytes reached the front of the buffer, and they
+    /// are real telemetry. The rest of the record was skipped, so the
+    /// next read starts at the record after it rather than at this one:
+    /// a buffer this read overflowed is too small for this log, and
+    /// reading again does not recover what was dropped.
     ReadOverflow = 4,
 
     /// The real-time clock does not read later than the UNIX epoch,
@@ -172,10 +175,11 @@ pub enum TcslogMeta {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct TcslogReadResult {
-    /// Payload bytes placed in the caller's buffer. On
-    /// [`TcslogStatus::ReadTruncated`] the bytes that were recovered of
-    /// a record cut short; on [`TcslogStatus::ReadOverflow`] the size
-    /// the record needs, with nothing placed in the buffer.
+    /// Payload bytes placed in the caller's buffer, which are real
+    /// telemetry whichever status came with them: the whole record on
+    /// [`TcslogStatus::Ok`], the bytes recovered of a record cut short
+    /// on [`TcslogStatus::ReadTruncated`], and the front of a record too
+    /// large for the buffer on [`TcslogStatus::ReadOverflow`].
     pub n: u32,
 
     /// Which of the three metadata shapes the record had.
@@ -464,7 +468,9 @@ pub extern "C" fn tcslog_status_str(status: TcslogStatus) -> *const c_char {
         TcslogStatus::Eof => cstr(b"end of log\0"),
         TcslogStatus::SessionEnd => cstr(b"end of session\0"),
         TcslogStatus::ReadTruncated => cstr(b"telemetry lost; record cut short\0"),
-        TcslogStatus::ReadOverflow => cstr(b"record larger than the buffer\0"),
+        TcslogStatus::ReadOverflow => {
+            cstr(b"record larger than the buffer; its front was captured\0")
+        }
         TcslogStatus::ClockError => cstr(b"real-time clock is not set\0"),
         TcslogStatus::FixedLenMismatch => cstr(b"payload is not the fixed record length\0"),
         TcslogStatus::InvalidHeader => cstr(b"segment file header could not be read\0"),
@@ -742,9 +748,9 @@ pub unsafe extern "C" fn tcslog_read_open(
 /// `*result` is filled whatever the status, so the fields a status
 /// describes can be read without checking for null first. The statuses
 /// that are news about the telemetry rather than a failure --
-/// [`TcslogStatus::SessionEnd`] and [`TcslogStatus::ReadTruncated`] --
-/// are followed by reading again; the loop ends at
-/// [`TcslogStatus::Eof`].
+/// [`TcslogStatus::SessionEnd`], [`TcslogStatus::ReadTruncated`] and
+/// [`TcslogStatus::ReadOverflow`] -- are followed by reading again; the
+/// loop ends at [`TcslogStatus::Eof`].
 ///
 /// # Safety
 ///

@@ -31,6 +31,9 @@ CAPI_LIBS   := libtcslog_c.a libtcslog_c.so
 # the test, not noise to scroll past.
 CC          := cc
 CAPI_CFLAGS := -Wall -Wextra -Werror -std=c11
+# What `make capi-memcheck` adds. -g so a report names lines rather
+# than addresses, and no optimization so the frames are the real ones.
+CAPI_SAN_FLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer -g -O0
 # Where cargo puts the staticlib the smoke test links. `make release`
 # does not move it, because RELEASE reaches cargo and not this.
 CARGO_TARGET_DIR ?= target/debug
@@ -90,6 +93,32 @@ capi-test:			## Compile and run the C binding's smoke test
 		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
 	$$bin $$tmp
 	@echo "[OK] C binding smoke test passed"
+
+# Run the smoke test under the address and undefined-behaviour
+# sanitizers, which is what checks the handles for leaks and double
+# frees: they are boxed on the Rust side and released from C, and
+# nothing else here would notice if a close leaked one.
+#
+# The Rust staticlib is built without sanitizers, which is enough:
+# LeakSanitizer intercepts the process's allocator, and Rust's default
+# allocator on this platform is the system one, so a box leaked across
+# the boundary is still reported. ASAN_OPTIONS asks for the leak check
+# at exit, which is on by default on Linux and off elsewhere.
+#
+# Not part of `make test`: it needs a compiler with the sanitizers,
+# which not every toolchain this builds on has.
+.PHONY: capi-memcheck
+capi-memcheck:			## Run the C smoke test under ASan and UBSan
+	@echo "Running the C binding smoke test under sanitizers..."
+	cargo build $(RELEASE) -p tcslog-c
+	tmp=$$(mktemp -d -t tcslog-capi-san.XXXXXXXXXX); \
+	bin=$$tmp/smoke; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	$(CC) $(CAPI_CFLAGS) $(CAPI_SAN_FLAGS) -o $$bin \
+		tcslog-c/examples/smoke.c \
+		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+	ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 $$bin $$tmp
+	@echo "[OK] No leak or undefined behaviour reported"
 
 # Regenerate tcslog-c/include/tcslog.h from tcslog-c/src/lib.rs. Needs
 # `cargo install cbindgen`, as `make check` does.

@@ -40,9 +40,12 @@ enum TcslogStatus
      */
     TCSLOG_STATUS_READ_TRUNCATED = 3,
     /**
-     * The record is larger than the buffer offered. `n` in the result
-     * holds the size the record needs. Nothing was consumed, so the
-     * same record is returned by the next read.
+     * The record was larger than the buffer offered. `n` in the result
+     * holds how many bytes reached the front of the buffer, and they
+     * are real telemetry. The rest of the record was skipped, so the
+     * next read starts at the record after it rather than at this one:
+     * a buffer this read overflowed is too small for this log, and
+     * reading again does not recover what was dropped.
      */
     TCSLOG_STATUS_READ_OVERFLOW = 4,
     /**
@@ -210,10 +213,11 @@ typedef struct TcslogWrite TcslogWrite;
  */
 typedef struct TcslogReadResult {
     /**
-     * Payload bytes placed in the caller's buffer. On
-     * [`TcslogStatus::ReadTruncated`] the bytes that were recovered of
-     * a record cut short; on [`TcslogStatus::ReadOverflow`] the size
-     * the record needs, with nothing placed in the buffer.
+     * Payload bytes placed in the caller's buffer, which are real
+     * telemetry whichever status came with them: the whole record on
+     * [`TcslogStatus::Ok`], the bytes recovered of a record cut short
+     * on [`TcslogStatus::ReadTruncated`], and the front of a record too
+     * large for the buffer on [`TcslogStatus::ReadOverflow`].
      */
     uint32_t n;
     /**
@@ -413,9 +417,9 @@ TcslogStatus tcslog_read_open(const char *dir,
  * `*result` is filled whatever the status, so the fields a status
  * describes can be read without checking for null first. The statuses
  * that are news about the telemetry rather than a failure --
- * [`TcslogStatus::SessionEnd`] and [`TcslogStatus::ReadTruncated`] --
- * are followed by reading again; the loop ends at
- * [`TcslogStatus::Eof`].
+ * [`TcslogStatus::SessionEnd`], [`TcslogStatus::ReadTruncated`] and
+ * [`TcslogStatus::ReadOverflow`] -- are followed by reading again; the
+ * loop ends at [`TcslogStatus::Eof`].
  *
  * # Safety
  *

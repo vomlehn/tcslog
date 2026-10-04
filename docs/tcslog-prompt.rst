@@ -1651,7 +1651,9 @@ code must only ever be added after the last. Nothing may be removed: a
 code that stops being produced keeps its number.
 
 The first five are not failures. They are what the library reports as
-news about the telemetry, and a caller continues after each:
+news about the telemetry, and a caller continues after each -- though
+after ``TCSLOG_STATUS_READ_OVERFLOW`` it continues at the following
+record, the overflowed one having been skipped past:
 
 ==== ================================ ============================================================
 Code Name                             Meaning
@@ -1660,7 +1662,7 @@ Code Name                             Meaning
 1    ``TCSLOG_STATUS_EOF``            No more records. A read loop ends here.
 2    ``TCSLOG_STATUS_SESSION_END``    Writing stopped and started again; read again.
 3    ``TCSLOG_STATUS_READ_TRUNCATED`` Telemetry lost; ``n`` and ``lost`` say how much. Read again.
-4    ``TCSLOG_STATUS_READ_OVERFLOW``  Record larger than the buffer; ``n`` is the size needed.
+4    ``TCSLOG_STATUS_READ_OVERFLOW``  Record larger than the buffer; ``n`` is its captured front.
 ==== ================================ ============================================================
 
 The rest are failures. Each maps one-to-one onto a ``LogError``
@@ -1705,10 +1707,13 @@ What a Read Produces
 so its fields can be read without first checking the status. Which of
 them mean anything does depend on the status:
 
-o   ``n`` is the payload bytes placed in the caller's buffer on
-    ``TCSLOG_STATUS_OK``; the bytes recovered of a record cut short on
-    ``TCSLOG_STATUS_READ_TRUNCATED``; and the size the record needs, with
-    nothing placed in the buffer, on ``TCSLOG_STATUS_READ_OVERFLOW``.
+o   ``n`` is the payload bytes placed in the caller's buffer, which are
+    real telemetry whichever status came with them: the whole record on
+    ``TCSLOG_STATUS_OK``, the bytes recovered of a record cut short on
+    ``TCSLOG_STATUS_READ_TRUNCATED``, and the front of a record too large
+    for the buffer on ``TCSLOG_STATUS_READ_OVERFLOW``. In that last case
+    the rest of the record was skipped, so the next read starts at the
+    record after it.
 
 o   ``meta`` says which of the three metadata shapes the record had, and
     ``timestamp`` and ``record_count`` hold the timestamp and the

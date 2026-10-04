@@ -1022,10 +1022,11 @@ Reading
     holds:
 
     ``n``
-        Payload bytes placed in the buffer. On
-        ``TCSLOG_STATUS_READ_TRUNCATED`` the bytes recovered of a record
-        cut short; on ``TCSLOG_STATUS_READ_OVERFLOW`` the size the record
-        needs, with nothing placed in the buffer.
+        Payload bytes placed in the buffer, which are real telemetry
+        whichever status came with them: the whole record on
+        ``TCSLOG_STATUS_OK``, the bytes recovered of a record cut short on
+        ``TCSLOG_STATUS_READ_TRUNCATED``, and the front of a record too
+        large for the buffer on ``TCSLOG_STATUS_READ_OVERFLOW``.
 
     ``meta``, ``timestamp``, ``record_count``
         Which of the three metadata shapes the record had, and, for
@@ -1047,10 +1048,13 @@ Reading
 The rule is the Rust one: read again until ``TCSLOG_STATUS_EOF``.
 Everything else is news about the telemetry rather than a failure of the
 reader, and `What a caller should do with each outcome`_ applies
-unchanged. The one code that needs care is
-``TCSLOG_STATUS_READ_OVERFLOW``: nothing was consumed, so reading again
-with the same buffer returns the same record for ever. Grow the buffer
-to the ``n`` the result reports.
+unchanged -- including what it says about
+``TCSLOG_STATUS_READ_OVERFLOW``, which is worth repeating because it is
+the one code whose name invites the wrong reading. The buffer holds the
+front of the record and the rest of it is gone, skipped rather than
+kept; reading again returns the record after it, not another attempt at
+this one. A buffer that overflowed once is too small for the log, and
+the remedy is a bigger buffer next time rather than a retry now.
 
 Callbacks from C
 ----------------
