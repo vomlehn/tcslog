@@ -5,6 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+# Writes deliberately damaged segment files for the error-recovery suite
+# under test/, and depends on the library by path. It has no reason to be
+# on a registry, and saying so here is surer than remembering to pass
+# -p tcslog to every publish.
+publish = false
 
 [dependencies]
 tcslog = { path = "../tcslog" }

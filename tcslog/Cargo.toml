@@ -5,7 +5,23 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Onboard telemetry logging into segment files, with recovery from lost or damaged segments"
+# crates.io full-text search covers the name, the description and the
+# keywords, but not the readme, so the platforms are named here as well
+# as in the readme's opening line.
+description = "Onboard telemetry logging into segment files, with recovery from lost or damaged segments: for spacecraft, autonomous underwater vehicles, buoys, balloons, and other vehicles whose contact is intermittent"
+readme = "README.md"
+# crates.io allows five. "logging" is crowded and says less than
+# "datalogger", "embedded" is already a category below, and "recovery"
+# means little without context; these five instead name the condition the
+# library is for -- telemetry that cannot be sent as it is produced --
+# and the vehicles that have it.
+keywords = ["telemetry", "datalogger", "intermittent", "spacecraft", "robotics"]
+# Five is the most crates.io allows, and all five are browse lists this
+# belongs in: the platform class, the vehicles named in the description,
+# the research instruments that carry them, and a store that is a
+# directory of files. science and science::robotics are parent and child,
+# which lists the crate under both.
+categories = ["embedded", "aerospace", "science", "science::robotics", "filesystem"]
 build = "build.rs"
 
 [features]
