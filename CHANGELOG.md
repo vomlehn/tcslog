@@ -15,6 +15,19 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+### Changed
+
+- The error-recovery suite's 20 expected-output files are regenerated for
+  `tcslog-tools`, which now prints payloads as hexadecimal rather than as one
+  character a byte. Nothing in this crate changed; the suite drives those tools
+  and compares their output, so a change in how they render reaches it. Every
+  payload line was confirmed to decode back to exactly what it had shown, and
+  no structural line — segment header, loss notice, or total — differs.
+
 ## [0.2.3] - 2026-10-03
 
 Stored format: unchanged, 0.1.0.
@@ -225,6 +238,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.2.3...HEAD
 [0.2.3]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.3
 [0.2.2]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.2
 [0.2.1]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.1

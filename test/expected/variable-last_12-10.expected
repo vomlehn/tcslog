@@ -13,7 +13,7 @@
     remaining:  6
     format:     VariableSimple
     sequence:   1
-    #1 123456789 (12 bytes)
+    23 31 20 31 32 33 34 35 36 37 38 39 (12 bytes)
 
 === segment file: pfx-<id3>.log ===
     segment_id: <id3>
@@ -30,8 +30,8 @@
     remaining:  2
     format:     VariableSimple
     sequence:   3
-    #2 123456789 (12 bytes)
-    #3 1 (4 bytes recovered, rest of record lost)
+    23 32 20 31 32 33 34 35 36 37 38 39 (12 bytes)
+    23 33 20 31 (4 bytes recovered, rest of record lost)
     -- corrupted or truncated segment file; resynchronizing --
 
 read 3 message(s) across 4 file(s)

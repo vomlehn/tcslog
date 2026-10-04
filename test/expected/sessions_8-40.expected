@@ -5,9 +5,9 @@
     remaining:  0
     format:     VariableSimple
     sequence:   0
-    #1 12345 (8 bytes)
-    #2 12345 (8 bytes)
-    #3 12345 (8 bytes)
+    23 31 20 31 32 33 34 35 (8 bytes)
+    23 32 20 31 32 33 34 35 (8 bytes)
+    23 33 20 31 32 33 34 35 (8 bytes)
 
 === segment file: pfx-<id2>.log ===
     segment_id: <id2>
@@ -16,9 +16,9 @@
     remaining:  8
     format:     VariableSimple
     sequence:   1
-    #4 12345 (8 bytes)
-    #5 12345 (8 bytes)
-    #6 12345 (8 bytes)
+    23 34 20 31 32 33 34 35 (8 bytes)
+    23 35 20 31 32 33 34 35 (8 bytes)
+    23 36 20 31 32 33 34 35 (8 bytes)
 
 --- End of Session---
 
@@ -30,8 +30,8 @@
     format:     VariableSimple
     sequence:   1
     -- 1 missing segment file(s); resynchronizing --
-    #5 12345 (8 bytes)
-    #6 12345 (8 bytes)
+    23 35 20 31 32 33 34 35 (8 bytes)
+    23 36 20 31 32 33 34 35 (8 bytes)
 
 --- End of Session---
 
@@ -42,9 +42,9 @@
     remaining:  0
     format:     VariableSimple
     sequence:   0
-    #1 12345 (8 bytes)
-    #2 12345 (8 bytes)
-    #3 12345 (8 bytes)
+    23 31 20 31 32 33 34 35 (8 bytes)
+    23 32 20 31 32 33 34 35 (8 bytes)
+    23 33 20 31 32 33 34 35 (8 bytes)
 
 === segment file: pfx-<id6>.log ===
     segment_id: <id6>
@@ -53,9 +53,9 @@
     remaining:  8
     format:     VariableSimple
     sequence:   1
-    #4 12345 (8 bytes)
-    #5 12345 (8 bytes)
-    #6 12345 (8 bytes)
+    23 34 20 31 32 33 34 35 (8 bytes)
+    23 35 20 31 32 33 34 35 (8 bytes)
+    23 36 20 31 32 33 34 35 (8 bytes)
 
 read 14 message(s) across 5 file(s)
 1 segment file(s) lost
