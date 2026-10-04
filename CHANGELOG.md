@@ -19,27 +19,6 @@ format where it was. Each entry below says whether the stored format moved.
 
 Stored format: unchanged, 0.1.0.
 
-### Fixed
-
-- `-r` and `-x` aborted the run on any scenario that corrupts a header. The
-  hexdump passes each file to `tcslog-dumphdr`, which exits non-zero when it
-  will not read a header, and under `set -e` that took the whole script down
-  before the comparison it exists for — so the two options were unusable on
-  exactly the scenarios they are most wanted for. The refusal is now reported
-  and the hexdump still runs, that being what shows the damage.
-
-### Changed
-
-- The suite stores and compares records as ASCII rather than as hexadecimal.
-  A failing diff of `#1 123` against `#1 124` says what went wrong, where
-  `23 31 20 31 32 33` against `23 31 20 31 32 34` leaves the reader to decode
-  it. `--text` is now what `error-recovery-common` passes by default, and `-H`
-  is what asks for hexadecimal, which inverts what `-T` used to mean.
-- `text-combined_12-10` becomes `hex-combined_12-10`, since the variant worth
-  keeping is now the one the rest of the suite does not use. Both of the
-  tool's renderings are still covered end to end; which one is the exception
-  is all that moved.
-
 ### Added
 
 - `test/tsrc-lost-header_8-24` and an `api.rs` test cover the one gap whose
@@ -73,6 +52,33 @@ Stored format: unchanged, 0.1.0.
   Each records-only file was confirmed to be exactly the record lines of its
   verbose counterpart, so the leaner comparison drops the header blocks,
   notices and totals and nothing else.
+
+### Changed
+
+- The suite stores and compares records as ASCII rather than as hexadecimal.
+  A failing diff of `#1 123` against `#1 124` says what went wrong, where
+  `23 31 20 31 32 33` against `23 31 20 31 32 34` leaves the reader to decode
+  it. `--text` is now what `error-recovery-common` passes by default, and `-H`
+  is what asks for hexadecimal, which inverts what `-T` used to mean.
+- `text-combined_12-10` becomes `hex-combined_12-10`, since the variant worth
+  keeping is now the one the rest of the suite does not use. Both of the
+  tool's renderings are still covered end to end; which one is the exception
+  is all that moved.
+
+### Fixed
+
+- `-r` and `-x` aborted the run on any scenario that corrupts a header. The
+  hexdump passes each file to `tcslog-dumphdr`, which exits non-zero when it
+  will not read a header, and under `set -e` that took the whole script down
+  before the comparison it exists for — so the two options were unusable on
+  exactly the scenarios they are most wanted for. The refusal is now reported
+  and the hexdump still runs, that being what shows the damage.
+- The hexdump after deletion ran the segment files together: each one's name
+  and decoded header followed the last one's hexdump with nothing between, so
+  the start of one read as the tail of the one above. A blank line ahead of
+  each separates them, as the dump before deletion already did. Only what
+  reaches the terminal under `-r` and `-x` changes; the compared output comes
+  from a separate `tcslog-dump` run, so no expected file moves.
 
 ### Notes
 
