@@ -404,6 +404,10 @@ if [ $dumphdr_enabled -ne 0 ]; then
     echo
     echo "Hexdump of segment files after deletion"
     for f in "${files[@]}"; do
+        # One blank line ahead of each, as the dump before deletion
+        # already does. Without it the files run together and the
+        # header line of one reads as part of the one above.
+        echo
         if [ -f $f ]; then
             echo $f:
             dumphdr $f

@@ -21,6 +21,19 @@
 # by default. -H would render them as hexadecimal, which is no use to
 # someone comparing records against the bytes they came from: the
 # hexdump above is already those bytes.
+#
+# To use this, run it with name of one or more scenario from the test
+# directory. It will print:
+# 1.    The output from tcslog-gen
+# 2.    Information about which segment files are removed, corrupted, or
+#       truncated.
+# 3.    A dump of the remaining segment files.
+# 4.    Output of records from tcslog-dump.
+#
+# The dump of remaining segment files can then be inspected to verify that
+# it matches the records reported by tcslog-dump. It may be helpful to run
+# it twice, once in each of two separate windows so that the segment dump
+# can be easily checked against the tcslog-dump output.
 
 set -u
 
