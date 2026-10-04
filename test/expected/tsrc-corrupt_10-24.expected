@@ -13,7 +13,7 @@
     remaining:  12
     format:     VariableTsRc
     sequence:   2
-    23 31 20 31 (4 bytes recovered, rest of record lost)
+    #1 1 (4 bytes recovered, rest of record lost)
     -- 1 missing segment file(s); resynchronizing --
 
 === segment file: pfx-<id3>.log ===
@@ -23,7 +23,7 @@
     remaining:  18
     format:     VariableTsRc
     sequence:   3
-    23 33 20 31 32 33 34 35 36 37 (10 bytes, ts=<ts>, rc=3)
+    #3 1234567 (10 bytes, ts=<ts>, rc=3)
 
 === segment file: pfx-<id4>.log ===
     segment_id: <id4>
@@ -32,7 +32,7 @@
     remaining:  24
     format:     VariableTsRc
     sequence:   4
-    23 34 20 31 32 33 34 35 36 37 (10 bytes, ts=<ts>, rc=4)
+    #4 1234567 (10 bytes, ts=<ts>, rc=4)
 
 === segment file: pfx-<id5>.log ===
     segment_id: <id5>
@@ -49,7 +49,7 @@
     remaining:  6
     format:     VariableTsRc
     sequence:   6
-    23 35 20 31 32 33 34 35 36 37 (10 bytes, ts=<ts>, rc=5)
+    #5 1234567 (10 bytes, ts=<ts>, rc=5)
 
 === segment file: pfx-<id7>.log ===
     segment_id: <id7>
@@ -58,7 +58,7 @@
     remaining:  12
     format:     VariableTsRc
     sequence:   7
-    23 36 20 31 32 33 34 35 36 37 (10 bytes, ts=<ts>, rc=6)
+    #6 1234567 (10 bytes, ts=<ts>, rc=6)
 
 read 5 message(s) across 7 file(s)
 1 segment file(s) lost

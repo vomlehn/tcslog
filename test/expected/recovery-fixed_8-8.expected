@@ -5,7 +5,7 @@
     remaining:  0
     format:     Fixed(8)
     sequence:   0
-    23 31 20 31 32 33 34 35 (8 bytes)
+    #1 12345 (8 bytes)
 
 === segment file: pfx-<id2>.log ===
     segment_id: <id2>
@@ -15,7 +15,7 @@
     format:     Fixed(8)
     sequence:   2
     -- 1 missing segment file(s); resynchronizing --
-    23 33 20 31 32 33 34 35 (8 bytes)
+    #3 12345 (8 bytes)
 
 === segment file: pfx-<id3>.log ===
     segment_id: <id3>
@@ -24,7 +24,7 @@
     remaining:  0
     format:     Fixed(8)
     sequence:   3
-    23 34 20 31 32 33 34 35 (8 bytes)
+    #4 12345 (8 bytes)
 
 read 3 message(s) across 3 file(s)
 1 segment file(s) lost

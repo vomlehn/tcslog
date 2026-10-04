@@ -19,6 +19,18 @@ format where it was. Each entry below says whether the stored format moved.
 
 Stored format: unchanged, 0.1.0.
 
+### Changed
+
+- The suite stores and compares records as ASCII rather than as hexadecimal.
+  A failing diff of `#1 123` against `#1 124` says what went wrong, where
+  `23 31 20 31 32 33` against `23 31 20 31 32 34` leaves the reader to decode
+  it. `--text` is now what `error-recovery-common` passes by default, and `-H`
+  is what asks for hexadecimal, which inverts what `-T` used to mean.
+- `text-combined_12-10` becomes `hex-combined_12-10`, since the variant worth
+  keeping is now the one the rest of the suite does not use. Both of the
+  tool's renderings are still covered end to end; which one is the exception
+  is all that moved.
+
 ### Added
 
 - `error-recovery-common` takes `-q`, which drops `--verbose` from the

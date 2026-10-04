@@ -61,9 +61,11 @@ version_indices_str=""
 segid_indices_str=""
 oversize_indices_str=""
 expected_file=""
-# Empty unless -T asks for the ASCII rendering, and passed to
-# tcslog-dump as an extra argument when it is.
-text_flag=""
+# --text unless -H asks for the hexadecimal rendering. Records are
+# compared and stored as ASCII because that is the form a person reads:
+# a failing diff of `#1 123` against `#1 124` says what went wrong,
+# where `23 31 20 31 32 33` against `23 31 20 31 32 34` does not.
+text_flag="--text"
 # --verbose unless -q asks for the records alone. The captured output is
 # what is compared, so this chooses what the stored file holds, not just
 # what reaches the terminal.
@@ -74,7 +76,7 @@ data_size=17
 sessions=1
 usage() {
 cat <<-EOF
-Usage: $0 -e <expected-file> [-g] [-k] [-q] [-r] [-x] [-T] [-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] [-n <count>] [-s <bytes>] [-S <count>] [-h]
+Usage: $0 -e <expected-file> [-g] [-k] [-q] [-r] [-x] [-H] [-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] [-n <count>] [-s <bytes>] [-S <count>] [-h]
 -c idx1 idx2 ...  Indices of files whose header magic to overwrite, so
                   the segment cannot be opened at all. Unlike -d the
                   file is still present, which is what a corrupted
@@ -84,6 +86,13 @@ Usage: $0 -e <expected-file> [-g] [-k] [-q] [-r] [-x] [-T] [-d \"idx1 idx2 ...\"
 -I idx1 idx2 ...  Indices of files whose stored segment_id to alter so
                   it no longer matches the id in the file name, as a
                   renamed or copied segment file would not.
+-H                Compare the hexadecimal rendering, dropping --text
+                  from the tcslog-dump run. Records are otherwise
+                  stored as ASCII, which is the form a failing diff can
+                  be read in. The rendering is the only difference:
+                  everything the reader reports about loss and recovery
+                  is the same either way, which is what makes the two
+                  comparable.
 -g                Overwrite the expected file with this run's output
                   instead of comparing against it. Timestamps are
                   masked with X so the file stays reproducible.
@@ -107,11 +116,6 @@ Usage: $0 -e <expected-file> [-g] [-k] [-q] [-r] [-x] [-T] [-d \"idx1 idx2 ...\"
 -S count          Number of generation passes to run into the same
                   directory, each of which starts a new session. The
                   reader must end one session before reading the next.
--T                Pass --text to tcslog-dump, so payloads are stored as
-                  ASCII rather than as the hexadecimal default. The
-                  rendering is the only difference: everything the
-                  reader reports about loss and recovery is the same
-                  either way, which is what makes the two comparable.
 -t idx1 idx2 ...  Indices of files to truncate to half their data
                   section, leaving the header intact. The segment still
                   opens and its sequence is still readable, so a record
@@ -133,13 +137,14 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":gkqrxhTc:d:e:f:n:s:t:I:O:S:V:" opt; do
+while getopts ":gkqrxhHc:d:e:f:n:s:t:I:O:S:V:" opt; do
     case "$opt" in
         c) corrupt_indices_str="$OPTARG" ;;
         d) delete_indices_str="$OPTARG" ;;
         e) expected_file="expected/$OPTARG" ;;
         f) FORMAT="$OPTARG" ;;
         g) generate=1 ;;
+        H) text_flag="" ;;
         h) usage ;;
         I) segid_indices_str="$OPTARG" ;;
         k) keep_tmp=1 ;;
@@ -149,7 +154,7 @@ while getopts ":gkqrxhTc:d:e:f:n:s:t:I:O:S:V:" opt; do
         r) raw_dumphdr_enabled=1 ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
         S) require_uint S "$OPTARG"; sessions="$OPTARG" ;;
-        T) text_flag="--text" ;;
+
         t) truncate_indices_str="$OPTARG" ;;
         V) version_indices_str="$OPTARG" ;;
         x) dumphdr_enabled=1 ;;

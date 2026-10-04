@@ -5,8 +5,8 @@
     remaining:  0
     format:     VariableSimple
     sequence:   0
-    23 31 20 31 32 33 (6 bytes)
-    23 32 20 31 32 33 (6 bytes)
+    #1 123 (6 bytes)
+    #2 123 (6 bytes)
 
 === segment file: pfx-<id2>.log ===
     segment_id: <id2>
@@ -15,8 +15,8 @@
     remaining:  0
     format:     VariableSimple
     sequence:   1
-    23 33 20 31 32 33 (6 bytes)
-    23 34 20 31 32 33 (6 bytes)
+    #3 123 (6 bytes)
+    #4 123 (6 bytes)
 
 === segment file: pfx-<id3>.log ===
     segment_id: <id3>
@@ -26,8 +26,8 @@
     format:     VariableSimple
     sequence:   3
     -- 1 missing segment file(s); resynchronizing --
-    23 37 20 31 32 33 (6 bytes)
-    23 38 20 31 32 33 (6 bytes)
+    #7 123 (6 bytes)
+    #8 123 (6 bytes)
 
 read 6 message(s) across 3 file(s)
 1 segment file(s) lost

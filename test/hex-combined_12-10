@@ -1,13 +1,13 @@
 #!/bin/bash
 #
 # The same log and the same damage as combined_12-10 -- one segment
-# deleted, one corrupted, one truncated -- read with --text rather than
-# with the hexadecimal default.
+# deleted, one corrupted, one truncated -- read as hexadecimal rather
+# than as the ASCII the rest of the suite stores.
 #
-# Having both means the suite covers each rendering end to end, and
-# comparing the two expected files shows what the flag changes and what
-# it does not: the payload lines differ, and every segment header, loss
-# notice and total is the same in both.
+# Having both means the suite covers each of tcslog-dump's renderings
+# end to end, and comparing the two expected files shows what the flag
+# changes and what it does not: the payload lines differ, and every
+# segment header, loss notice and total is the same in both.
 #
 # Generate segment files as follows:
 # o Variable length data records, 12 bytes each
@@ -31,12 +31,12 @@ CORRUPT="6"
 TRUNCATE="10"
 
 $bin/error-recovery-common \
-    -e "text-combined_12-10.expected" \
+    -e "hex-combined_12-10.expected" \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \
     -n "$NUMBER" \
     -d "$DELETE" \
     -c "$CORRUPT" \
     -t "$TRUNCATE" \
-    -T \
+    -H \
     "$@"

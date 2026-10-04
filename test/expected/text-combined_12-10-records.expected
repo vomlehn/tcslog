@@ -1,8 +1,0 @@
-    #1 123 (6 bytes recovered, rest of record lost)
-    #2 123456789 (12 bytes)
-    #3 123456789 (12 bytes)
-    #5 123456789 (12 bytes)
-    #6 12345678 (11 bytes recovered, rest of record lost)
-    #8 123456789 (12 bytes)
-    #9 123456789 (12 bytes)
-    #10 12345678 (12 bytes)
