@@ -15,6 +15,20 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+### Fixed
+
+- The crate described itself three ways. The description, the readme and the
+  library's own documentation each named a different set of vehicles —
+  `buoys` and `balloons` appeared in two of the three — so the library's
+  opening paragraph now matches the other two. Its Setup section also says
+  where the long version of the same material lives, the user manual, so a
+  reader wanting more need not go looking and an editor can see that this is
+  not the only copy.
+
 ## [0.2.1] - 2026-10-03
 
 Stored format: unchanged, 0.1.0.
@@ -192,6 +206,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.2.1...HEAD
 [0.2.1]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.1
 [0.2.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.0
 [0.1.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.1.0

@@ -1,7 +1,7 @@
-//! Onboard logging of telemetry for vehicles that must store data until
-//! there is an opportunity to send it: spacecraft, autonomous
-//! underwater vehicles, and anything else out of contact for long
-//! stretches.
+//! Onboard logging of telemetry for vehicles that cannot send it home as
+//! it is produced: spacecraft, autonomous underwater vehicles, buoys,
+//! balloons, and anything else whose contact is intermittent, where
+//! storage is budgeted long before launch.
 //!
 //! A log is a directory of *segment files*, each at most
 //! `seg_size_max` bytes, whose names are a caller-chosen prefix and
@@ -62,6 +62,10 @@
 //! what it arrived at; the figure in force is reported back, and is the
 //! one to build with next time. So starting at `1` and reading it back
 //! is a fine way to find it.
+//!
+//! Both requirements, and the reasoning behind them, are set out at
+//! length in the user manual, `docs/tcslog.rst` in [the
+//! repository](https://github.com/vomlehn/tcslog).
 //!
 //! # Example
 //!
