@@ -1,0 +1,153 @@
+#!/bin/bash
+#
+# Walk a person through one or more of the error-recovery suite's
+# scenarios, stopping after each until ENTER is pressed.
+#
+# The suite answers whether a scenario still produces what it produced
+# before. It cannot answer whether what it produces is right, and that
+# is the question this is for: each scenario shows the segment files as
+# the reader will find them, then the records the reader made of them,
+# and a person decides whether the second follows from the first.
+#
+# Each scenario is run with:
+#
+#   -x  hexdump each segment file after the deletions, corruptions and
+#       truncations have been done, which is the state tcslog-dump is
+#       about to read rather than the state the generator left
+#   -q  drop --verbose from tcslog-dump, so what follows the hexdump is
+#       the records and nothing else
+#
+# Records come out as ASCII, that being what the suite reads and stores
+# by default. -H would render them as hexadecimal, which is no use to
+# someone comparing records against the bytes they came from: the
+# hexdump above is already those bytes.
+
+set -u
+
+usage() {
+    cat <<-EOF
+	Usage: $(basename "$0") <scenario> [<scenario> ...]
+
+	Runs each named scenario from the test directory, pausing after
+	each until ENTER is pressed. A scenario is one of the executable
+	files there, named as the Makefile names them, for example:
+
+	    $(basename "$0") combined_12-10 corrupt_12-10
+
+	Each scenario still compares its output against its stored
+	expected file, so a mismatch is reported as it would be under
+	\`make test\`. The walk carries on past one and the count is
+	reported at the end.
+	EOF
+    exit 1
+}
+
+for arg in "$@"; do
+    case "$arg" in
+        -h|--help) usage ;;
+    esac
+done
+
+if [ $# -lt 1 ]; then
+    echo "At least one scenario is required." 1>&2
+    echo 1>&2
+    usage
+fi
+
+test_dir="$(cd "$(dirname "$0")/../test" && pwd)"
+
+# Lists the scenarios, for the message when a name is wrong. The
+# expected files share the directory, so this goes by what is
+# executable rather than by everything in it.
+scenarios() {
+    local f
+    for f in "$test_dir"/*; do
+        if [ -f "$f" ] && [ -x "$f" ]; then
+            echo "    $(basename "$f")"
+        fi
+    done
+}
+
+# Every name is checked before the first is run, so that a typo in the
+# last argument is not discovered after someone has worked through the
+# ones ahead of it.
+bad=0
+for name in "$@"; do
+    if [ ! -f "$test_dir/$name" ]; then
+        echo "No such scenario in $test_dir: $name" 1>&2
+        bad=1
+    elif [ ! -x "$test_dir/$name" ]; then
+        echo "Not executable: $test_dir/$name" 1>&2
+        bad=1
+    fi
+done
+if [ $bad -ne 0 ]; then
+    echo 1>&2
+    echo "The scenarios in $test_dir are:" 1>&2
+    scenarios 1>&2
+    exit 1
+fi
+
+# ENTER is read from the terminal rather than from standard input, so a
+# scenario's output can be piped or redirected without the prompt
+# swallowing part of it.
+#
+# Opening it is the test. `[ -r /dev/tty ]` is not: the device node can
+# be readable and the open still fail with ENXIO where the process has
+# no controlling terminal, which is every automated run of this script.
+# With no terminal there is nobody to wait for and the walk runs
+# straight through, which is said out loud rather than left to look
+# like the pauses were ignored.
+if (exec 3< /dev/tty) 2>/dev/null; then
+    exec 3< /dev/tty
+    have_tty=1
+else
+    have_tty=0
+    echo "No terminal to wait on; running every scenario without pausing."
+fi
+
+total=$#
+index=0
+failed=0
+stopped=0
+
+for name in "$@"; do
+    index=$((index + 1))
+    echo
+    echo "=============================================================="
+    echo "  [$index/$total] $name"
+    echo "=============================================================="
+    echo
+
+    # The scenarios resolve their expected files relative to the
+    # working directory, as the Makefile runs them.
+    if ! (cd "$test_dir" && ./"$name" -x -q); then
+        failed=$((failed + 1))
+        echo
+        echo "*** $name reported a failure; carrying on ***" 1>&2
+    fi
+
+    if [ $index -lt $total ] && [ $have_tty -eq 1 ]; then
+        echo
+        # A failed read is end of input -- Ctrl-D -- which is someone
+        # asking to stop. Recorded, so the summary does not claim the
+        # whole list was walked.
+        if ! read -r -p "ENTER for $((index + 1))/$total, Ctrl-C to stop: " _ <&3
+        then
+            echo
+            stopped=1
+            break
+        fi
+    fi
+done
+
+echo
+if [ $stopped -ne 0 ]; then
+    echo "Stopped after $index of $total; $failed reported a failure." 1>&2
+    exit 1
+elif [ $failed -ne 0 ]; then
+    echo "Walked all $total; $failed reported a failure." 1>&2
+    exit 1
+else
+    echo "Walked all $total; none reported a failure."
+fi

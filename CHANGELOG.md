@@ -19,6 +19,15 @@ format where it was. Each entry below says whether the stored format moved.
 
 Stored format: unchanged, 0.1.0.
 
+### Fixed
+
+- `-r` and `-x` aborted the run on any scenario that corrupts a header. The
+  hexdump passes each file to `tcslog-dumphdr`, which exits non-zero when it
+  will not read a header, and under `set -e` that took the whole script down
+  before the comparison it exists for — so the two options were unusable on
+  exactly the scenarios they are most wanted for. The refusal is now reported
+  and the hexdump still runs, that being what shows the damage.
+
 ### Changed
 
 - The suite stores and compares records as ASCII rather than as hexadecimal.
@@ -33,6 +42,12 @@ Stored format: unchanged, 0.1.0.
 
 ### Added
 
+- `bin/verify-helper` walks a person through named scenarios, stopping after
+  each until ENTER. Each is run with `-x -q`, so the output is the segment
+  files as the reader will find them — after the deletions, corruptions and
+  truncations — followed by the records alone, as ASCII. `make test` answers
+  whether a scenario still produces what it produced before; this is for
+  whether what it produces is right.
 - `error-recovery-common` takes `-q`, which drops `--verbose` from the
   `tcslog-dump` run so the comparison is the records alone. What is captured is
   what is compared, so the flag chooses the form of the stored file too: the

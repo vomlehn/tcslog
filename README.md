@@ -46,6 +46,17 @@ needs that checkout. `bin/tcslog-tool` finds it, expecting
 `../tcslog-tools` beside this repository; set `TCSLOG_TOOLS` to look
 elsewhere.
 
+`make test` answers whether a scenario still produces what it produced
+before, which is not the same as whether what it produces is right.
+`bin/verify-helper` is for the second question: name any of the scenarios
+under `test/` and it shows each one's segment files as the reader will
+find them, then the records the reader made of them, pausing after each
+until ENTER.
+
+```sh
+./bin/verify-helper combined_12-10 corrupt_12-10
+```
+
 Documentation
 -------------
 `tcslog/README.md` is not written by hand. It is generated from the

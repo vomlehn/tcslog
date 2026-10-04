@@ -10,9 +10,17 @@ set -eu
 # Dumps a segment file's header, then its data section. The skip is
 # SEGMENT_FILE_HEADER_LEN from tcslog::header; a smaller value would
 # show the tail of the header as if it were payload.
+#
+# A refused header is not a failure here. These scenarios corrupt header
+# magic on purpose, and tcslog-dumphdr exits non-zero when it will not
+# read one -- which under `set -e` took the whole run down before the
+# comparison it exists for, so -r and -x were unusable on exactly the
+# scenarios they are most wanted for. The refusal is reported and the
+# hexdump still runs, that being what shows the damage.
 dumphdr() {
     (
-        "$(dirname "$0")/tcslog-tool" tcslog-dumphdr "$@"
+        "$(dirname "$0")/tcslog-tool" tcslog-dumphdr "$@" ||
+            echo "    (header refused, bytes follow)"
         hexdump -C --skip 53 "$@"
     )
 }
