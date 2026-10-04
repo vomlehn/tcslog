@@ -15,7 +15,7 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
-## [Unreleased]
+## [0.2.1] - 2026-10-03
 
 Stored format: unchanged, 0.1.0.
 
@@ -192,6 +192,6 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
-[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.2.0...HEAD
+[0.2.1]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.1
 [0.2.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.0
 [0.1.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.1.0
