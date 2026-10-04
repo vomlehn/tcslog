@@ -15,6 +15,20 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+### Fixed
+
+- `README.md` said `docs/tcslog-prompt.rst` is "the Claude Code prompt that
+  generates the sources", in the present tense, two paragraphs above a section
+  saying changes are now made directly. The prompt no longer generates
+  anything. The Documentation section now tells the two documents under `docs/`
+  apart — the user guide and the specification — and says that both are
+  maintained by hand, so a change in behaviour belongs in both. This is the
+  workspace README, not the one published with the crate.
+
 ## [0.2.0] - 2026-10-03
 
 A segment file's identifier is the time it was created, and a reader replays
@@ -170,5 +184,6 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.2.0...HEAD
 [0.2.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.0
 [0.1.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.1.0
