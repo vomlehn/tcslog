@@ -33,6 +33,11 @@ const MAX_DATA_HEADER_LEN: usize = 20;
 /// [`send`](Self::send): without it, segment files accumulate in the
 /// directory and the storage bound the log was given stops holding.
 #[derive(Clone, Copy)]
+#[deprecated(
+    since = "0.2.8",
+    note = "implement WriteHandler instead, which can carry a context; \
+            pass () for no callbacks at all. WriteCallbacks is removed in 0.3.0"
+)]
 pub struct WriteCallbacks {
     /// Called after each data record has been written, with the segment
     /// file the record ended in.
@@ -101,6 +106,7 @@ pub struct WriteCallbacks {
     pub timer_resolution_adjusted: fn(u64),
 }
 
+#[allow(deprecated)]
 impl Default for WriteCallbacks {
     /// Callbacks that do nothing, except that a widened timer
     /// resolution is reported on standard error.
@@ -126,6 +132,7 @@ impl Default for WriteCallbacks {
     }
 }
 
+#[allow(deprecated)]
 impl std::fmt::Debug for WriteCallbacks {
     /// Function pointers have nothing worth printing, so this reports
     /// only that the structure is one of these.
@@ -144,13 +151,13 @@ impl std::fmt::Debug for WriteCallbacks {
 /// -- implements this instead and keeps that state in `self`, which the
 /// writer then owns and lends back on every call.
 ///
-/// Every method has a default that does nothing, except
-/// `timer_resolution_adjusted`, so an implementation names only the
-/// callbacks it wants. The writer calls them exactly where it calls the
-/// corresponding field of `WriteCallbacks`, and what each one is
-/// obliged to do is identical -- in particular [`send`](Self::send)
-/// must leave no file at the path it was given. The documentation on
-/// `WriteCallbacks` is the fuller account.
+/// [`send`](Self::send) must be implemented; the other two have
+/// defaults, so an implementation names only what it wants beyond it.
+/// The writer calls them exactly where it calls the corresponding field
+/// of [`WriteCallbacks`], and what each one is obliged to do is
+/// identical -- in particular `send` must leave no file at the path it
+/// was given. The documentation on `WriteCallbacks` is the fuller
+/// account.
 ///
 /// A handler is moved into the writer, which lends it back through
 /// [`LogWrite::handler`] and [`LogWrite::handler_mut`]. Those borrow
@@ -230,15 +237,20 @@ pub trait WriteHandler {
     /// [`WriteCallbacks::send`], which this corresponds to exactly and
     /// which sets out why.
     ///
+    /// This is the one method with no default. A `send` that does
+    /// nothing lets segment files accumulate until the directory is
+    /// full, and the bound on storage is the whole reason the log is
+    /// segmented, so leaving it out must be something a caller says
+    /// rather than something a default does quietly. Where that really
+    /// is wanted, `()` implements this trait and says so -- see the
+    /// implementation on the unit type.
+    ///
     /// # Errors
     ///
     /// Whatever the implementation reports. A failure here means the
     /// storage bound the log was given has stopped holding, so it
     /// reaches the caller rather than being swallowed.
-    fn send(&mut self, path: &Path) -> std::io::Result<()> {
-        let _ = path;
-        Ok(())
-    }
+    fn send(&mut self, path: &Path) -> std::io::Result<()>;
 
     /// Reports that the build-time timer resolution was too small and
     /// has been widened, with the value now in force in nanoseconds.
@@ -252,9 +264,82 @@ pub trait WriteHandler {
     }
 }
 
+/// A handler the caller keeps, lent to the writer.
+///
+/// Passing `&mut handler` rather than the handler itself leaves it
+/// where the caller can read it once the writer is gone -- which is
+/// when the last segment file has been handed over, the writer's own
+/// drop doing that. Without this, state to be read after the writer had
+/// to be reached through a reference the handler held to each field.
+///
+/// ```no_run
+/// use std::path::Path;
+/// use tcslog::{Format, LogWrite, WriteHandler, SEGMENT_FILE_HEADER_LEN};
+///
+/// struct Downlink {
+///     queued: usize,
+/// }
+///
+/// impl WriteHandler for Downlink {
+///     fn send(&mut self, path: &Path) -> std::io::Result<()> {
+///         std::fs::remove_file(path)?;
+///         self.queued += 1;
+///         Ok(())
+///     }
+/// }
+///
+/// # fn main() -> Result<(), tcslog::LogError> {
+/// let mut downlink = Downlink { queued: 0 };
+/// {
+///     let mut log = LogWrite::new(
+///         "/var/telemetry",
+///         "seg-",
+///         ".tcslog",
+///         SEGMENT_FILE_HEADER_LEN + 65_536,
+///         Format::VariableSimple,
+///         &mut downlink,
+///     )?;
+///     log.write_str("attitude nominal")?;
+/// }
+/// // The writer is gone, so the handler is the caller's again, and the
+/// // file the drop handed over is counted in it.
+/// println!("{} file(s) queued", downlink.queued);
+/// # Ok(())
+/// # }
+/// ```
+impl<H: WriteHandler + ?Sized> WriteHandler for &mut H {
+    fn record_complete(&mut self, file: &mut File) -> std::io::Result<()> {
+        (**self).record_complete(file)
+    }
+
+    fn send(&mut self, path: &Path) -> std::io::Result<()> {
+        (**self).send(path)
+    }
+
+    fn timer_resolution_adjusted(&mut self, resolution_ns: u64) {
+        (**self).timer_resolution_adjusted(resolution_ns);
+    }
+}
+
+/// No callbacks at all: `LogWrite::new(.., ())`.
+///
+/// Filled segment files are left in the log's directory, so they
+/// accumulate and the bound on storage the log was given stops holding.
+/// That suits development, a test, and a log small enough to be read
+/// off by hand, and nothing else. It is a type rather than a default on
+/// [`WriteHandler::send`] so that choosing it is something the caller
+/// writes down.
+impl WriteHandler for () {
+    fn send(&mut self, path: &Path) -> std::io::Result<()> {
+        let _ = path;
+        Ok(())
+    }
+}
+
 /// The stateless callbacks are a handler with no state, so a caller
 /// that has none goes on passing [`WriteCallbacks`] and nothing about
-/// its log changes.
+/// its log changes. Deprecated with the type it adapts.
+#[allow(deprecated)]
 impl WriteHandler for WriteCallbacks {
     fn record_complete(&mut self, file: &mut File) -> std::io::Result<()> {
         (self.record_complete)(file)
@@ -289,6 +374,7 @@ struct Current {
 /// [`WriteCallbacks::send`], and a fresh segment file is created. A new
 /// `LogWrite` therefore never appends to what it finds; it takes the
 /// older files off this library's hands and starts afresh.
+#[allow(deprecated)]
 pub struct LogWrite<H: WriteHandler = WriteCallbacks> {
     /// Directory the segment files live in.
     dir: PathBuf,
@@ -1224,17 +1310,34 @@ mod tests {
     /// The default callback would print to standard error instead.
     fn unreported(_ns: u64) {}
 
+    /// Reports resolution changes to a plain function and does nothing
+    /// else, which is all these tests need of a handler.
+    ///
+    /// The counters the function writes to are statics, each owned by
+    /// the test that reads it, because the tests run in parallel. A
+    /// handler could hold them instead -- that being the point of one --
+    /// but the statics are what these tests already assert on and the
+    /// resolution is not what they are about.
+    struct Adjusted(fn(u64));
+
+    impl WriteHandler for Adjusted {
+        fn send(&mut self, path: &Path) -> std::io::Result<()> {
+            let _ = path;
+            Ok(())
+        }
+
+        fn timer_resolution_adjusted(&mut self, resolution_ns: u64) {
+            (self.0)(resolution_ns);
+        }
+    }
+
     /// A writer on a fresh directory, reporting resolution changes
     /// through `adjusted`.
     ///
-    /// Each test that counts reports owns the counters `adjusted` writes
-    /// to, because the tests run in parallel and callbacks are plain
-    /// function pointers with nowhere to put per-test state.
-    ///
-    /// * `adjusted` -- the callback to install.
+    /// * `adjusted` -- the function to report to.
     ///
     /// Returns the writer and the directory, which must outlive it.
-    fn writer_with(adjusted: fn(u64)) -> (LogWrite, tempfile::TempDir) {
+    fn writer_with(adjusted: fn(u64)) -> (LogWrite<Adjusted>, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("a temporary directory");
         let w = LogWrite::new(
             dir.path().to_str().expect("a UTF-8 temporary path"),
@@ -1242,10 +1345,7 @@ mod tests {
             ".log",
             SEGMENT_FILE_HEADER_LEN + 64,
             Format::VariableSimple,
-            WriteCallbacks {
-                timer_resolution_adjusted: adjusted,
-                ..WriteCallbacks::default()
-            },
+            Adjusted(adjusted),
         )
         .expect("a writer on a fresh directory");
         (w, dir)

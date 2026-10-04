@@ -3,12 +3,11 @@
 //! [`RecordFormatSpec`].
 
 use std::fmt;
-use std::fs::File;
 use std::path::Path;
 use std::str::FromStr;
 
 use tcslog::{
-    record_trailer, Format, LogError, LogWrite, RecSize, WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
+    record_trailer, Format, LogError, LogWrite, RecSize, WriteHandler, SEGMENT_FILE_HEADER_LEN,
 };
 
 /// User-facing record-format specification parsed from the `--format`
@@ -182,31 +181,27 @@ pub struct LogInfo {
     pub message_count: u64,
 }
 
-// Both keep the fallible signatures declared by `WriteCallbacks` so
-// they can be stored in those function-pointer fields.
-#[allow(clippy::unnecessary_wraps)]
-fn noop_record_complete(_f: &mut File) -> std::io::Result<()> {
-    Ok(())
-}
+/// Announces each segment file as the library hands it over, which is
+/// what makes the handover visible in the output.
+///
+/// It keeps no state, so it is a unit struct; a handler is what a
+/// caller writes whether or not it has a context to carry, `send`
+/// having no default -- a log that never sends fills its directory, so
+/// not sending has to be chosen rather than inherited.
+struct Announce;
 
-#[allow(clippy::unnecessary_wraps)]
-fn send(p: &Path) -> std::io::Result<()> {
-    println!("--> Send file {}", p.display());
-    Ok(())
-}
+impl WriteHandler for Announce {
+    fn send(&mut self, p: &Path) -> std::io::Result<()> {
+        println!("--> Send file {}", p.display());
+        Ok(())
+    }
 
-/// Reports that the build-time timer resolution was too small for this
-/// machine and has been widened, which is worth seeing while developing
-/// even though the writer carries on regardless.
-fn timer_resolution_adjusted(ns: u64) {
-    println!("--> Timer resolution widened to {ns} ns");
+    /// Worth seeing while developing even though the writer carries on
+    /// regardless: the value is what to build with next time.
+    fn timer_resolution_adjusted(&mut self, ns: u64) {
+        println!("--> Timer resolution widened to {ns} ns");
+    }
 }
-
-const SAMPLE_WRITE_CALLBACKS: WriteCallbacks = WriteCallbacks {
-    record_complete: noop_record_complete,
-    send,
-    timer_resolution_adjusted,
-};
 
 /// Creates a log chain in `dir_name` using the given file-name `prefix`
 /// and `suffix`, with each data record shaped according to `spec`.
@@ -238,14 +233,7 @@ pub fn create_log(
         println!();
     }
 
-    let mut log = LogWrite::new(
-        dir_name,
-        prefix,
-        suffix,
-        seg_size_max,
-        format,
-        SAMPLE_WRITE_CALLBACKS,
-    )?;
+    let mut log = LogWrite::new(dir_name, prefix, suffix, seg_size_max, format, Announce)?;
 
     let session_id = log.session_id();
     let root_file = format!("{prefix}{session_id}{suffix}");

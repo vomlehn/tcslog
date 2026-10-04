@@ -345,6 +345,13 @@ the callbacks it supplies, and what it does with the session ID.
 Callbacks with a context: WriteHandler
 --------------------------------------
 
+.. note::
+
+   ``WriteCallbacks`` is deprecated as of 0.2.8 and is removed in 0.3.0.
+   ``WriteHandler`` replaces it: a caller with no state to carry
+   implements it on a unit struct, or passes ``()`` for no callbacks at
+   all. The type still works for as long as it ships.
+
 ``WriteCallbacks`` holds bare function pointers, which have nowhere to
 keep state. A caller whose callbacks must reach its own -- a radio
 handle, a queue of files awaiting a downlink pass, a counter --
@@ -379,21 +386,52 @@ implements ``WriteHandler`` instead and keeps that state in ``self``:
     }
     println!("{queued} file(s) queued");
 
-The writer is generic over the handler, with ``WriteCallbacks`` as the
-default, so ``LogWrite`` goes on naming what it always named and a
-caller passing ``WriteCallbacks`` needs no change. Every method of the
-trait has a default that does nothing, so an implementation names only
-the callbacks it wants, and each one is called exactly where the
-corresponding field of ``WriteCallbacks`` is called, with the same
-obligations -- in particular ``send`` must leave no file at the path it
-was given.
+``send`` must be implemented. The other two have defaults -- doing
+nothing, and printing the widened resolution to standard error -- so an
+implementation names only what it wants beyond ``send``. Each is called
+exactly where the corresponding field of ``WriteCallbacks`` is called,
+with the same obligations: in particular ``send`` must leave no file at
+the path it was given.
 
-The writer owns the handler and lends it back through
-``LogWrite::handler`` and ``LogWrite::handler_mut``. Those borrow rather
-than return it, and the last segment file is handed over by the writer's
-own drop, so state that must be read after that belongs behind a
-reference or a shared handle the handler holds, as ``queued`` is above,
-rather than in the handler itself.
+``send`` has no default on purpose. A log that never sends fills its
+directory, and the bound on storage is the whole reason the log is
+segmented, so not sending has to be chosen rather than inherited. Where
+it really is wanted, the unit type implements the trait and says so::
+
+    let mut log = LogWrite::new(dir, "seg-", ".tcslog", size, format, ())?;
+
+That is ``WriteCallbacks::default()`` in a form a reader of the call can
+see: filled segment files stay in the directory, which suits
+development, a test, and a log small enough to read off by hand.
+
+Handing the handler over, or lending it
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Passing the handler by value gives it to the writer, which lends it
+back through ``LogWrite::handler`` and ``LogWrite::handler_mut``.
+Passing ``&mut handler`` instead leaves it with the caller:
+
+.. code-block:: rust
+
+    let mut downlink = Downlink { queued: 0 };
+    {
+        let mut log = LogWrite::new(
+            dir, "seg-", ".tcslog", size, Format::VariableSimple,
+            &mut downlink,
+        )?;
+        log.write_str("attitude nominal")?;
+    }
+    println!("{} file(s) queued", downlink.queued);
+
+That is usually what to do when the state matters after the log is
+closed. The writer's own drop flushes the segment file still open and
+hands it to ``send``, so a count kept inside a handler the writer owns
+cannot be read once that has happened, where a handler the caller still
+holds can.
+
+``LogWrite`` is generic over the handler, with ``WriteCallbacks`` as the
+default type, so ``LogWrite`` named without a parameter goes on meaning
+what it meant and a caller passing ``WriteCallbacks`` needs no change.
 
 Record Formats
 ==============

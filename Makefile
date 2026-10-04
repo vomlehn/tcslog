@@ -191,6 +191,10 @@ distclean: clean		## Remove build artifacts and all generated files
 check:				## Run cargo check, clippy, fmt, and the README check
 	@echo "Running cargo check..."
 	cargo check --all-targets
+	# The read-only configuration, which nothing else here builds: the
+	# scenario suite reaches it only through tcslog-tools, so a `write`
+	# item exported without its cfg compiled fine until that suite ran.
+	cargo check -p tcslog --no-default-features
 	cargo clippy --all-targets -- -D warnings
 	cargo fmt -- --check
 	cargo rdme --check -w tcslog --intralinks-strip-links

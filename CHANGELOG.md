@@ -19,6 +19,23 @@ format where it was. Each entry below says whether the stored format moved.
 
 Stored format: unchanged, 0.1.0.
 
+### Deprecated
+
+- `WriteCallbacks`, in favour of `WriteHandler`, with removal in 0.3.0.
+  The two do the same job and the trait does it better: it can carry a
+  context, it is static dispatch the compiler can inline where a `fn`
+  pointer is an opaque indirect call, and a stateless handler is a unit
+  struct costing nothing where `WriteCallbacks` is three pointers stored
+  in every writer. Keeping both would mean two ways to say one thing, in
+  the API, the manual and the specification.
+
+  Nothing breaks yet: the type still works, still implements the trait,
+  and is still the default type parameter. In 0.3.0 it goes and the
+  default becomes `()`. `tcslog-gen` and `examples/sample.rs` are
+  migrated here rather than silenced, and both read better for it --
+  their three free functions and a `const` become one unit struct with
+  two methods.
+
 ### Added
 
 - `WriteHandler`, the callbacks as a trait, for a caller whose callbacks
@@ -39,11 +56,21 @@ Stored format: unchanged, 0.1.0.
   parameter, are unaffected -- all 108 tests passed unchanged across the
   change.
 
-  The handler is lent rather than returned because moving a field out of
-  a type with a destructor needs `unsafe`, which this library does not
-  use. State to be read after the writer is gone -- a final count, the
-  last segment file having been handed over by the writer's own drop --
-  belongs behind a reference or a shared handle the handler holds.
+  `&mut H` implements the trait for any handler `H`, so a handler can be
+  lent to the writer rather than given up and read once the log is
+  closed. That is what to reach for when the state matters afterwards:
+  the writer's own drop hands the last segment file to `send`, so a count
+  inside a handler the writer owns cannot be read after that, where one
+  the caller still holds can. The alternative would have been to return
+  the handler from the writer, which needs `unsafe` to move a field out
+  of a type with a destructor -- this library has none.
+
+  `send` is the one method with no default, and `()` implements the trait
+  with a `send` that does nothing. A log that never sends fills its
+  directory, and the bound on storage is the whole reason the log is
+  segmented, so not sending is now something a caller writes down
+  (`LogWrite::new(.., ())`) rather than something `..Default::default()`
+  does quietly.
 
 - `tcslog-c`, a C ABI over `LogWrite` and `LogRead`, as a third
   workspace member. A C interface has to be built as a `cdylib` and a
@@ -111,6 +138,12 @@ Stored format: unchanged, 0.1.0.
   on. The Rust unit tests in `tcslog-c` call the same functions as Rust,
   so only this would catch a header that described the wrong argument
   order or struct layout.
+
+- `make check` builds the library with `--no-default-features`, the
+  read-only configuration nothing else here builds. An item of the
+  `write` module re-exported without its `cfg` compiled fine until the
+  scenario suite built `tcslog-tools` against it, which is a slow way to
+  find a one-line mistake; this finds it in the check that is meant to.
 
 - `make capi-memcheck` runs that program under the address and
   undefined-behaviour sanitizers, which is what checks the handles for

@@ -14,13 +14,13 @@
 //! ```
 
 use std::error::Error;
-use std::fs::{self, File};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
 
-use tcslog::{Format, LogError, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
+use tcslog::{Format, LogError, LogWrite, WriteHandler, SEGMENT_FILE_HEADER_LEN};
 
 /// Maximum size in bytes of any single segment file. Sized to force
 /// rollover after a small handful of `VariableTsRc` records so the
@@ -38,31 +38,27 @@ struct SampleLogs {
     message_count: u64,
 }
 
-// Both keep the fallible signatures declared by `WriteCallbacks` so
-// they can be stored in those function-pointer fields.
-#[allow(clippy::unnecessary_wraps)]
-fn noop_record_complete(_f: &mut File) -> std::io::Result<()> {
-    Ok(())
-}
+/// Announces each segment file as the library hands it over, which is
+/// what makes the handover visible in the output.
+///
+/// It keeps no state, so it is a unit struct; a handler is what a
+/// caller writes whether or not it has a context to carry, `send`
+/// having no default -- a log that never sends fills its directory, so
+/// not sending has to be chosen rather than inherited.
+struct Announce;
 
-#[allow(clippy::unnecessary_wraps)]
-fn send(p: &Path) -> std::io::Result<()> {
-    println!("--> Send file {}", p.display());
-    Ok(())
-}
+impl WriteHandler for Announce {
+    fn send(&mut self, p: &Path) -> std::io::Result<()> {
+        println!("--> Send file {}", p.display());
+        Ok(())
+    }
 
-/// Reports that the build-time timer resolution was too small for this
-/// machine and has been widened, which is worth seeing while developing
-/// even though the writer carries on regardless.
-fn timer_resolution_adjusted(ns: u64) {
-    println!("--> Timer resolution widened to {ns} ns");
+    /// Worth seeing while developing even though the writer carries on
+    /// regardless: the value is what to build with next time.
+    fn timer_resolution_adjusted(&mut self, ns: u64) {
+        println!("--> Timer resolution widened to {ns} ns");
+    }
 }
-
-const SAMPLE_WRITE_CALLBACKS: WriteCallbacks = WriteCallbacks {
-    record_complete: noop_record_complete,
-    send,
-    timer_resolution_adjusted,
-};
 
 /// Creates a sample log chain in `dir_name` using the given file-name
 /// `prefix` and `suffix`: a root segment file plus successor segment
@@ -98,7 +94,7 @@ fn create_sample_logs(
         suffix,
         SEG_SIZE_MAX,
         Format::VariableTsRc,
-        SAMPLE_WRITE_CALLBACKS,
+        Announce,
     )?;
 
     let session_id = log.session_id();

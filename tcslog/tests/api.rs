@@ -8,6 +8,11 @@
 //! value, the exact size of every segment file, and the state a writer
 //! is left in by a failure.
 
+// WriteCallbacks is deprecated in favour of WriteHandler but is still
+// shipped and still has to work, so the tests of it stay as they are
+// until 0.3.0 removes it. The handler tests below are the new path's.
+#![allow(deprecated)]
+
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -631,6 +636,77 @@ fn a_handler_carries_its_own_context() {
         log.segment_files().len(),
         "the file still open at the drop was not handed over"
     );
+}
+
+#[test]
+fn a_borrowed_handler_stays_with_the_caller() {
+    // The handler itself is the caller's, lent to the writer, so it is
+    // readable once the writer is gone -- which is when the last
+    // segment file has been handed over.
+    struct Counting {
+        sends: usize,
+    }
+
+    impl WriteHandler for Counting {
+        fn send(&mut self, _p: &Path) -> io::Result<()> {
+            self.sends += 1;
+            Ok(())
+        }
+    }
+
+    let log = Log::new(10);
+    let written = payloads(12, 9);
+    let mut handler = Counting { sends: 0 };
+    {
+        let mut w = LogWrite::new(
+            log.path(),
+            PREFIX,
+            SUFFIX,
+            log.seg_size_max,
+            Format::VariableSimple,
+            &mut handler,
+        )
+        .expect("a writer on a fresh directory");
+        for payload in &written {
+            w.write(payload).expect("a writable payload");
+        }
+    }
+    assert_eq!(
+        handler.sends,
+        log.segment_files().len(),
+        "a borrowed handler did not see every file, the drop's included"
+    );
+}
+
+#[test]
+fn the_unit_handler_is_no_callbacks_at_all() {
+    // `()` says what `WriteCallbacks::default()` said, in a form that
+    // has to be written down: filled files are left in the directory.
+    let log = Log::new(10);
+    let written = payloads(12, 9);
+    {
+        let mut w = LogWrite::new(
+            log.path(),
+            PREFIX,
+            SUFFIX,
+            log.seg_size_max,
+            Format::VariableSimple,
+            (),
+        )
+        .expect("a writer on a fresh directory");
+        for payload in &written {
+            w.write(payload).expect("a writable payload");
+        }
+    }
+    assert!(
+        !log.segment_files().is_empty(),
+        "a log with no send callback should have kept its segment files"
+    );
+
+    // And they are readable, so nothing about the log itself differs.
+    let mut r = LogRead::new(log.path(), PREFIX, SUFFIX).expect("a readable log");
+    let mut buf = [0u8; 64];
+    assert!(r.read(&mut buf).is_ok(), "the log did not read back");
 }
 
 /// A handler that reports a failure, which must reach the caller of the

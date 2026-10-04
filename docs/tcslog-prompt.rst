@@ -1764,11 +1764,28 @@ o   ``send(&mut self, path: &Path) -> io::Result<()>``
 
 o   ``timer_resolution_adjusted(&mut self, resolution_ns: u64)``
 
-Every method has a default. ``record_complete`` and ``send`` do
-nothing; ``timer_resolution_adjusted`` prints to standard error, as
-``WriteCallbacks::default`` does and for the same reason. Each is called
-exactly where the corresponding field of ``WriteCallbacks`` is called
-and is under the same obligations.
+``send`` has no default and must be implemented. A log that never
+sends fills its directory, and the bound on storage is why the log is
+segmented at all, so not sending is required to be something the caller
+states rather than something a default does quietly. ``()`` implements
+the trait with a ``send`` that does nothing, which is where that
+statement is made.
+
+``record_complete`` defaults to doing nothing and
+``timer_resolution_adjusted`` to printing on standard error, as
+``WriteCallbacks::default`` does and for the same reason. Each method is
+called exactly where the corresponding field of ``WriteCallbacks`` is
+called and is under the same obligations.
+
+``&mut H`` implements the trait for any handler ``H``, so a caller may
+lend a handler rather than give it up and read its state once the
+writer is dropped. The writer's drop hands the last segment file to
+``send``, so a count kept in a handler the writer owns cannot be read
+after that, where one the caller still holds can.
+
+``WriteCallbacks`` is deprecated as of 0.2.8 and is to be removed in
+0.3.0, when the default type parameter becomes ``()``. Until then both
+are supported and a caller passing ``WriteCallbacks`` is unaffected.
 
 ``LogWrite`` is generic over the handler with ``WriteCallbacks`` as the
 default type, and ``WriteCallbacks`` implements the trait by calling its
