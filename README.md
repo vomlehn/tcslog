@@ -48,7 +48,18 @@ elsewhere.
 
 Documentation
 -------------
-There are two documents under `docs/`, and they are easy to confuse.
+`tcslog/README.md` is not written by hand. It is generated from the
+library's own documentation in `tcslog/src/lib.rs`, so the two cannot
+drift: `make readme` regenerates it and `make check` fails if it is out of
+date. Edit the doc comment, not the README. Its last few sections, from
+"Record formats" on, are outside the generated region and are hand-written.
+That needs a tool `cargo` does not ship:
+
+```sh
+cargo install cargo-rdme
+```
+
+There are also two documents under `docs/`, and they are easy to confuse.
 
 `docs/tcslog.rst` is the user guide: what the library does, how to call it,
 and how it behaves. `make -C docs` renders it to `docs/tcslog.html`.

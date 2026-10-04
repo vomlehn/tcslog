@@ -17,17 +17,6 @@
 //! documented where they appear: [`LogRead::iter`], which yields owned
 //! [`Record`] values, and [`LogRead::take_opened_headers`].
 //!
-//! # Recovery
-//!
-//! The reason for the segment header's `remaining` and `sequence`
-//! fields is that stored telemetry gets damaged. A reader that finds a
-//! segment file missing, unreadable, or cut short discards the record
-//! that was in progress, resynchronizes on the next segment file that
-//! opens cleanly, and carries on with the records after it. It reports
-//! what it lost rather than quietly returning a smaller log, and it
-//! never splices bytes from either side of a gap into a record that was
-//! never written.
-//!
 //! # Setup
 //!
 //! Two things have to be in place before a log can be written. Neither
@@ -67,33 +56,91 @@
 //! length in the user manual, `docs/tcslog.rst` in [the
 //! repository](https://github.com/vomlehn/tcslog).
 //!
-//! # Example
+//! # Writing
 //!
 //! ```no_run
-//! use tcslog::{Format, LogRead, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
+//! use tcslog::{Format, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
 //!
 //! # fn main() -> Result<(), tcslog::LogError> {
 //! let mut log = LogWrite::new(
-//!     "/var/telemetry",
-//!     "tlm-",
-//!     ".seg",
-//!     SEGMENT_FILE_HEADER_LEN + 4096,
+//!     "/var/telemetry",                 // an existing directory
+//!     "seg-",                           // file name prefix
+//!     ".tcslog",                        // file name suffix
+//!     SEGMENT_FILE_HEADER_LEN + 65_536, // bytes per segment file
 //!     Format::VariableTsRc,
 //!     WriteCallbacks::default(),
 //! )?;
-//! log.write_str("attitude nominal")?;
-//! log.flush()?;
-//! drop(log);
 //!
-//! let mut log = LogRead::new("/var/telemetry", "tlm-", ".seg")?;
-//! let mut buf = [0u8; 256];
-//! while let Ok(rec) = log.read(&mut buf) {
-//!     println!("{}", String::from_utf8_lossy(&buf[..rec.n as usize]));
+//! log.write_str("attitude nominal")?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! [`WriteCallbacks`] is where a filled segment file leaves this
+//! library's care: `send` is called with its path, and must leave no
+//! file of that name behind -- compress it, downlink it, or rename it
+//! out of the log's naming pattern. The default `send` does nothing,
+//! which suits development and lets segment files accumulate.
+//!
+//! # Reading
+//!
+//! Reading needs no timer resolution, so a program that only reads can
+//! take the crate without its default features:
+//!
+//! ```toml
+//! [dependencies]
+//! tcslog = { version = "0.2", default-features = false }
+//! ```
+//!
+//! ```no_run
+//! use tcslog::{LogError, LogRead, Meta, RecSize};
+//!
+//! # fn handle(_payload: &[u8], _meta: Meta) {}
+//! # fn note_loss(_lost: u64, _n: RecSize) {}
+//! # fn main() -> Result<(), LogError> {
+//! let mut log = LogRead::new("/var/telemetry", "seg-", ".tcslog")?;
+//! let mut buf = [0u8; 4096];
+//!
+//! loop {
+//!     match log.read(&mut buf) {
+//!         Ok(result) => handle(&buf[..result.n as usize], result.meta),
+//!         Err(LogError::Eof) => break,
+//!         // Writing was interrupted here; record numbering restarts.
+//!         Err(LogError::SessionEnd) => continue,
+//!         // Telemetry was lost. `lost` files are missing, and the
+//!         // first `n` bytes are real telemetry from a record that was
+//!         // cut short.
+//!         Err(LogError::ReadTruncated { lost, n }) => note_loss(lost, n),
+//!         Err(e) => return Err(e),
+//!     }
 //! }
 //! # Ok(())
 //! # }
 //! ```
-
+//!
+//! The rule is: read again until [`LogError::Eof`]. Every other outcome
+//! is news about the telemetry, not a failure of the reader.
+//!
+//! # Recovery
+//!
+//! The reason for the segment header's `remaining` and `sequence`
+//! fields is that stored telemetry gets damaged. A log is read back as
+//! far as it survives: a reader that finds a segment file missing,
+//! unreadable, or cut short discards the record that was in progress,
+//! finds the next whole record start in the first file that opens
+//! cleanly, and carries on with the records after it.
+//!
+//! - Losses are reported rather than hidden, including how many files
+//!   went missing, and including a loss falling exactly on a record
+//!   boundary -- the case a naive reader misses because both sides look
+//!   ordinary.
+//! - Nothing is invented: bytes from either side of a gap are never
+//!   spliced into a record that was never written.
+//! - A record cut short is handed over, marked so it cannot be mistaken
+//!   for a whole one.
+//! - Each segment file carries its own identity, so a file renamed or
+//!   copied out of its directory can still be identified and read.
+//!
 #![warn(missing_docs)]
 
 mod error;

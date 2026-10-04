@@ -73,12 +73,24 @@ distclean: clean		## Remove build artifacts and all generated files
 # the tests segment files to read
 
 # Check code quality
+# The library's README is generated from its own documentation, so
+# checking it is checking that the two have not drifted. Intralinks are
+# stripped rather than resolved: resolving them wants a pinned nightly,
+# and `SegId` reads as well as a link to it in a README.
 .PHONY: check
-check:				## Run cargo check, clippy, and fmt --check
+check:				## Run cargo check, clippy, fmt, and the README check
 	@echo "Running cargo check..."
 	cargo check --all-targets
 	cargo clippy --all-targets -- -D warnings
 	cargo fmt -- --check
+	cargo rdme --check -w tcslog --intralinks-strip-links
+
+# Regenerate the library's README from tcslog/src/lib.rs. Needs
+# `cargo install cargo-rdme`, as `make check` does.
+.PHONY: readme
+readme:				## Regenerate tcslog/README.md from the library docs
+	cargo rdme -w tcslog --intralinks-strip-links
+	@echo "[OK] tcslog/README.md regenerated"
 
 # Format code
 .PHONY: format

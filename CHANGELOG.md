@@ -15,6 +15,25 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+### Changed
+
+- `tcslog/README.md` is now generated from the library's own documentation by
+  [`cargo-rdme`](https://crates.io/crates/cargo-rdme), so the two cannot drift
+  apart the way they had. `make readme` regenerates it; `make check` fails when
+  it is out of date. Everything from "Record formats" on sits outside the
+  generated region and is still hand-written, that being the crates.io
+  furniture rather than the library's documentation.
+- The library's documentation absorbed the readme's Writing and Reading
+  sections, which were better than the single combined example it had: the
+  `send` contract, the read loop with a line on what each outcome asks of a
+  caller, and the rule the outcomes add up to. Generating the readme from a
+  thinner source would have cost the crates.io page that material, so it moved
+  rather than being dropped. Both examples compile as doctests.
+
 ## [0.2.2] - 2026-10-03
 
 Stored format: unchanged, 0.1.0.
@@ -206,6 +225,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.2.2...HEAD
 [0.2.2]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.2
 [0.2.1]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.1
 [0.2.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.0

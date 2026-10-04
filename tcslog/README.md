@@ -1,36 +1,47 @@
 # tcslog
 
-Onboard telemetry logging for vehicles that cannot send their telemetry home as
-it is produced — spacecraft, autonomous underwater vehicles, buoys, balloons —
-where storage is budgeted long before launch and contact is intermittent.
+<!-- cargo-rdme start -->
 
-A log is a directory of segment files, each at most a size you choose. Records
-are appended to the file being written; when it fills, the library hands it to
-a callback of yours and opens the next one. That shape is what makes a log
-downlinkable a piece at a time, and what bounds the damage any single bad
+Onboard logging of telemetry for vehicles that cannot send it home as
+it is produced: spacecraft, autonomous underwater vehicles, buoys,
+balloons, and anything else whose contact is intermittent, where
+storage is budgeted long before launch.
+
+A log is a directory of *segment files*, each at most
+`seg_size_max` bytes, whose names are a caller-chosen prefix and
+suffix around a `SegId`. Bounding the file size bounds the storage
+a log occupies, which is what lets a mission commit storage to
+telemetry with confidence; splitting the log into files is what lets
+it be sent down in small batches, and what limits the damage a bad
 sector can do.
 
-Every segment file but the one being written is *exactly* the chosen size, so a
-log's footprint is the file count times that size. Nothing is padded and
-nothing falls short. Once running, writing and reading a record allocate
-nothing.
+Records are written with `LogWrite` and read with `LogRead`.
+Neither allocates once it has been constructed, so both suit
+embedded systems with a fixed memory budget. The two exceptions are
+documented where they appear: `LogRead::iter`, which yields owned
+`Record` values, and `LogRead::take_opened_headers`.
 
-## Two things to set up first
+## Setup
 
-**The real-time clock must hold the correct time before you open a log.** A
-writer reads it once, pairs it with the monotonic clock, and measures every
-segment identifier and record timestamp from that pairing — which is what keeps
-identifiers in creation order when NTP or an operator steps the real-time clock
-backwards. A correction arriving later cannot mend identifiers already minted.
-`LogWrite::new` refuses a clock that does not read later than the UNIX epoch,
-which is what an unset clock reads on most systems, and reports
-`LogError::ClockError`.
+Two things have to be in place before a log can be written. Neither
+is needed to read one, so a program that only reads can take the
+crate with `default-features = false` and skip this section.
 
-**`TIMER_RESOLUTION` must be set when building the `write` feature.** It is how
-finely your machine's clock advances, in nanoseconds, and nothing guesses it
-for you. Leave it unset and the crate still builds, but `LogWrite::new` reports
-`LogError::TimerResolutionZero` and opens no log. Set it in
-`.cargo/config.toml`:
+**The real-time clock must hold the correct time.** A writer reads it
+once, when it is constructed, pairs it with the monotonic clock, and
+measures every segment identifier and record timestamp from that
+pairing -- which is what keeps identifiers in creation order when NTP
+or an operator steps the real-time clock backwards. Because it is
+read once, a correction arriving later does not reach the identifiers
+already minted, so a clock that does not read later than the UNIX
+epoch, which is what an unset clock reads on most systems, is refused
+with `LogError::ClockError` rather than used.
+
+**`TIMER_RESOLUTION` must be set when building with the `write`
+feature.** It is how finely this machine's clock advances, in
+nanoseconds, and nothing guesses it: left unset the crate still
+builds, but opening a log reports
+`LogError::TimerResolutionZero`. Set it in `.cargo/config.toml`:
 
 ```toml
 [env]
@@ -39,22 +50,26 @@ TIMER_RESOLUTION = "1"
 
 or on the command line, as `TIMER_RESOLUTION=1 cargo build`.
 
-It need not be exact. A writer that finds the value too small doubles it, goes
-on doubling until a segment file name is free, and keeps what it arrived at.
-`LogWrite::timer_resolution()` reports the figure in force, which is the one to
-build with next time — so starting at `1` and reading it back is a fine way to
-find it.
+It need not be exact. A writer that finds the value too small doubles
+it, goes on doubling until a segment file name is free, and keeps
+what it arrived at; the figure in force is reported back, and is the
+one to build with next time. So starting at `1` and reading it back
+is a fine way to find it.
+
+Both requirements, and the reasoning behind them, are set out at
+length in the user manual, `docs/tcslog.rst` in [the
+repository](https://github.com/vomlehn/tcslog).
 
 ## Writing
 
 ```rust
-use tcslog::{Format, LogWrite, WriteCallbacks};
+use tcslog::{Format, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
 
 let mut log = LogWrite::new(
-    "/var/telemetry",   // an existing directory
-    "seg-",             // file name prefix
-    ".tcslog",          // file name suffix
-    65_536,             // bytes per segment file, header included
+    "/var/telemetry",                 // an existing directory
+    "seg-",                           // file name prefix
+    ".tcslog",                        // file name suffix
+    SEGMENT_FILE_HEADER_LEN + 65_536, // bytes per segment file
     Format::VariableTsRc,
     WriteCallbacks::default(),
 )?;
@@ -62,16 +77,16 @@ let mut log = LogWrite::new(
 log.write_str("attitude nominal")?;
 ```
 
-`WriteCallbacks` is where a filled segment file leaves the library's care:
-`send` is called with its path, and must leave no file of that name behind —
-compress it, downlink it, or rename it out of the log's naming pattern. The
-default `send` does nothing, which suits development and lets segment files
-accumulate.
+`WriteCallbacks` is where a filled segment file leaves this
+library's care: `send` is called with its path, and must leave no
+file of that name behind -- compress it, downlink it, or rename it
+out of the log's naming pattern. The default `send` does nothing,
+which suits development and lets segment files accumulate.
 
 ## Reading
 
-Reading needs no timer resolution, so a read-only program can take the crate
-without its default features:
+Reading needs no timer resolution, so a program that only reads can
+take the crate without its default features:
 
 ```toml
 [dependencies]
@@ -79,7 +94,7 @@ tcslog = { version = "0.2", default-features = false }
 ```
 
 ```rust
-use tcslog::{LogError, LogRead};
+use tcslog::{LogError, LogRead, Meta, RecSize};
 
 let mut log = LogRead::new("/var/telemetry", "seg-", ".tcslog")?;
 let mut buf = [0u8; 4096];
@@ -90,32 +105,39 @@ loop {
         Err(LogError::Eof) => break,
         // Writing was interrupted here; record numbering restarts.
         Err(LogError::SessionEnd) => continue,
-        // Telemetry was lost. `lost` files are missing, and the first
-        // `n` bytes are real telemetry from a record cut short.
+        // Telemetry was lost. `lost` files are missing, and the
+        // first `n` bytes are real telemetry from a record that was
+        // cut short.
         Err(LogError::ReadTruncated { lost, n }) => note_loss(lost, n),
-        Err(e) => return Err(e.into()),
+        Err(e) => return Err(e),
     }
 }
 ```
 
-The rule is: read again until `Eof`. Every other outcome is news about the
-telemetry, not a failure of the reader.
+The rule is: read again until `LogError::Eof`. Every other outcome
+is news about the telemetry, not a failure of the reader.
 
 ## Recovery
 
-A log is read back as far as it survives. On a segment file that is missing,
-unreadable, or cut short, the reader abandons the record it was in, finds the
-next whole record start in the first file that opens cleanly, and carries on.
+The reason for the segment header's `remaining` and `sequence`
+fields is that stored telemetry gets damaged. A log is read back as
+far as it survives: a reader that finds a segment file missing,
+unreadable, or cut short discards the record that was in progress,
+finds the next whole record start in the first file that opens
+cleanly, and carries on with the records after it.
 
-- Losses are reported rather than hidden, including how many files went
-  missing, and including a loss falling exactly on a record boundary — the case
-  a naive reader misses because both sides look ordinary.
-- Nothing is invented: bytes from either side of a gap are never stitched into
-  one record.
-- A record cut short is handed over, marked so it cannot be mistaken for a
-  whole one.
-- Each segment file carries its own identity, so a file renamed or copied out
-  of its directory can still be identified and read.
+- Losses are reported rather than hidden, including how many files
+  went missing, and including a loss falling exactly on a record
+  boundary -- the case a naive reader misses because both sides look
+  ordinary.
+- Nothing is invented: bytes from either side of a gap are never
+  spliced into a record that was never written.
+- A record cut short is handed over, marked so it cannot be mistaken
+  for a whole one.
+- Each segment file carries its own identity, so a file renamed or
+  copied out of its directory can still be identified and read.
+
+<!-- cargo-rdme end -->
 
 ## Record formats
 
