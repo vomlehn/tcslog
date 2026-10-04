@@ -61,13 +61,16 @@ version_indices_str=""
 segid_indices_str=""
 oversize_indices_str=""
 expected_file=""
+# Empty unless -T asks for the ASCII rendering, and passed to
+# tcslog-dump as an extra argument when it is.
+text_flag=""
 FORMAT="variable-simple:0..10"
 number=20
 data_size=17
 sessions=1
 usage() {
 cat <<-EOF
-Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] [-n <count>] [-s <bytes>] [-S <count>] [-h]
+Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-T] [-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] [-n <count>] [-s <bytes>] [-S <count>] [-h]
 -c idx1 idx2 ...  Indices of files whose header magic to overwrite, so
                   the segment cannot be opened at all. Unlike -d the
                   file is still present, which is what a corrupted
@@ -92,6 +95,11 @@ Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-d \"idx1 idx2 ...\"] [-c \"id
 -S count          Number of generation passes to run into the same
                   directory, each of which starts a new session. The
                   reader must end one session before reading the next.
+-T                Pass --text to tcslog-dump, so payloads are stored as
+                  ASCII rather than as the hexadecimal default. The
+                  rendering is the only difference: everything the
+                  reader reports about loss and recovery is the same
+                  either way, which is what makes the two comparable.
 -t idx1 idx2 ...  Indices of files to truncate to half their data
                   section, leaving the header intact. The segment still
                   opens and its sequence is still readable, so a record
@@ -113,7 +121,7 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":gkrxhc:d:e:f:n:s:t:I:O:S:V:" opt; do
+while getopts ":gkrxhTc:d:e:f:n:s:t:I:O:S:V:" opt; do
     case "$opt" in
         c) corrupt_indices_str="$OPTARG" ;;
         d) delete_indices_str="$OPTARG" ;;
@@ -128,6 +136,7 @@ while getopts ":gkrxhc:d:e:f:n:s:t:I:O:S:V:" opt; do
         r) raw_dumphdr_enabled=1 ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
         S) require_uint S "$OPTARG"; sessions="$OPTARG" ;;
+        T) text_flag="--text" ;;
         t) truncate_indices_str="$OPTARG" ;;
         V) version_indices_str="$OPTARG" ;;
         x) dumphdr_enabled=1 ;;
@@ -394,7 +403,8 @@ actual_cmp=$(mktemp)
 # Discarding them left the suite unable to see a reader that computed
 # either one wrongly unless the record set happened to change with it.
 "$(dirname "$0")/tcslog-tool" tcslog-dump \
-    "$TMP_DIR" "$PFX" "$SFX" --verbose > "$actual_file"
+    "$TMP_DIR" "$PFX" "$SFX" --verbose ${text_flag:+"$text_flag"} \
+    > "$actual_file"
 cat "$actual_file"
 
 # Segment identifiers are wall-clock timestamps, so neither they nor the
@@ -434,7 +444,7 @@ normalize() {
 check_quiet_mode() {
     local quiet
     quiet=$("$(dirname "$0")/tcslog-tool" tcslog-dump \
-        "$TMP_DIR" "$PFX" "$SFX")
+        "$TMP_DIR" "$PFX" "$SFX" ${text_flag:+"$text_flag"})
     if printf '%s\n' "$quiet" | grep -qE \
         '^(=== segment file:|    (segment_id|session_id|max_size|remaining|format|sequence):|    -- |    \(payload larger than|--- End of Session|read [0-9]+ message)'
     then

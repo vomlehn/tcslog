@@ -60,7 +60,7 @@ test-tsrc-truncated_10-24:
 # short data section leaves the sequence intact and so must be reported
 # with a lost count of zero.
 .PHONY: test-damage
-test-damage: test-truncated_12-10 test-combined
+test-damage: test-truncated_12-10 test-combined test-text-combined
 
 .PHONY: test-truncated_12-10
 test-truncated_12-10:
@@ -118,6 +118,12 @@ test-sessions_8-40:
 # An unopenable segment header, in both variable formats: the
 # variable-tsrc data header is the longer of the two and so offers the
 # most bytes a resync could misread as a record length.
+# The same log and damage as test-combined, read with --text. Having
+# both covers each of tcslog-dump's two renderings end to end.
+.PHONY: test-text-combined
+test-text-combined:
+	./text-combined_12-10
+
 .PHONY: test-corrupt
 test-corrupt: test-corrupt_12-10 test-tsrc-corrupt_10-24
 
