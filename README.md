@@ -48,13 +48,15 @@ elsewhere.
 
 Documentation
 -------------
-User documentation is maintained by hand at `docs/tcslog.rst` and rendered
-to `docs/tcslog.html` by `make -C docs`. It is no longer generated from the
-prompt; edit the `.rst` file directly.
+There are two documents under `docs/`, and they are easy to confuse.
 
-The Claude Code prompt that generates the sources lives at
-`docs/tcslog-prompt.rst` — do not confuse it with the user guide at
-`docs/tcslog.rst`.
+`docs/tcslog.rst` is the user guide: what the library does, how to call it,
+and how it behaves. `make -C docs` renders it to `docs/tcslog.html`.
+
+`docs/tcslog-prompt.rst` is the specification. The sources were originally
+generated from it as a Claude Code prompt, but it no longer generates
+anything; it is read rather than run. Both documents are now maintained by
+hand, and a change in behaviour belongs in both.
 
 Making Changes
 --------------
