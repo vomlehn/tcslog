@@ -64,13 +64,17 @@ expected_file=""
 # Empty unless -T asks for the ASCII rendering, and passed to
 # tcslog-dump as an extra argument when it is.
 text_flag=""
+# --verbose unless -q asks for the records alone. The captured output is
+# what is compared, so this chooses what the stored file holds, not just
+# what reaches the terminal.
+verbose_flag="--verbose"
 FORMAT="variable-simple:0..10"
 number=20
 data_size=17
 sessions=1
 usage() {
 cat <<-EOF
-Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-T] [-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] [-n <count>] [-s <bytes>] [-S <count>] [-h]
+Usage: $0 -e <expected-file> [-g] [-k] [-q] [-r] [-x] [-T] [-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] [-n <count>] [-s <bytes>] [-S <count>] [-h]
 -c idx1 idx2 ...  Indices of files whose header magic to overwrite, so
                   the segment cannot be opened at all. Unlike -d the
                   file is still present, which is what a corrupted
@@ -86,6 +90,14 @@ Usage: $0 -e <expected-file> [-g] [-k] [-r] [-x] [-T] [-d \"idx1 idx2 ...\"] [-c
 -k                Print the temporary directory holding the segment
                   files and keep it instead of deleting it on exit.
 -n count          Number of records to write
+-q                Compare the records alone, dropping --verbose from the
+                  tcslog-dump run. What is captured is what is
+                  compared, so this chooses the form of the stored file
+                  as well: the expected file becomes
+                  <name>-records.expected rather than <name>.expected,
+                  which lets both forms be kept and checked. The log is
+                  generated and damaged identically either way, and the
+                  generation output still reaches the terminal.
 -r                Hexdump the raw input segment files before any are
                   deleted
 -O idx1 idx2 ...  Indices of files to pad past their own stored
@@ -121,7 +133,7 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":gkrxhTc:d:e:f:n:s:t:I:O:S:V:" opt; do
+while getopts ":gkqrxhTc:d:e:f:n:s:t:I:O:S:V:" opt; do
     case "$opt" in
         c) corrupt_indices_str="$OPTARG" ;;
         d) delete_indices_str="$OPTARG" ;;
@@ -133,6 +145,7 @@ while getopts ":gkrxhTc:d:e:f:n:s:t:I:O:S:V:" opt; do
         k) keep_tmp=1 ;;
         O) oversize_indices_str="$OPTARG" ;;
         n) require_uint n "$OPTARG"; number="$OPTARG" ;;
+        q) verbose_flag="" ;;
         r) raw_dumphdr_enabled=1 ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
         S) require_uint S "$OPTARG"; sessions="$OPTARG" ;;
@@ -149,6 +162,11 @@ shift $((OPTIND - 1))
 if [ -z "$expected_file" ]; then
     echo "The -e <expected-file> option is required." 1>&2
     usage
+fi
+# One form per file, so switching with -q does not ask for the other
+# form's file to be regenerated first.
+if [ -z "$verbose_flag" ]; then
+    expected_file="${expected_file%.expected}-records.expected"
 fi
 if [ ! -f "$expected_file" ] && [ $generate -eq 0 ]; then
     echo "Expected results file not found: $expected_file" 1>&2
@@ -403,8 +421,8 @@ actual_cmp=$(mktemp)
 # Discarding them left the suite unable to see a reader that computed
 # either one wrongly unless the record set happened to change with it.
 "$(dirname "$0")/tcslog-tool" tcslog-dump \
-    "$TMP_DIR" "$PFX" "$SFX" --verbose ${text_flag:+"$text_flag"} \
-    > "$actual_file"
+    "$TMP_DIR" "$PFX" "$SFX" ${verbose_flag:+"$verbose_flag"} \
+    ${text_flag:+"$text_flag"} > "$actual_file"
 cat "$actual_file"
 
 # Segment identifiers are wall-clock timestamps, so neither they nor the

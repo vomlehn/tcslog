@@ -15,6 +15,27 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+### Added
+
+- `error-recovery-common` takes `-q`, which drops `--verbose` from the
+  `tcslog-dump` run so the comparison is the records alone. What is captured is
+  what is compared, so the flag chooses the form of the stored file too: the
+  expected file becomes `<name>-records.expected`. Both forms are kept, 21 of
+  each, so either runs without regenerating the other.
+- `test/Makefile` takes `VERBOSE_EXPECTED`, passed through to every scenario.
+  Empty, which is the default, compares the verbose capture as before;
+  `make test VERBOSE_EXPECTED=-q` compares the records alone. The log is
+  generated and damaged identically either way, and generation output still
+  reaches the terminal.
+
+  Each records-only file was confirmed to be exactly the record lines of its
+  verbose counterpart, so the leaner comparison drops the header blocks,
+  notices and totals and nothing else.
+
 ## [0.2.4] - 2026-10-03
 
 Stored format: unchanged, 0.1.0.
@@ -250,6 +271,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.2.4...HEAD
 [0.2.4]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.4
 [0.2.3]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.3
 [0.2.2]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.2

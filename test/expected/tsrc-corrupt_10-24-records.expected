@@ -1,0 +1,5 @@
+    23 31 20 31 (4 bytes recovered, rest of record lost)
+    23 33 20 31 32 33 34 35 36 37 (10 bytes, ts=<ts>, rc=3)
+    23 34 20 31 32 33 34 35 36 37 (10 bytes, ts=<ts>, rc=4)
+    23 35 20 31 32 33 34 35 36 37 (10 bytes, ts=<ts>, rc=5)
+    23 36 20 31 32 33 34 35 36 37 (10 bytes, ts=<ts>, rc=6)

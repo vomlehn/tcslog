@@ -1,5 +1,12 @@
 # Make file for running non-built in tcslog tests
 
+# Extra flags for the test scripts, which pass them through to
+# error-recovery-common. Empty compares the verbose capture against the
+# .expected files; `make test VERBOSE_EXPECTED=-q` compares the records
+# alone against the -records.expected files instead. Both forms are
+# stored, so either runs without regenerating the other.
+VERBOSE_EXPECTED =
+
 test: test-fixed test-variable test-variable-tsrc test-damage \
 	test-overflow test-sessions test-rejected test-corrupt
 
@@ -9,19 +16,19 @@ test-fixed: recovery-fixed_1-1 recovery-fixed_8-8 recovery-fixed_5-17 \
 
 .PHONY: recovery-fixed_1-1
 recovery-fixed_1-1:
-	./recovery-fixed_1-1
+	./recovery-fixed_1-1 $(VERBOSE_EXPECTED)
 
 .PHONY: recovery-fixed_8-8
 recovery-fixed_8-8:
-	./recovery-fixed_8-8
+	./recovery-fixed_8-8 $(VERBOSE_EXPECTED)
 
 .PHONY: recovery-fixed_5-17
 recovery-fixed_5-17:
-	./recovery-fixed_5-17
+	./recovery-fixed_5-17 $(VERBOSE_EXPECTED)
 
 .PHONY: test-fixed-truncated_5-17
 test-fixed-truncated_5-17:
-	./fixed-truncated_5-17
+	./fixed-truncated_5-17 $(VERBOSE_EXPECTED)
 
 .PHONY: test-variable
 test-variable: test-variable_0-10-17 test-variable_0-33-10 \
@@ -29,19 +36,19 @@ test-variable: test-variable_0-10-17 test-variable_0-33-10 \
 
 .PHONY: test-variable_0-10-17
 test-variable_0-10-17:
-	./variable_0-10-17
+	./variable_0-10-17 $(VERBOSE_EXPECTED)
 
 .PHONY: test-variable_0-33-10
 test-variable_0-33-10:
-	./variable_0-33-10
+	./variable_0-33-10 $(VERBOSE_EXPECTED)
 
 .PHONY: test-variable-exact_6-20
 test-variable-exact_6-20:
-	./variable-exact_6-20
+	./variable-exact_6-20 $(VERBOSE_EXPECTED)
 
 .PHONY: test-variable-last_12-10
 test-variable-last_12-10:
-	./variable-last_12-10
+	./variable-last_12-10 $(VERBOSE_EXPECTED)
 
 .PHONY: test-variable-tsrc
 test-variable-tsrc: test-variable-tsrc_0-10-21 \
@@ -49,11 +56,11 @@ test-variable-tsrc: test-variable-tsrc_0-10-21 \
 
 .PHONY: test-variable-tsrc_0-10-21
 test-variable-tsrc_0-10-21:
-	./variable-tsrc_0-10-21
+	./variable-tsrc_0-10-21 $(VERBOSE_EXPECTED)
 
 .PHONY: test-tsrc-truncated_10-24
 test-tsrc-truncated_10-24:
-	./tsrc-truncated_10-24
+	./tsrc-truncated_10-24 $(VERBOSE_EXPECTED)
 
 # Damage that leaves the segment file in place, which deletion cannot
 # reproduce: an unopenable header still leaves a sequence gap, while a
@@ -64,11 +71,11 @@ test-damage: test-truncated_12-10 test-combined test-text-combined
 
 .PHONY: test-truncated_12-10
 test-truncated_12-10:
-	./truncated_12-10
+	./truncated_12-10 $(VERBOSE_EXPECTED)
 
 .PHONY: test-combined
 test-combined:
-	./combined_12-10
+	./combined_12-10 $(VERBOSE_EXPECTED)
 
 # Segment files the reader must refuse outright rather than read with
 # the wrong assumptions: an unreadable version, a stored segment id that
@@ -81,15 +88,15 @@ test-rejected: test-version_12-10 test-segid_12-10 test-oversize_12-10
 
 .PHONY: test-version_12-10
 test-version_12-10:
-	./version_12-10
+	./version_12-10 $(VERBOSE_EXPECTED)
 
 .PHONY: test-segid_12-10
 test-segid_12-10:
-	./segid_12-10
+	./segid_12-10 $(VERBOSE_EXPECTED)
 
 .PHONY: test-oversize_12-10
 test-oversize_12-10:
-	./oversize_12-10
+	./oversize_12-10 $(VERBOSE_EXPECTED)
 
 # A record too large for the caller's buffer, which exercises the
 # overflow path rather than any segment-file damage. The count reported
@@ -100,11 +107,11 @@ test-overflow: test-overflow_300-64 test-tsrc-overflow_300-64
 
 .PHONY: test-overflow_300-64
 test-overflow_300-64:
-	./overflow_300-64
+	./overflow_300-64 $(VERBOSE_EXPECTED)
 
 .PHONY: test-tsrc-overflow_300-64
 test-tsrc-overflow_300-64:
-	./tsrc-overflow_300-64
+	./tsrc-overflow_300-64 $(VERBOSE_EXPECTED)
 
 # Several sessions in one directory, so the reader has to end each
 # before reading the next.
@@ -113,7 +120,7 @@ test-sessions: test-sessions_8-40
 
 .PHONY: test-sessions_8-40
 test-sessions_8-40:
-	./sessions_8-40
+	./sessions_8-40 $(VERBOSE_EXPECTED)
 
 # An unopenable segment header, in both variable formats: the
 # variable-tsrc data header is the longer of the two and so offers the
@@ -122,18 +129,18 @@ test-sessions_8-40:
 # both covers each of tcslog-dump's two renderings end to end.
 .PHONY: test-text-combined
 test-text-combined:
-	./text-combined_12-10
+	./text-combined_12-10 $(VERBOSE_EXPECTED)
 
 .PHONY: test-corrupt
 test-corrupt: test-corrupt_12-10 test-tsrc-corrupt_10-24
 
 .PHONY: test-corrupt_12-10
 test-corrupt_12-10:
-	./corrupt_12-10
+	./corrupt_12-10 $(VERBOSE_EXPECTED)
 
 .PHONY: test-tsrc-corrupt_10-24
 test-tsrc-corrupt_10-24:
-	./tsrc-corrupt_10-24
+	./tsrc-corrupt_10-24 $(VERBOSE_EXPECTED)
 
 # Rebuild every expected file from the current output of the tools,
 # masking timestamps so the results stay reproducible. Review
