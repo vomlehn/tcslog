@@ -52,7 +52,7 @@ test-variable-last_12-10:
 
 .PHONY: test-variable-tsrc
 test-variable-tsrc: test-variable-tsrc_0-10-21 \
-	test-tsrc-truncated_10-24
+	test-tsrc-truncated_10-24 test-tsrc-lost-header_8-24
 
 .PHONY: test-variable-tsrc_0-10-21
 test-variable-tsrc_0-10-21:
@@ -61,6 +61,16 @@ test-variable-tsrc_0-10-21:
 .PHONY: test-tsrc-truncated_10-24
 test-tsrc-truncated_10-24:
 	./tsrc-truncated_10-24 $(VERBOSE_EXPECTED)
+
+# A gap of exactly one segment file that swallowed one whole data
+# header and no payload byte of the record it belonged to. That is the
+# one gap whose arithmetic places the record continuing out of it, and
+# combined_12-10 does recover it in variable-simple; here the lost
+# header also held a timestamp and a record count, so the record must
+# be given up instead of handed back with invented metadata.
+.PHONY: test-tsrc-lost-header_8-24
+test-tsrc-lost-header_8-24:
+	./tsrc-lost-header_8-24 $(VERBOSE_EXPECTED)
 
 # Damage that leaves the segment file in place, which deletion cannot
 # reproduce: an unopenable header still leaves a sequence gap, while a

@@ -621,8 +621,10 @@ remain usable: the very next call must recover, not repeat the failure.
 The only condition under which reading ends is exhaustion of the segment
 file list.
 
-Recovery is coordinated through a piece of LogRead state called the
-resync flag, described under "Reading Data Records" below.
+Recovery is coordinated through two pieces of LogRead state: the
+resync flag, described under "Reading Data Records" below, and the
+recovery hint a rejected crossing leaves for the resync that follows
+it, described under "Recovering a Data Record Whose Header Was Lost."
 
 Initialization
 ~~~~~~~~~~~~~~
@@ -683,8 +685,35 @@ payload from the tail of one whose front is gone. Before applying them,
 however, the reader must check the one case where arithmetic settles
 it.
 
+This process therefore has two outcomes, and the record-reading layer
+must distinguish them:
+
+o   A fresh start. The read position is at the first byte of a data
+    record, its data header included, and reading proceeds normally.
+
+o   A recovered start. The read position is at the first payload byte
+    of a data record whose data header was lost with a missing segment
+    file, and that payload's length is already known. There is no data
+    header left to read.
+
 Recovering a Data Record Whose Header Was Lost
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+A rejected crossing knows two things the resync that follows it cannot
+work out for itself: which segment file the crossing opened, and how
+many bytes the interrupted record still owed when the gap was found.
+It must leave both behind as a recovery hint, and does so only when
+the sequence check counted exactly one lost segment file and the
+record's total size was already known, that being the only case the
+recovery below can use. A rejection that does not meet both leaves no
+hint, and the resync then falls back on the two cases above.
+
+The hint is good for exactly one attempt. It describes the segment
+file now at the front of the pending list, so the resync takes it when
+it opens that file and discards it whether or not it applies: a hint
+held over would be tested against a segment file it says nothing
+about. A session boundary discards it too, along with the rest of the
+per-session bookkeeping, since no record crosses one.
+
 When the resync follows a crossing that was rejected for a gap of
 exactly one segment file, and the segment now being examined is the one
 that crossing opened, and its ``remaining`` field is non-zero, every
@@ -730,6 +759,55 @@ header holds nothing but the payload length that ``remaining``
 supplies. A ``VariableTsRc`` data header also carries the timestamp and
 record count, which cannot be reconstructed, and a ``Fixed`` log has no
 data header for a gap to swallow.
+
+The record is read from there as any other, with one difference in its
+bookkeeping: the bytes of the data header the gap swallowed count as
+consumed, and the record's total size is that header's length plus the
+recovered payload length. A recovered record is not confined to the
+segment file it was found in, and a crossing within it is then checked
+against the record as a whole, exactly as for a record whose data
+header was read. Counting the lost header as unread bytes instead
+would put every such check off by the header's length and reject a
+sound crossing.
+
+A Worked Example
+^^^^^^^^^^^^^^^^
+The error-recovery suite's ``combined_12-10`` scenario, and its
+``hex-combined_12-10`` twin, exercise this. The log is
+``VariableSimple`` with a ``seg_size_max`` of 63 bytes, so each data
+section holds 10 bytes, and ten 12-byte records are written, each
+costing a 4-byte data header and so 16 bytes of the record stream. The
+second segment file, sequence 1, is deleted; it held stream bytes 10
+through 19:
+
+o   Record 1 keeps its data header, stream bytes 0 through 3, and its
+    first six payload bytes, stream bytes 4 through 9, in sequence 0.
+    Its last six payload bytes were in the deleted file.
+
+o   Record 2's data header, stream bytes 16 through 19, was entirely
+    within the deleted file. Its payload occupies stream bytes 20
+    through 29, the whole of sequence 2's data section, and stream
+    bytes 30 and 31 at the front of sequence 3's.
+
+Reading record 1 exhausts sequence 0 with 10 of the record's 16 bytes
+consumed, and crosses into sequence 2. The crossing fails both checks:
+``remaining`` is 12 where the 6 bytes still owed were required, and the
+sequence jumps from 0 to 2. The jump counts one lost segment file and
+record 1's total size is known, so the reader leaves the hint --
+sequence 2's segment ID, 6 bytes owed -- pushes that file back, and
+reports record 1 truncated with the six payload bytes it did recover.
+
+The resync reopens sequence 2 and finds the hint. The gap held one
+10-byte data section; record 1 still owed 6 of those bytes, leaving 4
+bytes of room, which is exactly one data header and no more. So the gap
+held record 2's data header and nothing else of record 2, and sequence
+2's ``remaining`` of 12 is the whole payload length rather than the
+tail of a longer one. The reader starts the record with 4 bytes
+consumed of a 16-byte total, reads 10 payload bytes from sequence 2,
+crosses into sequence 3 -- whose ``remaining`` of 2 is what the record
+still owes, and whose sequence follows -- and returns record 2 entire.
+No byte of record 2 survived in the log outside its payload, and the
+reader still produced its length.
 
 
 Validating a New Segment File
@@ -888,6 +966,12 @@ survive are still returned by subsequent reads.
 
 If the check fails, the reader must:
 
+o   Record the recovery hint, when the sequence check counted exactly
+    one lost segment file and the current record's total size was
+    already known: the segment ID the crossing opened and the number
+    of bytes the record still owed. See "Recovering a Data Record
+    Whose Header Was Lost."
+
 o   Close the newly opened segment file and push its segment ID back to
     the front of the pending list so it will be re-examined as the start
     of a fresh record.
@@ -934,11 +1018,14 @@ The read function proceeds as follows:
     resume the search on the next call. If it succeeds, clear the resync
     flag and continue.
 
-3.  If the format has a non-zero data header, read it. If any read error
-    occurs (I/O error, or a segment-boundary validation failure as
-    described under "Segment Boundary Validation"), set the resync flag
-    and propagate the error. Do not attempt to interpret partial header
-    bytes.
+3.  If step 2 reported a recovered start, the data header was the one
+    the gap swallowed: take the payload length the recovery settled,
+    count that header's length as consumed, and go to step 4 without
+    reading anything. Otherwise, if the format has a non-zero data
+    header, read it. If any read error occurs (I/O error, or a
+    segment-boundary validation failure as described under "Segment
+    Boundary Validation"), set the resync flag and propagate the
+    error. Do not attempt to interpret partial header bytes.
 
 4.  Using the payload length taken from the data header (or the fixed
     size, for Format::Fixed), read the telemetry data into the

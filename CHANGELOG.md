@@ -42,6 +42,17 @@ Stored format: unchanged, 0.1.0.
 
 ### Added
 
+- `test/tsrc-lost-header_8-24` and an `api.rs` test cover the one gap whose
+  arithmetic places the record continuing out of it, in the format that
+  cannot use it. A single deleted segment file holding one whole data header
+  and no payload byte of its record is what `combined_12-10` recovers from in
+  `variable-simple`; in `variable-tsrc` the lost header also held a timestamp
+  and a record count, so the record has to be given up rather than handed back
+  with metadata that was never written. Nothing covered that refusal before:
+  the two `api.rs` recovery tests were `variable-simple` only, and the suite's
+  one `variable-tsrc` deletion scenario loses a session's first file and a
+  two-file span, neither of which reaches the check. Removing the format guard
+  in `recovered_payload_len` now fails both.
 - `bin/verify-helper` walks a person through named scenarios, stopping after
   each until ENTER. Each is run with `-x -q`, so the output is the segment
   files as the reader will find them — after the deletions, corruptions and
@@ -51,7 +62,7 @@ Stored format: unchanged, 0.1.0.
 - `error-recovery-common` takes `-q`, which drops `--verbose` from the
   `tcslog-dump` run so the comparison is the records alone. What is captured is
   what is compared, so the flag chooses the form of the stored file too: the
-  expected file becomes `<name>-records.expected`. Both forms are kept, 21 of
+  expected file becomes `<name>-records.expected`. Both forms are kept, 22 of
   each, so either runs without regenerating the other.
 - `test/Makefile` takes `VERBOSE_EXPECTED`, passed through to every scenario.
   Empty, which is the default, compares the verbose capture as before;
@@ -62,6 +73,19 @@ Stored format: unchanged, 0.1.0.
   Each records-only file was confirmed to be exactly the record lines of its
   verbose counterpart, so the leaner comparison drops the header blocks,
   notices and totals and nothing else.
+
+### Notes
+
+- `docs/tcslog-prompt.rst` documents the whole of the lost-header recovery,
+  not just the arithmetic. "Find the Next Data Record Start" now names the two
+  outcomes it can report, a fresh start and a recovered one; "Segment Boundary
+  Validation" and the read procedure say what a rejected crossing has to leave
+  behind and what the recovered record is read with; and "Recovering a Data
+  Record Whose Header Was Lost" gains the hint's lifetime, the bookkeeping that
+  lets a recovered record span further segment files, and a worked example of
+  `combined_12-10`, where record 2's length field was deleted with sequence 1
+  and the reader produces the record whole regardless. Behavior is unchanged;
+  the specification was describing only part of what the reader does.
 
 ## [0.2.4] - 2026-10-03
 

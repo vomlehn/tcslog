@@ -1,0 +1,56 @@
+=== segment file: pfx-<id1>.log ===
+    segment_id: <id1>
+    session_id: <id1>
+    max_size:   77
+    remaining:  0
+    format:     VariableTsRc
+    sequence:   0
+
+=== segment file: pfx-<id2>.log ===
+    segment_id: <id2>
+    session_id: <id1>
+    max_size:   77
+    remaining:  8
+    format:     VariableTsRc
+    sequence:   2
+    #1 1 (4 bytes recovered, rest of record lost)
+    -- 1 missing segment file(s); resynchronizing --
+
+=== segment file: pfx-<id3>.log ===
+    segment_id: <id3>
+    session_id: <id1>
+    max_size:   77
+    remaining:  12
+    format:     VariableTsRc
+    sequence:   3
+    #3 12345 (8 bytes, ts=<ts>, rc=3)
+
+=== segment file: pfx-<id4>.log ===
+    segment_id: <id4>
+    session_id: <id1>
+    max_size:   77
+    remaining:  16
+    format:     VariableTsRc
+    sequence:   4
+    #4 12345 (8 bytes, ts=<ts>, rc=4)
+
+=== segment file: pfx-<id5>.log ===
+    segment_id: <id5>
+    session_id: <id1>
+    max_size:   77
+    remaining:  20
+    format:     VariableTsRc
+    sequence:   5
+    #5 12345 (8 bytes, ts=<ts>, rc=5)
+
+=== segment file: pfx-<id6>.log ===
+    segment_id: <id6>
+    session_id: <id1>
+    max_size:   77
+    remaining:  24
+    format:     VariableTsRc
+    sequence:   6
+    #6 12345 (8 bytes, ts=<ts>, rc=6)
+
+read 5 message(s) across 6 file(s)
+1 segment file(s) lost

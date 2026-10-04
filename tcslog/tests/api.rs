@@ -1090,26 +1090,32 @@ fn losing_the_last_segment_file_is_not_mistaken_for_the_end_of_the_log() {
 /// Builds a log in which one record's whole data header, and nothing
 /// else of it, lands inside the second segment file.
 ///
-/// With a ten-byte data section and a four-byte data header, a first
-/// record of `first_len` payload bytes ends `4 + first_len - 10` bytes
-/// into the second segment file. At `first_len` of 12 that is six, which
-/// leaves exactly four bytes -- one whole data header -- and the next
-/// record's payload then begins at the third segment file.
-fn lost_header_log(first_len: usize) -> (Log, Vec<Vec<u8>>) {
-    let log = Log::new(10);
+/// A first record of `first_len` payload bytes ends
+/// `header + first_len - data_size` bytes into the second segment file,
+/// and what is left of that file after those bytes is the room the
+/// recovery weighs against a data header. Two geometries leave exactly
+/// one: a four-byte `VariableSimple` header with a ten-byte data
+/// section and a `first_len` of 12, which owes six bytes and leaves
+/// four; and a twenty-byte `VariableTsRc` header with a
+/// twenty-four-byte data section and a `first_len` of 8, which owes
+/// four and leaves twenty. In both the next record's data header fills
+/// the rest of the second segment file and its payload begins at the
+/// third.
+fn lost_header_log(format: Format, data_size: u32, first_len: usize) -> (Log, Vec<Vec<u8>>) {
+    let log = Log::new(data_size);
     let written = vec![
         b"#1 123456789".to_vec()[..first_len].to_vec(),
         b"#2 12".to_vec(),
         b"#3 12".to_vec(),
         b"#4 12".to_vec(),
     ];
-    log.write_session(Format::VariableSimple, &written);
+    log.write_session(format, &written);
     (log, written)
 }
 
 #[test]
 fn a_record_whose_header_filled_a_single_gap_is_still_recovered() {
-    let (log, written) = lost_header_log(12);
+    let (log, written) = lost_header_log(Format::VariableSimple, 10, 12);
     // The geometry the recovery depends on: the second file owes six
     // bytes, so the four bytes after them are one whole data header.
     assert_eq!(log.headers()[1].remaining, 6);
@@ -1144,7 +1150,7 @@ fn a_record_is_not_recovered_when_the_gap_had_room_for_more_than_a_header() {
     // front of the next record and a whole record lost ahead of it, and
     // nothing on disk settles which, so the record must be given up
     // rather than guessed at.
-    let (log, written) = lost_header_log(11);
+    let (log, written) = lost_header_log(Format::VariableSimple, 10, 11);
     assert_eq!(log.headers()[1].remaining, 5);
 
     let files = log.segment_files();
@@ -1156,6 +1162,43 @@ fn a_record_is_not_recovered_when_the_gap_had_room_for_more_than_a_header() {
     assert!(
         !out.payloads.contains(&written[1]),
         "a record was reconstructed from a gap that did not settle it"
+    );
+    // The records after it still come back.
+    assert_eq!(
+        out.payloads,
+        vec![written[2].clone(), written[3].clone()],
+        "the reader did not resynchronize past the unrecoverable record"
+    );
+    assert_invented_nothing(&out, &written);
+}
+
+#[test]
+fn a_variable_tsrc_record_is_not_recovered_from_a_gap_that_held_its_header() {
+    // The geometry the VariableSimple recovery turns on, in the format
+    // whose data header holds more than a length: the first record owes
+    // four bytes of the second file, leaving twenty, which is exactly
+    // one VariableTsRc data header.
+    let (log, written) = lost_header_log(Format::VariableTsRc, 24, 8);
+    assert_eq!(log.headers()[1].remaining, 4);
+    // The next record's payload begins at the third file, so its
+    // `remaining` is that whole payload rather than the tail of one.
+    assert_eq!(log.headers()[2].remaining, written[1].len() as u64);
+
+    let files = log.segment_files();
+    fs::remove_file(&files[1]).expect("a removable segment file");
+
+    let out = log.read_all();
+    assert_eq!(out.truncations, 1);
+    assert_eq!(out.lost, 1);
+
+    // `remaining` fixes the payload length here as readily as it does
+    // for VariableSimple, but the timestamp and record count went into
+    // the gap with the rest of the data header and nothing on disk
+    // rebuilds them. Recovering the record would mean handing back
+    // metadata that was never written, so the record is given up.
+    assert!(
+        !out.payloads.contains(&written[1]),
+        "a VariableTsRc record was recovered, so its metadata was invented"
     );
     // The records after it still come back.
     assert_eq!(

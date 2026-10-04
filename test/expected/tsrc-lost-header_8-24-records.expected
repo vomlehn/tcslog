@@ -1,0 +1,5 @@
+    #1 1 (4 bytes recovered, rest of record lost)
+    #3 12345 (8 bytes, ts=<ts>, rc=3)
+    #4 12345 (8 bytes, ts=<ts>, rc=4)
+    #5 12345 (8 bytes, ts=<ts>, rc=5)
+    #6 12345 (8 bytes, ts=<ts>, rc=6)
