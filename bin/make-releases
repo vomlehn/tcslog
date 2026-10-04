@@ -29,7 +29,7 @@ set -eu
 
 # Oldest first, so the releases page reads in order. The last is marked
 # latest; gh would otherwise give that to whichever was created last.
-VERSIONS="0.1.0 0.2.0 0.2.1 0.2.2 0.2.3 0.2.4 0.2.5"
+VERSIONS="0.1.0 0.2.0 0.2.1 0.2.2 0.2.3 0.2.4 0.2.5 0.2.6"
 
 notes_dir="$(dirname "$0")/../docs/release-notes"
 
