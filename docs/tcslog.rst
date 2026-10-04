@@ -26,12 +26,15 @@ supplied and opens the next one.
 Advantages in normal operation
 ------------------------------
 
-**The storage a log occupies is known in advance.** Every segment file
-but the last one being written is exactly the maximum size, so the space
-a log occupies is the number of files times that size. Nothing is padded
-and nothing is left short, so there is no per-file shortfall to carry
-through the arithmetic. A mission can commit a storage budget to
-telemetry and know it will be honoured.
+**The storage a log occupies is known in advance.** The writer fills a
+segment file to exactly the maximum and continues the record in the next
+one, so nothing is padded and no file is left short of its own accord.
+Two kinds are short because the writer stopped rather than because it
+rolled: the file currently being written, and the file that ended each
+earlier session. Every other file is exactly the maximum size, so the
+number of files times that size is the space a log occupies, and is an
+upper bound on it in every case. A mission can commit a storage budget
+to telemetry and know it will be honoured.
 
 **Data leaves in small pieces.** Telemetry is handed over a file at a
 time, as each one fills, rather than as one growing file that must be

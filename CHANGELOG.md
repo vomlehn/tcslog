@@ -15,6 +15,48 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+### Added
+
+- `bin/make-releases` creates a GitHub release for each tag, with the notes
+  for each taken from `docs/release-notes/<version>.md`. A tag alone is enough
+  for this file's footer links, which resolve whether or not a release exists;
+  the releases exist so that page carries the version's notes rather than just
+  its commit. The notes are kept as files rather than extracted from here
+  because a release whose crate did not change says so in its notes and
+  nowhere in this file.
+
+### Changed
+
+- The library's documentation now opens with the user manual's introduction
+  rather than a condensation of it, so docs.rs and crates.io say what
+  `docs/tcslog.rst` says: what the library is for, the five advantages in
+  normal operation, and the six when things go wrong. The old `Recovery`
+  section is gone, having been a second, shorter telling of the last of
+  those. The manual's bare literals became intra-doc links, so the docs.rs
+  page is navigable, and its `Record Formats` cross-reference became a link
+  to this page's own section, which resolves on both docs.rs and crates.io.
+- `tcslog/README.md` is now generated in its entirety. The four sections from
+  "Record formats" on were hand-written below the generated region, which left
+  them out of the library's own documentation and so off docs.rs; they are now
+  part of the doc comment. What the README says and what docs.rs shows can no
+  longer differ, and `make check` fails if they do.
+
+### Fixed
+
+- The manual's storage claim held only for a log written in one session. It
+  said that every segment file but the last one being written is exactly the
+  maximum size and that nothing is left short, where the file that ends each
+  session is short as well -- in a log of several sessions those sit in the
+  middle of it, not at the end. Generating two sessions of five files gives
+  sizes 63 63 63 63 61 63 63 63 63 61, which is what the claim denied. The
+  entry now names both short cases, keeps the point that nothing is padded,
+  which the writer does guarantee, and states the file count times the maximum
+  size as an upper bound, which it is in every case.
+
 ## [0.2.5] - 2026-10-04
 
 Stored format: unchanged, 0.1.0.
@@ -328,6 +370,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.2.5...HEAD
 [0.2.5]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.5
 [0.2.4]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.4
 [0.2.3]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.3

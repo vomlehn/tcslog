@@ -62,9 +62,9 @@ Documentation
 `tcslog/README.md` is not written by hand. It is generated from the
 library's own documentation in `tcslog/src/lib.rs`, so the two cannot
 drift: `make readme` regenerates it and `make check` fails if it is out of
-date. Edit the doc comment, not the README. Its last few sections, from
-"Record formats" on, are outside the generated region and are hand-written.
-That needs a tool `cargo` does not ship:
+date. Edit the doc comment, not the README. The whole of it is generated,
+so what the README says is also what docs.rs shows. That needs a tool
+`cargo` does not ship:
 
 ```sh
 cargo install cargo-rdme
