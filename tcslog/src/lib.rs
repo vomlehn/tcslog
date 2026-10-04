@@ -28,6 +28,41 @@
 //! never splices bytes from either side of a gap into a record that was
 //! never written.
 //!
+//! # Setup
+//!
+//! Two things have to be in place before a log can be written. Neither
+//! is needed to read one, so a program that only reads can take the
+//! crate with `default-features = false` and skip this section.
+//!
+//! **The real-time clock must hold the correct time.** A writer reads it
+//! once, when it is constructed, pairs it with the monotonic clock, and
+//! measures every segment identifier and record timestamp from that
+//! pairing -- which is what keeps identifiers in creation order when NTP
+//! or an operator steps the real-time clock backwards. Because it is
+//! read once, a correction arriving later does not reach the identifiers
+//! already minted, so a clock that does not read later than the UNIX
+//! epoch, which is what an unset clock reads on most systems, is refused
+//! with [`LogError::ClockError`] rather than used.
+//!
+//! **`TIMER_RESOLUTION` must be set when building with the `write`
+//! feature.** It is how finely this machine's clock advances, in
+//! nanoseconds, and nothing guesses it: left unset the crate still
+//! builds, but opening a log reports
+//! [`LogError::TimerResolutionZero`]. Set it in `.cargo/config.toml`:
+//!
+//! ```toml
+//! [env]
+//! TIMER_RESOLUTION = "1"
+//! ```
+//!
+//! or on the command line, as `TIMER_RESOLUTION=1 cargo build`.
+//!
+//! It need not be exact. A writer that finds the value too small doubles
+//! it, goes on doubling until a segment file name is free, and keeps
+//! what it arrived at; the figure in force is reported back, and is the
+//! one to build with next time. So starting at `1` and reading it back
+//! is a fine way to find it.
+//!
 //! # Example
 //!
 //! ```no_run

@@ -19,6 +19,14 @@ format where it was. Each entry below says whether the stored format moved.
 
 Stored format: unchanged, 0.1.0.
 
+### Added
+
+- The library's own documentation gains a Setup section, which is what a reader
+  arriving from docs.rs sees. `TIMER_RESOLUTION` and the real-time clock
+  requirement were documented on `LogWrite::new` and on the errors they
+  produce, but nowhere on the landing page, so the first thing a new caller has
+  to do was the one thing the front page did not mention.
+
 ### Fixed
 
 - `README.md` said `docs/tcslog-prompt.rst` is "the Claude Code prompt that
