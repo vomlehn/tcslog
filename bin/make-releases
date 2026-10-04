@@ -1,0 +1,60 @@
+#!/bin/bash
+#
+# Create a GitHub release for each tag the repository carries, with the
+# notes for each taken from docs/release-notes/<version>.md.
+#
+# A tag on its own is enough for the CHANGELOG's footer links, which
+# point at releases/tag/vX.Y.Z and resolve whether or not a release
+# exists. This exists so that page carries the version's notes rather
+# than just its commit.
+#
+# The notes are the version's CHANGELOG section, with a lede added
+# where the section alone does not say what a dependent will see. They
+# are kept as files rather than extracted here because of that lede: a
+# release whose crate did not change says so in the notes and nowhere
+# in the changelog.
+#
+# Releases that already exist are left alone, so this can be re-run
+# after adding a tag and its notes file without touching the ones
+# already published. --verify-tag refuses a version whose tag is not
+# there rather than creating one.
+#
+# Requires gh, authenticated with a token that has Contents:
+# read and write on this repository. Without it every creation fails
+# with "Resource not accessible by personal access token" -- note that
+# pushing over SSH works without that permission, so a working `git
+# push` does not mean this will run.
+
+set -eu
+
+# Oldest first, so the releases page reads in order. The last is marked
+# latest; gh would otherwise give that to whichever was created last.
+VERSIONS="0.1.0 0.2.0 0.2.1 0.2.2 0.2.3 0.2.4 0.2.5"
+
+notes_dir="$(dirname "$0")/../docs/release-notes"
+
+newest=""
+for v in $VERSIONS; do
+    newest="$v"
+done
+
+for v in $VERSIONS; do
+    notes="$notes_dir/$v.md"
+    if [ ! -f "$notes" ]; then
+        echo "v$v: no notes at $notes" 1>&2
+        exit 1
+    fi
+    if gh release view "v$v" >/dev/null 2>&1; then
+        echo "v$v: release already exists, leaving it alone"
+        continue
+    fi
+    latest=()
+    if [ "$v" = "$newest" ]; then
+        latest=(--latest)
+    fi
+    gh release create "v$v" \
+        --title "$v" \
+        --notes-file "$notes" \
+        --verify-tag \
+        ${latest[@]+"${latest[@]}"}
+done
