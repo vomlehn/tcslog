@@ -1607,6 +1607,137 @@ Free Functions
         tcslog-gen and tcslog-dump use it, so a record reads the same
         coming out as it did going in.
 
+The C Interface
+===============
+``tcslog-c`` in this workspace presents ``LogWrite`` and ``LogRead``
+to a C caller. It is a separate crate because a C interface must be
+built as a ``cdylib`` and a ``staticlib``, which a crate cannot be
+conditionally, and because the ``unsafe`` an ABI needs is then confined
+to it: the library crate itself contains none.
+
+The header, ``tcslog-c/include/tcslog.h``, is generated from the crate's
+source by ``cbindgen`` and is not written by hand. ``make header``
+regenerates it and ``make check`` fails if it is out of date, so a
+header that no longer describes the binding cannot reach a caller.
+
+Calling Convention
+------------------
+Every function returns a status, and every value the caller wants back
+is written through an out-parameter. No function reports a failure by
+returning a value that could also be data, and no out-parameter is
+written on a failure except where this specification says otherwise.
+
+A function must not let a panic unwind into C, that being undefined
+behaviour. Each one catches a panic and reports ``TCSLOG_STATUS_PANIC``
+instead. A caller that sees it must treat the handle as unusable: the
+panic happened part way through an operation and the binding cannot say
+how far.
+
+Handles are opaque. ``tcslog_write_open`` and ``tcslog_read_open``
+produce one and leave ``*out`` null if they fail; ``tcslog_write_close``
+and ``tcslog_read_close`` release one and accept null, as ``free``
+does. A handle must not be used after it has been closed.
+
+Strings are NUL-terminated and must be valid UTF-8, a log's directory,
+prefix, and suffix all being Rust strings underneath. One that is not is
+refused with ``TCSLOG_STATUS_NOT_UTF8`` rather than replaced or
+truncated.
+
+Status Codes
+------------
+The numbers are ABI. Once a C program has been compiled against the
+header they are fixed, so a code's value must never change and a new
+code must only ever be added after the last. Nothing may be removed: a
+code that stops being produced keeps its number.
+
+The first five are not failures. They are what the library reports as
+news about the telemetry, and a caller continues after each:
+
+==== ================================ ============================================================
+Code Name                             Meaning
+==== ================================ ============================================================
+0    ``TCSLOG_STATUS_OK``             The call did what was asked.
+1    ``TCSLOG_STATUS_EOF``            No more records. A read loop ends here.
+2    ``TCSLOG_STATUS_SESSION_END``    Writing stopped and started again; read again.
+3    ``TCSLOG_STATUS_READ_TRUNCATED`` Telemetry lost; ``n`` and ``lost`` say how much. Read again.
+4    ``TCSLOG_STATUS_READ_OVERFLOW``  Record larger than the buffer; ``n`` is the size needed.
+==== ================================ ============================================================
+
+The rest are failures. Each maps one-to-one onto a ``LogError``
+variant, except the last four, which the binding itself produces:
+
+==== ============================================ ==========================================
+Code Name                                         ``LogError``
+==== ============================================ ==========================================
+5    ``TCSLOG_STATUS_CLOCK_ERROR``                ``ClockError``
+6    ``TCSLOG_STATUS_FIXED_LEN_MISMATCH``         ``FixedLenMismatch``
+7    ``TCSLOG_STATUS_INVALID_HEADER``             ``InvalidHeader``
+8    ``TCSLOG_STATUS_INVALID_PATHNAME``           ``InvalidPathname``
+9    ``TCSLOG_STATUS_IO_ERROR``                   ``IoError``
+10   ``TCSLOG_STATUS_NO_SEGMENT_FILES``           ``NoSegmentFiles``
+11   ``TCSLOG_STATUS_PATH_DELIMITER_NOT_ALLOWED`` ``PathDelimiterNotAllowed``
+12   ``TCSLOG_STATUS_PAYLOAD_TOO_LARGE``          ``PayloadTooLarge``
+13   ``TCSLOG_STATUS_SEG_SIZE_TOO_SMALL``         ``SegSizeTooSmall``
+14   ``TCSLOG_STATUS_TIMER_RESOLUTION_ZERO``      ``TimerResolutionZero``
+15   ``TCSLOG_STATUS_VERSION_MISMATCH``           ``VersionMismatch``
+16   ``TCSLOG_STATUS_NULL_ARGUMENT``              none: a null pointer where one is required
+17   ``TCSLOG_STATUS_NOT_UTF8``                   none: a string that is not UTF-8
+18   ``TCSLOG_STATUS_PANIC``                      none: a panic caught at the boundary
+19   ``TCSLOG_STATUS_INVALID_FORMAT``             none: a ``format_tag`` outside the three
+==== ============================================ ==========================================
+
+``tcslog_status_str`` returns a static description of any of them, and
+of a value it does not recognize, so a caller compiled against an older
+header still prints something rather than nothing.
+
+Record Formats
+--------------
+``tcslog_write_open`` takes the format as a ``uint32_t`` tag, with the
+library's own values: 0 fixed, 1 variable-simple, 2 variable-tsrc. The
+header declares them as ``TcslogFormat`` for naming, but the parameter
+is the integer type rather than the enum: a value outside the three
+would be an invalid enum, and refusing it as
+``TCSLOG_STATUS_INVALID_FORMAT`` is required instead.
+
+What a Read Produces
+--------------------
+``tcslog_read_record`` fills a ``TcslogReadResult`` whatever it returns,
+so its fields can be read without first checking the status. Which of
+them mean anything does depend on the status:
+
+o   ``n`` is the payload bytes placed in the caller's buffer on
+    ``TCSLOG_STATUS_OK``; the bytes recovered of a record cut short on
+    ``TCSLOG_STATUS_READ_TRUNCATED``; and the size the record needs, with
+    nothing placed in the buffer, on ``TCSLOG_STATUS_READ_OVERFLOW``.
+
+o   ``meta`` says which of the three metadata shapes the record had, and
+    ``timestamp`` and ``record_count`` hold the timestamp and the
+    position in the session when it is the variable-tsrc shape. They are
+    zero otherwise, rather than left as they were.
+
+o   ``lost`` is the number of segment files found missing, on
+    ``TCSLOG_STATUS_READ_TRUNCATED``. It is zero where a record was cut
+    short with no file missing at all, which is a truncation the sequence
+    cannot explain.
+
+Callbacks
+---------
+``WriteCallbacks`` holds bare ``fn`` pointers with no context argument,
+so a per-log C context cannot be carried through it. The binding
+therefore stores one C function pointer per callback for the whole
+process, and every writer opened afterwards uses them. A caller that
+must tell its logs apart has the segment file's path, which ``send`` is
+given.
+
+A writer takes the callbacks as they stand when it is opened, so a
+setter called afterwards does not reach a writer already open. Passing
+null unsets a callback, which is the default.
+
+``send`` and ``record_complete`` return an ``int``: zero for success,
+and anything else makes the write that triggered the callback report
+``TCSLOG_STATUS_IO_ERROR``. ``record_complete`` is handed a file
+descriptor the library still owns and must not close it.
+
 Support Binaries
 ================
 Three binaries and one example ship alongside the library:

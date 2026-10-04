@@ -14,6 +14,27 @@ RMDIR   := rm -rf
 # Extra flags for `cargo build`; `make release` sets it to --release.
 RELEASE =
 
+# Where `make install` puts the C binding. Defaults to $HOME, as the
+# tcslog-tools Makefile does for its binaries; override PREFIX for
+# somewhere else and DESTDIR to stage the install for packaging.
+PREFIX  ?= $(HOME)
+DESTDIR ?=
+INCDIR  := $(DESTDIR)$(PREFIX)/include
+LIBDIR  := $(DESTDIR)$(PREFIX)/lib
+# What install puts there: the generated header, and both libraries, so
+# a consumer can link either statically or dynamically.
+CAPI_HEADER := tcslog-c/include/tcslog.h
+CAPI_LIBS   := libtcslog_c.a libtcslog_c.so
+
+# The C compiler for the binding's smoke test, and the warnings it is
+# held to. -Werror because a warning in a 180-line test is a mistake in
+# the test, not noise to scroll past.
+CC          := cc
+CAPI_CFLAGS := -Wall -Wextra -Werror -std=c11
+# Where cargo puts the staticlib the smoke test links. `make release`
+# does not move it, because RELEASE reaches cargo and not this.
+CARGO_TARGET_DIR ?= target/debug
+
 # Default target
 .PHONY: all
 all: build			## Build the project (default target)
@@ -47,7 +68,67 @@ test:				## Run all tests
 	@echo "Running tests..."
 	cargo test
 	$(MAKE) -C test
+	$(MAKE) capi-test
 	@echo "[OK] Tests complete"
+
+# Build and run the C binding's smoke test: tcslog-c/examples/smoke.c
+# compiled against the generated header and linked against the
+# staticlib, which is what a C consumer does. The Rust unit tests in
+# tcslog-c call the same functions as Rust, so they would pass a header
+# that described the wrong argument order; only this catches that.
+#
+# The log is written into a temporary directory that is removed
+# afterwards whether the test passed or not.
+.PHONY: capi-test
+capi-test:			## Compile and run the C binding's smoke test
+	@echo "Running the C binding smoke test..."
+	cargo build $(RELEASE) -p tcslog-c
+	tmp=$$(mktemp -d -t tcslog-capi.XXXXXXXXXX); \
+	bin=$$tmp/smoke; \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	$(CC) $(CAPI_CFLAGS) -o $$bin tcslog-c/examples/smoke.c \
+		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+	$$bin $$tmp
+	@echo "[OK] C binding smoke test passed"
+
+# Regenerate tcslog-c/include/tcslog.h from tcslog-c/src/lib.rs. Needs
+# `cargo install cbindgen`, as `make check` does.
+.PHONY: header
+header:				## Regenerate the C header from tcslog-c/src/lib.rs
+	cd tcslog-c && cbindgen --config cbindgen.toml --crate tcslog-c \
+		--output include/tcslog.h
+	@echo "[OK] tcslog-c/include/tcslog.h regenerated"
+
+# Install the C binding: the header and both libraries. The Rust
+# library is not installed, having no use outside cargo, and neither is
+# a pkg-config file -- a consumer needs -ltcslog_c and nothing else, so
+# there is nothing for one to say that -L and -l do not.
+#
+# Built with $(RELEASE) honoured, so `make release install` installs the
+# optimized libraries; CARGO_TARGET_DIR says which directory those
+# landed in.
+.PHONY: install
+install: header		## Install the C header and libraries under PREFIX
+	@echo "Installing the C binding to $(DESTDIR)$(PREFIX)..."
+	cargo build $(RELEASE) -p tcslog-c
+	install -d $(INCDIR) $(LIBDIR)
+	install -m 644 $(CAPI_HEADER) $(INCDIR)/
+	for lib in $(CAPI_LIBS); do \
+		install -m 644 $(CARGO_TARGET_DIR)/$$lib $(LIBDIR)/; \
+	done
+	@echo "[OK] Installed $(CAPI_HEADER) to $(INCDIR)/"
+	@echo "[OK] Installed $(CAPI_LIBS) to $(LIBDIR)/"
+	@echo "     Compile against it with:"
+	@echo "       cc prog.c -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
+
+# Removes what install put there, honouring the same two variables.
+# Nothing else in those directories is touched.
+.PHONY: uninstall
+uninstall:			## Remove the installed C header and libraries
+	@echo "Removing the C binding from $(DESTDIR)$(PREFIX)..."
+	$(RM) $(INCDIR)/tcslog.h
+	$(RM) $(addprefix $(LIBDIR)/,$(CAPI_LIBS))
+	@echo "[OK] Uninstalled from $(DESTDIR)$(PREFIX)"
 
 # Clean build artifacts
 .PHONY: clean
@@ -84,6 +165,12 @@ check:				## Run cargo check, clippy, fmt, and the README check
 	cargo clippy --all-targets -- -D warnings
 	cargo fmt -- --check
 	cargo rdme --check -w tcslog --intralinks-strip-links
+	@echo "Checking the C header is current..."
+	cd tcslog-c && cbindgen --config cbindgen.toml --crate tcslog-c \
+		--output /dev/stdout 2>/dev/null \
+		| diff -u include/tcslog.h - \
+		|| { echo "tcslog-c/include/tcslog.h is out of date; run 'make header'" 1>&2; \
+		     exit 1; }
 
 # Regenerate the library's README from tcslog/src/lib.rs. Needs
 # `cargo install cargo-rdme`, as `make check` does.

@@ -223,6 +223,17 @@
 //! header without consulting its name -- for files renamed or copied out of their
 //! directory.
 //!
+//! # Calling from C
+//!
+//! `tcslog-c`, in the same repository, presents these two interfaces as
+//! a C ABI: `tcslog_write_open` and `tcslog_write_record` for writing,
+//! `tcslog_read_open` and `tcslog_read_record` for reading, with every
+//! function returning a status and every result written through an
+//! out-parameter. `make install` puts the header and the libraries under
+//! a prefix of your choosing. A log written from C and one written from
+//! Rust are the same log; the stored format does not depend on which
+//! side wrote it.
+//!
 //! # Documentation
 //!
 //! The full manual, including the theory of operation, is `docs/tcslog.rst` in

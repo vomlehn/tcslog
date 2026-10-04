@@ -1,0 +1,30 @@
+[package]
+name = "tcslog-c"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+# A C ABI is of no use to a dependent that resolves crates from a
+# registry: a C consumer links the library this builds and includes the
+# header beside it, neither of which cargo delivers. The crate stays
+# here with the library it wraps, as tcslog-gen does, so that a change
+# to LogWrite or LogRead and the change to its binding are one commit
+# and one `make check`.
+publish = false
+
+[lib]
+# rlib so that `cargo test` has a library to link the unit tests
+# against; cdylib and staticlib are what a C program links. The
+# staticlib is what test/capi-smoke.c uses, there being no install step
+# to put a shared object where a loader would find it.
+crate-type = ["rlib", "cdylib", "staticlib"]
+
+[dependencies]
+# The default features, write included: a C binding that could not
+# write would be half a binding, and the write side is what needs
+# TIMER_RESOLUTION at build time.
+tcslog = { path = "../tcslog" }
+
+[lints]
+workspace = true

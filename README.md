@@ -57,6 +57,55 @@ until ENTER.
 ./bin/verify-helper combined_12-10 corrupt_12-10
 ```
 
+C interface
+-----------
+`tcslog-c` presents `LogWrite` and `LogRead` to a C caller. It is a
+separate crate because a C interface has to be built as a `cdylib` and a
+`staticlib`, which a crate cannot be conditionally, and because the
+`unsafe` an ABI needs is then confined to it: the library crate itself
+contains none.
+
+```sh
+make install                       # header and libraries under $HOME
+make install PREFIX=/usr/local     # somewhere else; DESTDIR stages it
+cc prog.c -I$HOME/include -L$HOME/lib -ltcslog_c
+```
+
+`make uninstall` removes them again, honouring the same two variables.
+
+`tcslog-c/include/tcslog.h` is generated from `tcslog-c/src/lib.rs` by
+`cbindgen` and is not written by hand: `make header` regenerates it and
+`make check` fails if it is out of date, the same arrangement
+`tcslog/README.md` has with the library's doc comment. That needs a tool
+`cargo` does not ship:
+
+```sh
+cargo install cbindgen
+```
+
+Every function returns a `TcslogStatus` and writes what the caller wanted
+through an out-parameter, so no status can be confused with data. The
+status numbers are ABI, and `docs/tcslog-prompt.rst` specifies them along
+with the rest of the interface.
+
+```sh
+./bin/run-capi-example
+```
+
+Builds `tcslog-c/examples/downlink.c` against the header, runs it
+against a temporary directory, and shows what is left. The example
+writes telemetry twice: once with a `send` callback that renames each
+filled segment file out of the log's namespace, which is what a vehicle
+does with telemetry it has downlinked, and once with no callback at all,
+which is what a log looks like before a ground station comes into view.
+It then reads back what remains.
+
+`make capi-test` is the other half of that: it compiles
+`tcslog-c/examples/smoke.c` against the header, links the staticlib, and
+checks a round trip. `make test` runs it, because it is the only test
+that would catch a header describing the wrong argument order -- the Rust
+unit tests in `tcslog-c` call the same functions as Rust.
+
 Documentation
 -------------
 `tcslog/README.md` is not written by hand. It is generated from the

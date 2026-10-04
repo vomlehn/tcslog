@@ -1,0 +1,52 @@
+#!/bin/bash
+#
+# Build and run the C binding's example against a throwaway directory.
+#
+# This is bin/run-sample's counterpart for C: it compiles
+# tcslog-c/examples/downlink.c against the generated header, links it
+# against the staticlib cargo built, gives it a temporary directory, and
+# lists what is left before deleting it.
+#
+# The example hands filled segment files to a `send` callback that
+# renames them into a "downlinked" subdirectory, so the listing shows
+# the arrangement a vehicle works under: what has gone down is out of
+# the log's namespace, and what remains in the log is the tail that has
+# not been sent.
+#
+#     ./bin/run-capi-example
+#
+# Needs a C compiler. CC overrides which one, as in the Makefile.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+CC=${CC:-cc}
+CFLAGS=${CFLAGS:--Wall -Wextra -Werror -std=c11}
+
+log_dir=$(mktemp -d -t tcslog-capi-XXXXXXXX)
+trap 'rm -rf "$log_dir"' EXIT
+
+# The staticlib the example links, which cargo writes under
+# target/debug. Built here rather than assumed, so the example cannot
+# be run against a library older than the source beside it.
+cargo build --quiet -p tcslog-c
+
+echo "Log directory: $log_dir"
+echo
+
+# shellcheck disable=SC2086  # CFLAGS is deliberately word-split.
+$CC $CFLAGS -o "$log_dir/downlink" tcslog-c/examples/downlink.c \
+    -I tcslog-c/include -L target/debug -l:libtcslog_c.a
+
+"$log_dir/downlink" "$log_dir"
+
+echo
+echo "Still in the log:"
+ls -l "$log_dir" | grep -v '^total' | grep -v downlink$ || true
+
+echo
+echo "Handed over to send, out of the log's namespace:"
+ls -l "$log_dir/downlinked" | grep -v '^total' || true
+
+echo
+echo "Removing $log_dir"

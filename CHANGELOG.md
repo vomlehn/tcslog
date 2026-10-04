@@ -15,6 +15,73 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+### Added
+
+- `tcslog-c`, a C ABI over `LogWrite` and `LogRead`, as a third
+  workspace member. A C interface has to be built as a `cdylib` and a
+  `staticlib`, which a crate cannot be conditionally, so it could not have
+  been a feature of the library; keeping it a separate crate also confines
+  the `unsafe` an ABI needs to it, leaving `tcslog/src` with none. It stays
+  in this repository rather than one of its own, as `tcslog-gen` does,
+  because the binding mirrors the Rust API and a change to both is then one
+  commit and one `make check`.
+
+  Every function returns a `TcslogStatus` and writes what the caller wanted
+  through an out-parameter, so no status can be confused with data.
+  `ReadTruncated` and `ReadOverflow` carry their counts into a
+  `TcslogReadResult`. No function lets a panic unwind into C, that being
+  undefined behaviour; each catches one and reports `TCSLOG_STATUS_PANIC`.
+  The status numbers are ABI and `docs/tcslog-prompt.rst` now specifies
+  them, along with the calling convention, the format tags, what a read
+  fills in, and the callbacks.
+
+- `docs/tcslog.rst` gains a "Calling From C" chapter: installing, the
+  shape the interface takes and why every function returns a status, the
+  write and read functions with what each out-parameter holds, the
+  callbacks and what their return values mean, the panic rule, and a
+  complete program. The library's own documentation gains a shorter
+  "Calling from C" section, so docs.rs and crates.io say the binding
+  exists rather than leaving it to be found in the repository.
+
+- `tcslog-c/include/tcslog.h`, generated from the crate by `cbindgen`.
+  `make header` writes it and `make check` fails if it is out of date, the
+  arrangement `tcslog/README.md` already has with the library's doc
+  comment.
+
+- `make install` puts the header and both libraries under `PREFIX`,
+  defaulting to `$HOME` as the `tcslog-tools` Makefile does, with `DESTDIR`
+  for staged installs; `make uninstall` removes them. Neither the Rust
+  library nor a pkg-config file is installed: a consumer needs
+  `-ltcslog_c` and nothing a pkg-config file would add.
+
+- `tcslog-c/examples/downlink.c` and `bin/run-capi-example`, the C
+  counterpart of `examples/sample.rs` and `bin/run-sample`. The example
+  writes telemetry with a `send` callback that renames each filled segment
+  file out of the log's namespace, which is what the callback's contract
+  asks of it, then again with no callback, which is what a log looks like
+  before a ground station comes into view, and reads back what remains.
+
+- `make capi-test`, run by `make test`, compiles
+  `tcslog-c/examples/smoke.c` against the generated header, links the
+  staticlib, and checks a write-then-read round trip -- 36 checks under
+  `-Wall -Wextra -Werror`. The Rust unit tests in `tcslog-c` call the same
+  functions as Rust, so only this would catch a header that described the
+  wrong argument order or struct layout.
+
+### Fixed
+
+- `LogWrite`'s `Drop` flushes the segment file being written and hands it
+  to `send` if it holds any records, which the C binding's
+  `tcslog_write_close` documentation had said it did not do. Writing the
+  example is what found it: every segment file left the log, including the
+  short last one, and the read that followed found an empty directory. The
+  binding now documents what happens, including that an error from that
+  flush or from `send` is discarded because a close cannot report one.
+
 ## [0.2.7] - 2026-10-04
 
 Stored format: unchanged, 0.1.0.
@@ -382,6 +449,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.2.7...HEAD
 [0.2.7]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.7
 [0.2.6]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.6
 [0.2.5]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.5

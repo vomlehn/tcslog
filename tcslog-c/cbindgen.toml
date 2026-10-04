@@ -1,0 +1,22 @@
+# Generates include/tcslog.h from src/lib.rs. `make header` writes it
+# and `make check` verifies it, so a header that no longer describes the
+# binding fails the build rather than reaching a C caller -- the same
+# arrangement tcslog/README.md has with the library's doc comment.
+language = "C"
+header = """/* Generated from tcslog-c/src/lib.rs by cbindgen. Do not edit.
+   Run `make header` from the repository root to regenerate. */"""
+include_guard = "TCSLOG_H"
+tab_width = 4
+documentation = true
+documentation_style = "doxy"
+cpp_compat = true
+sys_includes = ["stdint.h", "stddef.h"]
+no_includes = true
+
+[enum]
+prefix_with_name = true
+rename_variants = "ScreamingSnakeCase"
+
+[export]
+prefix = ""
+include = ["TcslogFormat"]

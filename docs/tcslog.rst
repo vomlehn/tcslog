@@ -906,6 +906,260 @@ Results and errors
         The segment file was written by a version of the stored format
         this build cannot read.
 
+Calling From C
+==============
+
+A C program reaches the same two interfaces through ``tcslog-c``, a
+crate in this workspace that presents ``LogWrite`` and ``LogRead`` as a
+C ABI. It is a separate crate because a C interface has to be built as a
+shared and a static library, which a crate cannot be only when asked,
+and because the unsafe code an ABI needs is then confined to it: the
+library itself contains none.
+
+Nothing about the log changes. A log written from C is read by a Rust
+caller and the other way round, the stored format being the same one.
+
+Installing
+----------
+
+From the repository root::
+
+    make install
+
+The header goes to ``$HOME/include/tcslog.h`` and both libraries to
+``$HOME/lib``. ``make install PREFIX=/usr/local`` chooses somewhere
+else, ``DESTDIR`` stages the install for packaging, and ``make
+uninstall`` removes them again, honouring both variables. Then compile
+against it::
+
+    cc prog.c -I$HOME/include -L$HOME/lib -ltcslog_c
+
+Both a static and a shared library are installed, so either kind of
+link works. Neither a pkg-config file nor the Rust library is
+installed: a consumer needs ``-ltcslog_c`` and nothing a pkg-config
+file would add.
+
+``TIMER_RESOLUTION`` is a build-time value of the Rust library, so it is
+fixed when the library is built and a C caller cannot supply it. See
+`The timer resolution`_; a library built without it
+reports ``TCSLOG_STATUS_TIMER_RESOLUTION_ZERO`` when a writer is opened.
+
+How the interface is shaped
+---------------------------
+
+Every function returns a ``TcslogStatus``, and everything the caller
+wants back is written through a pointer argument. That is what lets a C
+caller check an outcome without ambiguity: no status can be confused
+with data, and no out-parameter has to double as an error signal.
+
+``TCSLOG_STATUS_OK`` is zero and every other code is positive, so ``if
+(status)`` reads as "something happened". The first five are not
+failures at all -- they are what the library reports about the telemetry
+itself, and a caller carries on after each. The full list, and which
+``LogError`` each failure corresponds to, is in
+``docs/tcslog-prompt.rst``; ``tcslog_status_str`` gives a short
+description of any of them at runtime.
+
+The numbers are ABI. Once a program has been compiled against the
+header they are fixed, so a code's value never changes and a new one is
+only ever added after the last.
+
+Handles are opaque. ``tcslog_write_open`` and ``tcslog_read_open``
+produce one, leaving it null if they fail, and ``tcslog_write_close``
+and ``tcslog_read_close`` release one. Both closers accept null, as
+``free`` does, and a handle must not be used after being closed.
+
+Writing
+-------
+
+``tcslog_write_open(dir, prefix, suffix, seg_size_max, format_tag, fixed_len, out)``
+    Begins writing, as ``LogWrite::new`` does and with the same
+    arguments, except that the format is an integer tag --
+    ``TCSLOG_FORMAT_FIXED``, ``TCSLOG_FORMAT_VARIABLE_SIMPLE``, or
+    ``TCSLOG_FORMAT_VARIABLE_TS_RC`` -- and ``fixed_len`` carries the
+    record length, which is read only for the first of those. A tag
+    outside the three is refused with
+    ``TCSLOG_STATUS_INVALID_FORMAT``. The callbacks are not an argument;
+    see `Callbacks from C`_.
+
+``tcslog_write_record(h, data, len, written)``
+    Writes one record of ``len`` bytes. ``written``, when it is not
+    null, is left holding what the record occupied in the log, its data
+    header included. A ``len`` of zero is allowed and ``data`` may then
+    be null.
+
+``tcslog_write_flush(h)``
+    Flushes the segment file being written, and reports a failure to do
+    so.
+
+``tcslog_write_clear(h)``
+    Removes every segment file of this log.
+
+``tcslog_write_timer_resolution(h, out)``
+    Writes the resolution in force, which is the build-time value unless
+    the writer found it too small and widened it.
+
+``tcslog_write_close(h)``
+    Closes the writer. The segment file being written is flushed and, if
+    it holds any records, handed to ``send`` -- so the records written
+    last are not stranded in a file the caller was never told about.
+    That file is short, unlike every other file ``send`` is given.
+
+    A close cannot report a failure, so an error from that flush or from
+    ``send`` is discarded. A caller that needs to know the last records
+    reached storage calls ``tcslog_write_flush`` first, which does
+    report.
+
+Reading
+-------
+
+``tcslog_read_open(dir, prefix, suffix, out)``
+    Begins reading, as ``LogRead::new`` does.
+
+``tcslog_read_record(h, buf, cap, result)``
+    Reads the next record into ``buf``. ``result`` is filled whatever
+    the status, so its fields can be read without checking first, and
+    holds:
+
+    ``n``
+        Payload bytes placed in the buffer. On
+        ``TCSLOG_STATUS_READ_TRUNCATED`` the bytes recovered of a record
+        cut short; on ``TCSLOG_STATUS_READ_OVERFLOW`` the size the record
+        needs, with nothing placed in the buffer.
+
+    ``meta``, ``timestamp``, ``record_count``
+        Which of the three metadata shapes the record had, and, for
+        ``TCSLOG_META_VARIABLE_TS_RC``, the time it was written and its
+        position in the session. The latter two are zero for the other
+        shapes.
+
+    ``lost``
+        Segment files found missing, on
+        ``TCSLOG_STATUS_READ_TRUNCATED``. Zero where a record was cut
+        short with no file missing at all.
+
+``tcslog_read_segments_opened(h, out)``
+    Writes the number of segment files this reader has opened.
+
+``tcslog_read_close(h)``
+    Releases the reader.
+
+The rule is the Rust one: read again until ``TCSLOG_STATUS_EOF``.
+Everything else is news about the telemetry rather than a failure of the
+reader, and `What a caller should do with each outcome`_ applies
+unchanged. The one code that needs care is
+``TCSLOG_STATUS_READ_OVERFLOW``: nothing was consumed, so reading again
+with the same buffer returns the same record for ever. Grow the buffer
+to the ``n`` the result reports.
+
+Callbacks from C
+----------------
+
+The three callbacks ``WriteCallbacks`` holds are bare function pointers
+with no context argument, so there is nowhere to put a per-log C
+context. They are set for the whole process instead::
+
+    int on_send(const char *path);
+    int on_record_complete(int fd);
+    void on_timer_resolution_adjusted(uint64_t resolution_ns);
+
+    tcslog_set_send_callback(on_send);
+    tcslog_set_record_complete_callback(on_record_complete);
+    tcslog_set_timer_resolution_adjusted_callback(on_adjusted);
+
+Passing null unsets one, which is the default. Set them before opening a
+writer: a writer takes the callbacks as they stand when it is opened, so
+a setter called afterwards does not reach a writer already open. A
+caller that must tell its logs apart has the segment file's path, which
+``send`` is given, and the log's directory and prefix are in it.
+
+``send`` and ``record_complete`` return an ``int``: zero for success,
+and anything else makes the write that triggered the callback report
+``TCSLOG_STATUS_IO_ERROR``. That is the right answer for a ``send`` that
+could not take a file -- the storage bound the log was given has stopped
+holding, and the caller needs to know. ``record_complete`` is handed a
+descriptor the library still owns, so it must not close it.
+
+What ``send`` has to do is what it has to do in Rust: when it returns
+there must be no file at the path it was given and none matching the
+log's naming pattern. See `Callbacks: WriteCallbacks`_.
+
+Panics do not cross the boundary
+--------------------------------
+
+Letting a panic unwind out of a C function is undefined behaviour, so
+every function catches one and reports ``TCSLOG_STATUS_PANIC`` instead.
+A caller that sees it should treat the handle as unusable: the panic
+happened part way through an operation and the binding cannot say how
+far.
+
+A complete program
+------------------
+
+Writing a log and reading it back:
+
+.. code-block:: c
+
+    #include <stdio.h>
+    #include <string.h>
+    #include "tcslog.h"
+
+    int main(void) {
+        TcslogWrite *w = NULL;
+        TcslogStatus s = tcslog_write_open(
+            "/var/telemetry", "seg-", ".tcslog",
+            tcslog_segment_file_header_len() + 1024,
+            TCSLOG_FORMAT_VARIABLE_TS_RC, 0, &w);
+        if (s != TCSLOG_STATUS_OK) {
+            fprintf(stderr, "open: %s\n", tcslog_status_str(s));
+            return 1;
+        }
+
+        const char *msg = "attitude nominal";
+        s = tcslog_write_record(w, (const uint8_t *)msg, strlen(msg), NULL);
+        if (s != TCSLOG_STATUS_OK) {
+            fprintf(stderr, "write: %s\n", tcslog_status_str(s));
+            tcslog_write_close(w);
+            return 1;
+        }
+        tcslog_write_close(w);
+
+        TcslogRead *r = NULL;
+        s = tcslog_read_open("/var/telemetry", "seg-", ".tcslog", &r);
+        if (s != TCSLOG_STATUS_OK) {
+            fprintf(stderr, "open for reading: %s\n", tcslog_status_str(s));
+            return 1;
+        }
+
+        for (;;) {
+            unsigned char buf[4096];
+            TcslogReadResult result;
+            s = tcslog_read_record(r, buf, sizeof buf, &result);
+            if (s == TCSLOG_STATUS_EOF) {
+                break;
+            }
+            if (s == TCSLOG_STATUS_OK) {
+                printf("#%lu %.*s\n", (unsigned long)result.record_count,
+                       (int)result.n, buf);
+            } else if (s == TCSLOG_STATUS_READ_TRUNCATED) {
+                printf("lost %lu file(s); %u byte(s) recovered\n",
+                       (unsigned long)result.lost, result.n);
+            } else if (s != TCSLOG_STATUS_SESSION_END) {
+                fprintf(stderr, "read: %s\n", tcslog_status_str(s));
+                tcslog_read_close(r);
+                return 1;
+            }
+        }
+        tcslog_read_close(r);
+        return 0;
+    }
+
+A longer one, with a ``send`` callback that takes each filled segment
+file out of the log the way a vehicle would, is
+``tcslog-c/examples/downlink.c`` in the repository.
+``bin/run-capi-example`` builds it and runs it against a temporary
+directory.
+
 Theory of Operation
 ===================
 
