@@ -15,6 +15,23 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.3.1] - 2026-10-04
+
+Stored format: unchanged, 0.1.0.
+
+### Changed
+
+- The library documentation's opening paragraph now says that the library is
+  callable from C as well as Rust, and why: the code producing telemetry on
+  such a vehicle is often C. It said so already, under `Calling from C`, two
+  hundred lines down a page that a reader deciding whether this is usable
+  from their vehicle's flight code will not reach.
+
+  Nothing in the crate changed. `tcslog/README.md` is generated from the
+  library's doc comment by `cargo rdme`, and crates.io carries the README of
+  the published version, so a release is what puts the sentence on that page
+  -- which is the whole of what this one is for.
+
 ## [0.3.0] - 2026-10-04
 
 Stored format: unchanged, 0.1.0. A reader of this build reads a log written
@@ -627,6 +644,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[0.3.1]: https://github.com/vomlehn/tcslog/releases/tag/v0.3.1
 [0.3.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.3.0
 [0.2.8]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.8
 [0.2.7]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.7
