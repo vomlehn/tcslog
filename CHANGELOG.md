@@ -15,6 +15,53 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0. A reader of this build reads a log written
+by any 0.1.x or 0.2.x build, and the other way round: the crate version and
+the stored format move independently, as the note at the top of this file
+says.
+
+### Removed
+
+- `WriteCallbacks` as a structure of function pointers. The name now belongs
+  to the trait that was `WriteHandler` in 0.2.8, with the three fields as
+  methods taking `&mut self`, so the callbacks reach whatever the
+  implementation holds. There is one way to say this again rather than two.
+
+  **This breaks every caller that passed callbacks**, which is why it is a
+  minor version. Each change is mechanical:
+
+  | 0.2.x | now |
+  | --- | --- |
+  | `WriteCallbacks::default()` | `()` |
+  | `WriteCallbacks { send: ship, ..default() }` | a struct with `impl WriteCallbacks { fn send(&mut self, ..) }` |
+  | all three fields set | one struct implementing all three methods |
+  | state in a `static` | fields on that struct; pass `&mut it` to read them after the log closes |
+
+  A caller that wants to keep its existing functions need not rewrite them:
+  a struct whose methods call them is enough, which is what the suite's own
+  `Fns` helper is -- the three function-pointer fields the old structure
+  had, with an `impl` that calls them. That kept twenty-four call sites in
+  `api.rs` as they were.
+
+  `0.2.8` is the release to upgrade through: it added the trait under its
+  old name and deprecated the structure, so a caller can move to the trait
+  there, with the compiler naming every site, and then come here for the
+  rename.
+
+- `WriteHandler`, as a name. It existed in 0.2.8 only, as the trait this
+  release renames. Anyone who adopted it there renames the trait in their
+  `impl` and their imports; nothing else about it changed.
+
+### Changed
+
+- `LogWrite`'s default type parameter is `()` rather than the removed
+  structure, so `LogWrite` named without one is a writer with no callbacks.
+  The documentation of the callbacks moves with the methods: what each one
+  is obliged to do, and the whole account of what `send` must leave behind,
+  is now on the trait rather than on the structure's fields.
+
 ## [0.2.8] - 2026-10-04
 
 Stored format: unchanged, 0.1.0.
@@ -542,6 +589,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[unreleased]: https://github.com/vomlehn/tcslog/compare/v0.2.8...HEAD
 [0.2.8]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.8
 [0.2.7]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.7
 [0.2.6]: https://github.com/vomlehn/tcslog/releases/tag/v0.2.6

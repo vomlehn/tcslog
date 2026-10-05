@@ -264,7 +264,7 @@ A complete program that writes a log and reads it back:
             ".seg",
             seg_size_max,
             Format::VariableTsRc,
-            WriteCallbacks::default(),
+            (),  // no callbacks: see Callbacks: WriteCallbacks
         )?;
         log.write_str("attitude nominal")?;
         log.write(&[0x01, 0x02, 0x03])?;
@@ -290,7 +290,7 @@ A complete program that writes a log and reads it back:
         Ok(())
     }
 
-Note that ``WriteCallbacks::default()`` does nothing when a segment file
+Note that ``()`` as the callbacks does nothing when a segment file
 fills, which leaves the files in the directory. That suits development
 and the examples above. A program storing telemetry in earnest should
 replace the ``send`` member; see `Handing over a segment file`_.
@@ -342,31 +342,24 @@ The example's source, ``tcslog/examples/sample.rs``, is the shortest
 complete illustration of the writing side: the segment size it picks,
 the callbacks it supplies, and what it does with the session ID.
 
-Callbacks with a context: WriteHandler
---------------------------------------
+Callbacks with a context
+------------------------
 
-.. note::
-
-   ``WriteCallbacks`` is deprecated as of 0.2.8 and is removed in 0.3.0.
-   ``WriteHandler`` replaces it: a caller with no state to carry
-   implements it on a unit struct, or passes ``()`` for no callbacks at
-   all. The type still works for as long as it ships.
-
-``WriteCallbacks`` holds bare function pointers, which have nowhere to
-keep state. A caller whose callbacks must reach its own -- a radio
-handle, a queue of files awaiting a downlink pass, a counter --
-implements ``WriteHandler`` instead and keeps that state in ``self``:
+Because ``WriteCallbacks`` is a trait, the callbacks reach whatever the
+implementation holds -- a radio handle, a queue of files awaiting a
+downlink pass, a counter. That is the usual reason to implement it on
+something other than a unit struct:
 
 .. code-block:: rust
 
     use std::path::Path;
-    use tcslog::{Format, LogWrite, WriteHandler, SEGMENT_FILE_HEADER_LEN};
+    use tcslog::{Format, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
 
     struct Downlink<'a> {
         queued: &'a mut usize,
     }
 
-    impl WriteHandler for Downlink<'_> {
+    impl WriteCallbacks for Downlink<'_> {
         fn send(&mut self, path: &Path) -> std::io::Result<()> {
             std::fs::remove_file(path)?;   // a real one would queue it
             *self.queued += 1;
@@ -386,23 +379,9 @@ implements ``WriteHandler`` instead and keeps that state in ``self``:
     }
     println!("{queued} file(s) queued");
 
-``send`` must be implemented. The other two have defaults -- doing
-nothing, and printing the widened resolution to standard error -- so an
-implementation names only what it wants beyond ``send``. Each is called
-exactly where the corresponding field of ``WriteCallbacks`` is called,
-with the same obligations: in particular ``send`` must leave no file at
-the path it was given.
-
-``send`` has no default on purpose. A log that never sends fills its
-directory, and the bound on storage is the whole reason the log is
-segmented, so not sending has to be chosen rather than inherited. Where
-it really is wanted, the unit type implements the trait and says so::
-
-    let mut log = LogWrite::new(dir, "seg-", ".tcslog", size, format, ())?;
-
-That is ``WriteCallbacks::default()`` in a form a reader of the call can
-see: filled segment files stay in the directory, which suits
-development, a test, and a log small enough to read off by hand.
+What each method is obliged to do is in `Callbacks: WriteCallbacks`_
+above: in particular ``send`` must leave no file at the path it was
+given.
 
 Handing the handler over, or lending it
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -429,9 +408,9 @@ hands it to ``send``, so a count kept inside a handler the writer owns
 cannot be read once that has happened, where a handler the caller still
 holds can.
 
-``LogWrite`` is generic over the handler, with ``WriteCallbacks`` as the
-default type, so ``LogWrite`` named without a parameter goes on meaning
-what it meant and a caller passing ``WriteCallbacks`` needs no change.
+``LogWrite`` is generic over the implementation, with ``()`` as the
+default type, so ``LogWrite`` named without a parameter is a writer with
+no callbacks.
 
 Record Formats
 ==============
@@ -744,21 +723,35 @@ Reading: LogRead
 Callbacks: WriteCallbacks
 -------------------------
 
-A structure of three function pointers, rather than closures or trait
-objects, so that it sits inside a ``LogWrite`` with no allocation and no
-dynamic dispatch. ``WriteCallbacks::default()`` supplies functions that
-do nothing, apart from reporting a widened timer resolution on standard
-error, which suits development.
+A trait, implemented on whatever the callbacks need to reach. The
+writer is generic over the implementation, so it sits inside the
+``LogWrite`` with no allocation and no dynamic dispatch, and a call
+costs what calling the method costs.
 
-Naming only the fields that matter and taking the rest from the default
-keeps a literal working when a callback is added::
+``send`` must be implemented. The other two have defaults -- doing
+nothing, and reporting a widened resolution on standard error -- so an
+implementation names only what it wants beyond ``send``::
 
-    WriteCallbacks {
-        send: ship_it,
-        ..WriteCallbacks::default()
+    struct ShipIt {
+        radio: Radio,
     }
 
-``record_complete: fn(&mut File) -> std::io::Result<()>``
+    impl WriteCallbacks for ShipIt {
+        fn send(&mut self, path: &Path) -> std::io::Result<()> {
+            self.radio.queue(path)
+        }
+    }
+
+``()`` implements the trait with a ``send`` that does nothing, which is
+how to say that filled segment files are to stay in the directory::
+
+    let mut log = LogWrite::new(dir, "seg-", ".tcslog", size, format, ())?;
+
+``send`` has no default on purpose. A log that never sends fills its
+directory, and the bound on storage is the whole reason the log is
+segmented, so not sending has to be chosen rather than inherited.
+
+``record_complete(&mut self, file: &mut File) -> std::io::Result<()>``
     Invoked after each record has been written, with the segment file the
     record ended in.
 
@@ -768,7 +761,7 @@ keeps a literal working when a callback is added::
     returned here reaches the caller of ``write`` as ``IoError``, after
     the record's bytes have already been written.
 
-``send: fn(&Path) -> std::io::Result<()>``
+``send(&mut self, path: &Path) -> std::io::Result<()>``
     Invoked with the full path of a segment file whose data section has
     filled, and also with each pre-existing segment file that
     ``LogWrite::new`` finds.
@@ -776,7 +769,7 @@ keeps a literal working when a callback is added::
     *Returns* success, or an error that reaches the caller of ``write``
     as ``IoError``.
 
-``timer_resolution_adjusted: fn(u64)``
+``timer_resolution_adjusted(&mut self, resolution_ns: u64)``
     Invoked when the timer resolution has been widened, with the value
     now in force in nanoseconds.
 
@@ -1184,7 +1177,7 @@ until the writer is closed and the library does not own it, so that must
 outlive the writer.
 
 Each writer has its own, so two logs in one process can have different
-callbacks and different contexts. This is ``WriteHandler`` on the Rust
+callbacks and different contexts. This is ``WriteCallbacks`` on the Rust
 side, which the binding implements once and aims at whichever C
 functions a writer was opened with.
 

@@ -146,7 +146,7 @@
 //! # Writing
 //!
 //! ```no_run
-//! use tcslog::{Format, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
+//! use tcslog::{Format, LogWrite, SEGMENT_FILE_HEADER_LEN};
 //!
 //! # fn main() -> Result<(), tcslog::LogError> {
 //! let mut log = LogWrite::new(
@@ -155,7 +155,7 @@
 //!     ".tcslog",                        // file name suffix
 //!     SEGMENT_FILE_HEADER_LEN + 65_536, // bytes per segment file
 //!     Format::VariableTsRc,
-//!     WriteCallbacks::default(),
+//!     (),                               // no callbacks; see below
 //! )?;
 //!
 //! log.write_str("attitude nominal")?;
@@ -164,18 +164,18 @@
 //! ```
 //!
 //! [`WriteCallbacks`] is where a filled segment file leaves this
-//! library's care: `send` is called with its path, and must leave no
-//! file of that name behind -- compress it, downlink it, or rename it
-//! out of the log's naming pattern. The default `send` does nothing,
-//! which suits development and lets segment files accumulate.
+//! library's care. It is a trait: implement it on whatever your
+//! callbacks need to reach -- a radio handle, a queue of files awaiting
+//! a downlink pass, a counter -- and the writer owns that and lends it
+//! back on every call. `&mut handler` may be passed in place of the
+//! handler itself, which leaves it with the caller to read once the log
+//! is closed, and `()` implements the trait for no callbacks at all.
 //!
-//! Those are bare function pointers, with nowhere to keep state, and
-//! the type is deprecated as of 0.2.8 for that reason: implement
-//! [`WriteHandler`] instead. A handler keeps whatever the callbacks
-//! need in `self` -- a radio handle, a queue of files awaiting a
-//! downlink pass, a counter -- and `&mut handler` may be passed in
-//! place of the handler itself, which leaves it with the caller to read
-//! once the log is closed. For no callbacks at all, pass `()`.
+//! `send` is the one method you must write. It is called with the path
+//! of each filled segment file and must leave no file of that name
+//! behind -- compress it, downlink it, or rename it out of the log's
+//! naming pattern. A log that never sends fills its directory, which is
+//! why not sending is `()` rather than a default.
 //!
 //! # Reading
 //!
@@ -277,10 +277,7 @@ pub use segid::SegId;
 pub use seq_id::SeqId;
 pub use util::{format_timestamp, record_trailer};
 #[cfg(feature = "write")]
-#[allow(deprecated)]
-pub use write::WriteCallbacks;
-#[cfg(feature = "write")]
-pub use write::{LogWrite, WriteHandler};
+pub use write::{LogWrite, WriteCallbacks};
 
 /// The type that holds the size of a data record's telemetry payload.
 ///

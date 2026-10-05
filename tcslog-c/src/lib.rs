@@ -39,7 +39,7 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use tcslog::{
-    Format, LogError, LogRead, LogWrite, Meta, RecSize, WriteHandler, SEGMENT_FILE_HEADER_LEN,
+    Format, LogError, LogRead, LogWrite, Meta, RecSize, WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
     VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH,
 };
 
@@ -290,7 +290,7 @@ struct CHandler {
     cb: TcslogCallbacks,
 }
 
-impl WriteHandler for CHandler {
+impl WriteCallbacks for CHandler {
     fn record_complete(&mut self, file: &mut File) -> io::Result<()> {
         let Some(f) = self.cb.record_complete else {
             return Ok(());

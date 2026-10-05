@@ -91,9 +91,8 @@ with the rest of the interface.
 A writer is given its callbacks when it is opened, in a
 `TcslogCallbacks` that also carries the `void *ctx` handed back to each
 of them, so two logs in one process can have different callbacks and
-different contexts. On the Rust side that is the `WriteHandler` trait,
-which a caller implements when its callbacks need state that a bare
-function pointer has nowhere to keep.
+different contexts. On the Rust side that is the `WriteCallbacks` trait,
+which a caller implements on whatever its callbacks need to reach.
 
 ```sh
 ./bin/run-capi-example

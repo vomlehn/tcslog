@@ -8,11 +8,6 @@
 //! value, the exact size of every segment file, and the state a writer
 //! is left in by a failure.
 
-// WriteCallbacks is deprecated in favour of WriteHandler but is still
-// shipped and still has to work, so the tests of it stay as they are
-// until 0.3.0 removes it. The handler tests below are the new path's.
-#![allow(deprecated)]
-
 use std::fs::{self, File, OpenOptions};
 use std::io;
 use std::path::{Path, PathBuf};
@@ -23,7 +18,7 @@ use tempfile::TempDir;
 
 use tcslog::{
     Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, SegmentHeader, WriteCallbacks,
-    WriteHandler, SEGMENT_FILE_HEADER_LEN,
+    SEGMENT_FILE_HEADER_LEN,
 };
 
 const PREFIX: &str = "seg-";
@@ -53,15 +48,8 @@ impl Log {
     /// Opens a writer on this log with callbacks that do nothing, so
     /// that the segment files stay put for a reader to find.
     fn writer(&self, format: Format) -> LogWrite {
-        LogWrite::new(
-            self.path(),
-            PREFIX,
-            SUFFIX,
-            self.seg_size_max,
-            format,
-            WriteCallbacks::default(),
-        )
-        .expect("a writer on a fresh directory")
+        LogWrite::new(self.path(), PREFIX, SUFFIX, self.seg_size_max, format, ())
+            .expect("a writer on a fresh directory")
     }
 
     /// Writes one session of `payloads` and closes it, so that every
@@ -264,7 +252,7 @@ fn a_log_may_not_use_fixed_zero() {
             SUFFIX,
             log.seg_size_max,
             Format::Fixed(0),
-            WriteCallbacks::default(),
+            (),
         ),
         Err(LogError::FixedLenMismatch)
     ));
@@ -457,14 +445,7 @@ fn seg_size_max_must_leave_room_for_a_data_header() {
         for too_small in [0, floor] {
             assert!(
                 matches!(
-                    LogWrite::new(
-                        path,
-                        PREFIX,
-                        SUFFIX,
-                        too_small,
-                        format,
-                        WriteCallbacks::default()
-                    ),
+                    LogWrite::new(path, PREFIX, SUFFIX, too_small, format, ()),
                     Err(LogError::SegSizeTooSmall)
                 ),
                 "format {format:?} accepted seg_size_max {too_small}"
@@ -472,21 +453,54 @@ fn seg_size_max_must_leave_room_for_a_data_header() {
         }
         // One byte more than the floor is enough.
         assert!(
-            LogWrite::new(
-                path,
-                PREFIX,
-                SUFFIX,
-                floor + 1,
-                format,
-                WriteCallbacks::default()
-            )
-            .is_ok(),
+            LogWrite::new(path, PREFIX, SUFFIX, floor + 1, format, ()).is_ok(),
             "format {format:?} refused the smallest workable seg_size_max"
         );
     }
 }
 
 // ------------------------------------------------------------- Callbacks
+
+/// The callbacks as plain function pointers.
+///
+/// `WriteCallbacks` was a structure of these three fields before it
+/// became a trait, and these tests are what wanted it that way: each
+/// installs one or two free functions, which count in statics because
+/// the suite runs in parallel and a `fn` has nowhere to put per-test
+/// state. The tests that do have state use a handler with fields, as
+/// `a_handler_carries_its_own_context` does.
+#[derive(Clone, Copy)]
+struct Fns {
+    record_complete: fn(&mut File) -> io::Result<()>,
+    send: fn(&Path) -> io::Result<()>,
+    timer_resolution_adjusted: fn(u64),
+}
+
+impl Default for Fns {
+    /// Callbacks that do nothing, including the resolution report: a
+    /// test that is not about the report does not want it on stderr.
+    fn default() -> Self {
+        Self {
+            record_complete: |_| Ok(()),
+            send: |_| Ok(()),
+            timer_resolution_adjusted: |_| {},
+        }
+    }
+}
+
+impl WriteCallbacks for Fns {
+    fn record_complete(&mut self, file: &mut File) -> io::Result<()> {
+        (self.record_complete)(file)
+    }
+
+    fn send(&mut self, path: &Path) -> io::Result<()> {
+        (self.send)(path)
+    }
+
+    fn timer_resolution_adjusted(&mut self, resolution_ns: u64) {
+        (self.timer_resolution_adjusted)(resolution_ns);
+    }
+}
 
 static ROLL_SENDS: AtomicUsize = AtomicUsize::new(0);
 static ROLL_COMPLETES: AtomicUsize = AtomicUsize::new(0);
@@ -517,10 +531,10 @@ fn send_runs_once_per_segment_file_with_data_and_complete_once_per_record() {
             SUFFIX,
             log.seg_size_max,
             Format::VariableSimple,
-            WriteCallbacks {
+            Fns {
                 record_complete: roll_complete,
                 send: roll_send,
-                ..WriteCallbacks::default()
+                ..Fns::default()
             },
         )
         .expect("a writer on a fresh directory");
@@ -554,7 +568,7 @@ fn send_runs_once_per_segment_file_with_data_and_complete_once_per_record() {
 /// Counts what it was asked to do, in itself rather than in a static.
 ///
 /// The test above has to count in `AtomicUsize`es because a
-/// `WriteCallbacks` field is a bare `fn` with nowhere to put a context,
+/// `Fns` field is a bare `fn` with nowhere to put a context,
 /// and the suite runs in parallel so one test's counters would reach
 /// another's. A handler needs neither: each writer owns its own.
 struct Counting<'a> {
@@ -566,7 +580,7 @@ struct Counting<'a> {
     sends_after_drop: &'a mut usize,
 }
 
-impl WriteHandler for Counting<'_> {
+impl WriteCallbacks for Counting<'_> {
     fn record_complete(&mut self, _f: &mut File) -> io::Result<()> {
         self.completes += 1;
         Ok(())
@@ -647,7 +661,7 @@ fn a_borrowed_handler_stays_with_the_caller() {
         sends: usize,
     }
 
-    impl WriteHandler for Counting {
+    impl WriteCallbacks for Counting {
         fn send(&mut self, _p: &Path) -> io::Result<()> {
             self.sends += 1;
             Ok(())
@@ -713,7 +727,7 @@ fn the_unit_handler_is_no_callbacks_at_all() {
 /// write that triggered it rather than being swallowed.
 struct Refusing;
 
-impl WriteHandler for Refusing {
+impl WriteCallbacks for Refusing {
     fn send(&mut self, _p: &Path) -> io::Result<()> {
         Err(io::Error::other("the downlink queue is full"))
     }
@@ -766,9 +780,9 @@ fn drop_sends_the_segment_file_still_being_written() {
             SUFFIX,
             log.seg_size_max,
             Format::VariableSimple,
-            WriteCallbacks {
+            Fns {
                 send: drop_send,
-                ..WriteCallbacks::default()
+                ..Fns::default()
             },
         )
         .expect("a writer on a fresh directory");
@@ -806,9 +820,9 @@ fn a_new_writer_hands_over_what_it_finds_rather_than_appending() {
         SUFFIX,
         log.seg_size_max,
         Format::VariableSimple,
-        WriteCallbacks {
+        Fns {
             send: existing_send,
-            ..WriteCallbacks::default()
+            ..Fns::default()
         },
     )
     .expect("a writer on a directory holding a log");
@@ -840,9 +854,9 @@ fn a_failing_record_complete_propagates_and_leaves_the_writer_usable() {
             SUFFIX,
             log.seg_size_max,
             Format::VariableSimple,
-            WriteCallbacks {
+            Fns {
                 record_complete: failing_complete,
-                ..WriteCallbacks::default()
+                ..Fns::default()
             },
         )
         .expect("a writer on a fresh directory");
@@ -869,9 +883,9 @@ fn a_failing_send_propagates_from_the_roll_that_invoked_it() {
         SUFFIX,
         log.seg_size_max,
         Format::Fixed(4),
-        WriteCallbacks {
+        Fns {
             send: failing_send,
-            ..WriteCallbacks::default()
+            ..Fns::default()
         },
     )
     .expect("a writer on a fresh directory");
@@ -1535,7 +1549,7 @@ fn a_prefix_or_suffix_holding_a_path_separator_is_refused() {
                     suffix,
                     log.seg_size_max,
                     Format::VariableSimple,
-                    WriteCallbacks::default(),
+                    (),
                 ),
                 Err(LogError::PathDelimiterNotAllowed)
             ),
@@ -1565,7 +1579,7 @@ fn a_directory_that_is_not_one_is_refused() {
             SUFFIX,
             log.seg_size_max,
             Format::VariableSimple,
-            WriteCallbacks::default()
+            ()
         ),
         Err(LogError::InvalidPathname)
     ));
@@ -1819,7 +1833,8 @@ fn count_adjustment(ns: u64) {
 fn the_default_adjustment_callback_reports_and_carries_on() {
     // The default must not stop the program: a deployed system is meant
     // to keep logging through a widening, so this call has to return.
-    (WriteCallbacks::default().timer_resolution_adjusted)(4_096);
+    let mut none = ();
+    none.timer_resolution_adjusted(4_096);
 }
 
 #[test]
@@ -1834,9 +1849,9 @@ fn an_adjustment_is_reported_exactly_when_the_resolution_changes() {
         SUFFIX,
         log.seg_size_max,
         Format::VariableSimple,
-        WriteCallbacks {
+        Fns {
             timer_resolution_adjusted: count_adjustment,
-            ..WriteCallbacks::default()
+            ..Fns::default()
         },
     )
     .expect("a writer on a fresh directory");

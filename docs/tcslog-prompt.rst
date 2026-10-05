@@ -1742,7 +1742,7 @@ alike to the binding.
 
 Each writer therefore has its own callbacks and its own context, which
 is the point: two logs in one process may have different ones. On the
-Rust side this is ``WriteHandler``, which the binding implements once,
+Rust side this is ``WriteCallbacks``, which the binding implements once,
 holding the C function pointers and the context for the writer it
 belongs to.
 
@@ -1751,12 +1751,11 @@ and anything else makes the write that triggered the callback report
 ``TCSLOG_STATUS_IO_ERROR``. ``record_complete`` is handed a file
 descriptor the library still owns and must not close it.
 
-WriteHandler
-------------
-``WriteCallbacks`` is three bare ``fn`` pointers, which have nowhere to
-keep state. ``WriteHandler`` is the same three callbacks as trait
-methods, so an implementation keeps whatever state they need in
-``self``:
+WriteCallbacks
+--------------
+A trait of three methods, so an implementation keeps whatever state the
+callbacks need in ``self``. It was a structure of three bare ``fn``
+pointers through 0.2.x, which had nowhere to keep any:
 
 o   ``record_complete(&mut self, file: &mut File) -> io::Result<()>``
 
@@ -1772,26 +1771,27 @@ the trait with a ``send`` that does nothing, which is where that
 statement is made.
 
 ``record_complete`` defaults to doing nothing and
-``timer_resolution_adjusted`` to printing on standard error, as
-``WriteCallbacks::default`` does and for the same reason. Each method is
+``timer_resolution_adjusted`` to printing on standard error, silence
+being the wrong default for a widening the build should know about.
+Each method is
 called exactly where the corresponding field of ``WriteCallbacks`` is
 called and is under the same obligations.
 
-``&mut H`` implements the trait for any handler ``H``, so a caller may
+``&mut H`` implements the trait for any implementation ``H``, so a caller may
 lend a handler rather than give it up and read its state once the
 writer is dropped. The writer's drop hands the last segment file to
 ``send``, so a count kept in a handler the writer owns cannot be read
 after that, where one the caller still holds can.
 
-``WriteCallbacks`` is deprecated as of 0.2.8 and is to be removed in
-0.3.0, when the default type parameter becomes ``()``. Until then both
-are supported and a caller passing ``WriteCallbacks`` is unaffected.
+The structure of function pointers this replaces was deprecated in
+0.2.8 and removed in 0.3.0, the trait taking its name. A caller that
+had one builds a structure implementing the trait whose methods call
+the functions the fields held, which is what the suite's own `Fns`
+helper does.
 
-``LogWrite`` is generic over the handler with ``WriteCallbacks`` as the
-default type, and ``WriteCallbacks`` implements the trait by calling its
-own fields. A caller that passes ``WriteCallbacks`` is therefore
-unaffected, and ``LogWrite`` named without a parameter goes on meaning
-what it meant.
+``LogWrite`` is generic over the implementation with ``()`` as the
+default type parameter, so ``LogWrite`` named without one is a writer
+with no callbacks.
 
 The writer owns the handler. It must lend it back through ``handler``
 and ``handler_mut`` rather than return it, there being no way to move a

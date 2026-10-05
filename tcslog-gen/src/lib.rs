@@ -7,7 +7,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 use tcslog::{
-    record_trailer, Format, LogError, LogWrite, RecSize, WriteHandler, SEGMENT_FILE_HEADER_LEN,
+    record_trailer, Format, LogError, LogWrite, RecSize, WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
 };
 
 /// User-facing record-format specification parsed from the `--format`
@@ -190,7 +190,7 @@ pub struct LogInfo {
 /// not sending has to be chosen rather than inherited.
 struct Announce;
 
-impl WriteHandler for Announce {
+impl WriteCallbacks for Announce {
     fn send(&mut self, p: &Path) -> std::io::Result<()> {
         println!("--> Send file {}", p.display());
         Ok(())

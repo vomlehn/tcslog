@@ -20,7 +20,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
 
-use tcslog::{Format, LogError, LogWrite, WriteHandler, SEGMENT_FILE_HEADER_LEN};
+use tcslog::{Format, LogError, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
 
 /// Maximum size in bytes of any single segment file. Sized to force
 /// rollover after a small handful of `VariableTsRc` records so the
@@ -47,7 +47,7 @@ struct SampleLogs {
 /// not sending has to be chosen rather than inherited.
 struct Announce;
 
-impl WriteHandler for Announce {
+impl WriteCallbacks for Announce {
     fn send(&mut self, p: &Path) -> std::io::Result<()> {
         println!("--> Send file {}", p.display());
         Ok(())
