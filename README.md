@@ -59,6 +59,8 @@ until ENTER.
 
 C interface
 -----------
+The code producing telemetry on a flight system is often C, and a library
+that code cannot call is one that does not get used where the data is, so
 `tcslog-c` presents `LogWrite` and `LogRead` to a C caller. It is a
 separate crate because a C interface has to be built as a `cdylib` and a
 `staticlib`, which a crate cannot be conditionally, and because the

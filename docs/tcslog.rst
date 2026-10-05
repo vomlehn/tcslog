@@ -1009,12 +1009,14 @@ Results and errors
 Calling From C
 ==============
 
-A C program reaches the same two interfaces through ``tcslog-c``, a
-crate in this workspace that presents ``LogWrite`` and ``LogRead`` as a
-C ABI. It is a separate crate because a C interface has to be built as a
-shared and a static library, which a crate cannot be only when asked,
-and because the unsafe code an ABI needs is then confined to it: the
-library itself contains none.
+The code producing telemetry on a flight system is often C, and a
+library that code cannot call is one that does not get used where the
+data is. So a C program reaches the same two interfaces through
+``tcslog-c``, a crate in this workspace that presents ``LogWrite`` and
+``LogRead`` as a C ABI. It is a separate crate because a C interface has
+to be built as a shared and a static library, which a crate cannot be
+only when asked, and because the unsafe code an ABI needs is then
+confined to it: the library itself contains none.
 
 Nothing about the log changes. A log written from C is read by a Rust
 caller and the other way round, the stored format being the same one.
