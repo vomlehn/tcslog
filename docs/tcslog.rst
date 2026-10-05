@@ -384,7 +384,7 @@ above: in particular ``send`` must leave no file at the path it was
 given.
 
 Handing the handler over, or lending it
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 Passing the handler by value gives it to the writer, which lends it
 back through ``LogWrite::handler`` and ``LogWrite::handler_mut``.
@@ -502,7 +502,7 @@ state, so those methods take ``&mut self``.
 Writing: LogWrite
 -----------------
 
-``LogWrite::new(dir, prefix, suffix, seg_size_max, format, callbacks) -> Result<LogWrite, LogError>``
+``LogWrite::new(dir, prefix, suffix, seg_size_max, format, handler) -> Result<LogWrite<H>, LogError>``
     Begins writing a log, in a new session. Every segment file already in
     ``dir`` whose name matches the prefix and suffix is handed to the
     ``send`` callback before this session's first segment file is
@@ -529,9 +529,11 @@ Writing: LogWrite
     ``format``
         How records are to be laid out. See `Record Formats`_.
 
-    ``callbacks``
-        A ``WriteCallbacks`` holding the functions to invoke as records
-        complete and segment files fill.
+    ``handler``
+        An implementation of ``WriteCallbacks``, whose methods are
+        invoked as records complete and segment files fill. The writer
+        takes ownership of it; ``()`` is the implementation for a caller
+        with no callbacks of its own. See `Callbacks: WriteCallbacks`_.
 
     *Returns* the new writer, with its first segment file created, or one
     of ``TimerResolutionZero``, ``ClockError`` (the real-time clock does
@@ -616,6 +618,20 @@ Writing: LogWrite
     For ``Format::VariableTsRc`` this is how a caller learns the
     timestamp and record count that were written, since Tcslog generates
     both rather than taking them from the caller.
+
+``LogWrite::handler(&self) -> &H``
+    *Returns* a borrow of the handler the writer was given, for reading
+    what the callbacks have recorded while the log is still open.
+
+``LogWrite::handler_mut(&mut self) -> &mut H``
+    *Returns* the same borrowed mutably. The writer invokes the handler
+    only from ``new``, ``write``, ``flush``, ``clear`` and its own drop,
+    so there is no call in progress for this to interfere with.
+
+    Both borrow rather than return the handler, which is why state to be
+    read after the writer is gone belongs either behind a reference the
+    handler holds or in a handler lent with ``&mut``. See `Handing the
+    handler over, or lending it`_.
 
 ``LogWrite::SEGMENT_FILE_HEADER_LEN``
     The length of a segment file header in bytes, as a constant. An alias

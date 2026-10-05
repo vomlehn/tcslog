@@ -1063,9 +1063,14 @@ state, so those methods take ``&mut self``.
 
 LogWrite
 --------
-This interface is used for writing to logs. Among its members are:
+This interface is used for writing to logs. It is generic over the
+WriteCallbacks implementation it was given, declared as
+LogWrite<H: WriteCallbacks = ()>, so that the implementation is stored
+inline and its methods are called without dynamic dispatch, and so that
+LogWrite named without a parameter is a writer with no callbacks of its
+own. Among its members are:
 
-pub fn new(dir: &str, prefix: &str, suffix: &str, seg_size_max: u32, format: Format, callbacks: WriteCallbacks) -> Result<LogWrite, LogError>
+pub fn new(dir: &str, prefix: &str, suffix: &str, seg_size_max: u32, format: Format, handler: H) -> Result<LogWrite<H>, LogError>
 
     Begin writing a log, in a new session.
 
@@ -1087,8 +1092,10 @@ pub fn new(dir: &str, prefix: &str, suffix: &str, seg_size_max: u32, format: For
 
     format          Format for segment files
 
-    callbacks       A structure holding callbacks used at various points
-                    in operations
+    handler         An implementation of WriteCallbacks, whose methods
+                    are called at various points in operations. The
+                    writer takes ownership of it; () is the
+                    implementation to pass for no callbacks at all.
 
     Every segment file already in dir whose name matches the prefix and
     suffix is handed to the send callback before the new session's first
@@ -1136,6 +1143,27 @@ pub fn last_meta(&self) -> Meta
     Format::VariableTsRc this is how a caller learns the timestamp and
     record count that were stored, since those are generated as the data
     header is built rather than supplied by the caller.
+
+pub fn handler(&self) -> &H
+
+    The handler the writer was given, borrowed rather than returned.
+    This is how a caller reads what its own callbacks have recorded
+    while the writer is still open.
+
+pub fn handler_mut(&mut self) -> &mut H
+
+    The same, borrowed mutably. The writer invokes the handler only from
+    new(), write(), flush(), clear() and its own drop, so a caller
+    holding this borrow cannot interrupt a call in progress.
+
+    These two borrow instead of returning the handler because a field
+    cannot be moved out of a type with a destructor without unsafe code,
+    which this library does not use. The last segment file is handed to
+    send() by the writer's own drop, so state that must be read after
+    the writer is gone belongs behind a reference or a shared handle the
+    handler holds rather than in the handler itself. Passing &mut
+    handler in place of the handler is the other way to arrange that;
+    see WriteCallbacks_.
 
 pub fn write_str(&mut self, msg: &str) -> Result<u32, LogError>
 
@@ -1495,24 +1523,53 @@ RecSize, Timestamp, and RecordCount
 
 WriteCallbacks
 --------------
-    This structure contains the callback functions used during log
-    writing operations. Its members are plain function pointers rather
-    than trait objects or closures, so that the structure can be stored
-    inline in a LogWrite with no heap allocation and no dynamic dispatch.
-    A default is provided whose members do nothing, apart from reporting
-    a widened timer resolution on standard error, which suits local
-    development; a user storing telemetry for real is expected to replace
-    the send member. A literal naming only the members it cares about and
-    taking the rest from the default keeps working when a member is
-    added.
+    This trait declares the callbacks used during log writing
+    operations. An implementation is whatever the callbacks need to
+    reach -- a radio handle, a queue of files awaiting a downlink pass,
+    a counter -- and every method takes &mut self, so they reach it.
+    Through 0.2.x this was a structure of three bare fn pointers, which
+    had nowhere to keep any such state.
 
-    record_complete: fn(&mut File) -> std::io::Result<()>
+    LogWrite is generic over the implementation rather than holding a
+    trait object, so the implementation is stored inline in the writer
+    with no heap allocation, and a call costs what calling the method
+    costs rather than an indirect call through a pointer.
 
-        Called after each data record is written. It is up to the
-        implementation what this does. It may flush the given file, do
-        nothing, or do something else.
+    send is the one method with no default and must be implemented. A
+    log that never sends fills its directory, and the bound on storage
+    is the whole reason the log is segmented, so not sending is required
+    to be something the caller states rather than something a default
+    does quietly. () implements the trait with a send that does nothing,
+    which is where that statement is made, and () is LogWrite's default
+    type parameter, so LogWrite named without one is a writer with no
+    callbacks. The other two methods have defaults, so an implementation
+    names only what it wants beyond send.
 
-    send: fn(&Path) -> std::io::Result<()>
+    &mut H implements the trait for any implementation H, so a caller
+    may lend an implementation rather than give it up and read its state
+    once the writer has been dropped. The writer's drop hands the last
+    segment file to send, so a count kept in an implementation the
+    writer owns cannot be read after that, where one the caller still
+    holds can. The other way to reach it is LogWrite_'s handler and
+    handler_mut, which borrow what the writer owns while it is still
+    open.
+
+    record_complete(&mut self, file: &mut File) -> std::io::Result<()>
+
+        Called after each data record is written, with the segment file
+        the record ended in. It is up to the implementation what this
+        does. It may flush the given file, do nothing, or do something
+        else.
+
+        That choice is a trade: flushing trades throughput for a smaller
+        window in which an unplanned reset loses the record, and doing
+        nothing makes the opposite trade, which is why the library does
+        not make it. The default does nothing.
+
+        An error returned here reaches the caller of the write that
+        triggered the callback.
+
+    send(&mut self, path: &Path) -> std::io::Result<()>
 
         Transfer ownership of a segment file from Tcslog to user code.
         Called with the full path of a segment file whose data section
@@ -1531,11 +1588,26 @@ WriteCallbacks
         file with the given path name and that it does not match the pattern
         for any segment file names for this log.
 
+        The cheapest way to satisfy that is a rename to a name that
+        cannot be a segment file name of this log, which within a
+        directory is a metadata operation where a copy is not. It also
+        takes the file out of what a later LogWrite::new() has to look
+        at: constructing a writer enumerates the directory, parses the
+        identifier out of every matching name and sorts them, and that
+        one scan is both what finds the files to hand over here and what
+        seeds the writer's clock. A send that leaves files in the log's
+        namespace makes every later LogWrite::new() pay for all of them,
+        and hands each of them over again.
+
         This function may perform other operations. It may, for example,
         be helpful to flush data to the file in order to reduce the chance
         of corruption due to a system restart.
 
-    timer_resolution_adjusted: fn(u64)
+        An error returned here says the storage bound the log was given
+        has stopped holding, so it reaches the caller of the write that
+        triggered the callback rather than being swallowed.
+
+    timer_resolution_adjusted(&mut self, resolution_ns: u64)
 
         Called when the timer resolution has been widened, with the value
         now in force in nanoseconds. See `Segment IDs`_ for when a
@@ -1562,8 +1634,11 @@ WriteCallbacks
 
         The default takes the conservative half, printing a message
         naming the new value on standard error and returning, so the log
-        keeps being written and the figure is not lost. The value passed
-        is the one to put in TIMER_RESOLUTION for the next build.
+        keeps being written and the figure is not lost. Silence would be
+        the wrong default: a widening says the build was given a value
+        this machine does not meet, and nothing else makes that visible.
+        The value passed is the one to put in TIMER_RESOLUTION for the
+        next build.
 
 SegId
 -----
@@ -1749,56 +1824,9 @@ belongs to.
 ``send`` and ``record_complete`` return an ``int``: zero for success,
 and anything else makes the write that triggered the callback report
 ``TCSLOG_STATUS_IO_ERROR``. ``record_complete`` is handed a file
-descriptor the library still owns and must not close it.
-
-WriteCallbacks
---------------
-A trait of three methods, so an implementation keeps whatever state the
-callbacks need in ``self``. It was a structure of three bare ``fn``
-pointers through 0.2.x, which had nowhere to keep any:
-
-o   ``record_complete(&mut self, file: &mut File) -> io::Result<()>``
-
-o   ``send(&mut self, path: &Path) -> io::Result<()>``
-
-o   ``timer_resolution_adjusted(&mut self, resolution_ns: u64)``
-
-``send`` has no default and must be implemented. A log that never
-sends fills its directory, and the bound on storage is why the log is
-segmented at all, so not sending is required to be something the caller
-states rather than something a default does quietly. ``()`` implements
-the trait with a ``send`` that does nothing, which is where that
-statement is made.
-
-``record_complete`` defaults to doing nothing and
-``timer_resolution_adjusted`` to printing on standard error, silence
-being the wrong default for a widening the build should know about.
-Each method is
-called exactly where the corresponding field of ``WriteCallbacks`` is
-called and is under the same obligations.
-
-``&mut H`` implements the trait for any implementation ``H``, so a caller may
-lend a handler rather than give it up and read its state once the
-writer is dropped. The writer's drop hands the last segment file to
-``send``, so a count kept in a handler the writer owns cannot be read
-after that, where one the caller still holds can.
-
-The structure of function pointers this replaces was deprecated in
-0.2.8 and removed in 0.3.0, the trait taking its name. A caller that
-had one builds a structure implementing the trait whose methods call
-the functions the fields held, which is what the suite's own `Fns`
-helper does.
-
-``LogWrite`` is generic over the implementation with ``()`` as the
-default type parameter, so ``LogWrite`` named without one is a writer
-with no callbacks.
-
-The writer owns the handler. It must lend it back through ``handler``
-and ``handler_mut`` rather than return it, there being no way to move a
-field out of a type with a destructor without ``unsafe``, which this
-library does not use. The last segment file is handed over by the
-writer's own drop, so state that must be read after that belongs behind
-a reference or a shared handle the handler holds.
+descriptor the library still owns and must not close it. What each is
+obliged to do is what the corresponding method is obliged to do in
+Rust; see WriteCallbacks_.
 
 Support Binaries
 ================

@@ -506,8 +506,7 @@ static ROLL_SENDS: AtomicUsize = AtomicUsize::new(0);
 static ROLL_COMPLETES: AtomicUsize = AtomicUsize::new(0);
 
 // The counting callbacks below keep the fallible signatures
-// `WriteCallbacks` declares, so that they can be stored in those
-// function-pointer fields.
+// `WriteCallbacks` declares, so that they can be stored in `Fns`.
 #[allow(clippy::unnecessary_wraps)]
 fn roll_send(_p: &Path) -> io::Result<()> {
     ROLL_SENDS.fetch_add(1, Ordering::Relaxed);

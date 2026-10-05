@@ -293,8 +293,8 @@ pub struct LogWrite<H: WriteCallbacks = ()> {
     /// How data records are laid out.
     format: Format,
     /// What the caller wants called as segment files fill, and the
-    /// context it keeps: [`WriteCallbacks`] for a caller with no state,
-    /// any [`WriteCallbacks`] for one with some.
+    /// context it keeps: `()` for a caller with no callbacks of its
+    /// own, any other [`WriteCallbacks`] implementation otherwise.
     handler: H,
     /// How finely the clock is believed to advance, in nanoseconds.
     ///
