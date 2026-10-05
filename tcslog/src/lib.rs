@@ -5,7 +5,9 @@
 //! that situation: it keeps telemetry in a form that can be handed down
 //! in small pieces whenever a link appears, and it keeps it in a form
 //! that still yields most of its contents after part of the storage has
-//! gone bad.
+//! gone bad. Rust and C can both use it: the code producing telemetry on
+//! such a vehicle is often C, so `tcslog-c`, in the same repository,
+//! presents the library as a C ABI -- see *Calling from C* below.
 //!
 //! A Tcslog log is a directory of *segment files*. Each one is at most a
 //! size the caller chooses, and its name is a caller-chosen prefix and
