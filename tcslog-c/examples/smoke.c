@@ -9,8 +9,10 @@
  *
  * Each scenario works in its own subdirectory of the directory given on
  * the command line, so one cannot leave state another depends on. The
- * callbacks are process-wide, so each scenario sets or unsets the ones
- * it needs rather than inheriting them.
+ * callbacks belong to the writer rather than the process: each scenario
+ * passes the ones it needs to tcslog_write_open, with its own counters
+ * as the context, so nothing is inherited and two writers in one
+ * scenario can have different ones.
  *
  * Built and run by `make capi-test` from the repository root; `make
  * capi-memcheck` runs the same program under the address and

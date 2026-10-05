@@ -1072,15 +1072,16 @@ and ``tcslog_read_close`` release one. Both closers accept null, as
 Writing
 -------
 
-``tcslog_write_open(dir, prefix, suffix, seg_size_max, format_tag, fixed_len, out)``
+``tcslog_write_open(dir, prefix, suffix, seg_size_max, format_tag, fixed_len, cb, out)``
     Begins writing, as ``LogWrite::new`` does and with the same
     arguments, except that the format is an integer tag --
     ``TCSLOG_FORMAT_FIXED``, ``TCSLOG_FORMAT_VARIABLE_SIMPLE``, or
     ``TCSLOG_FORMAT_VARIABLE_TS_RC`` -- and ``fixed_len`` carries the
     record length, which is read only for the first of those. A tag
     outside the three is refused with
-    ``TCSLOG_STATUS_INVALID_FORMAT``. The callbacks are not an argument;
-    see `Callbacks from C`_.
+    ``TCSLOG_STATUS_INVALID_FORMAT``. ``cb`` is this writer's callbacks
+    and the context to hand them, and may be null for none; see
+    `Callbacks from C`_.
 
 ``tcslog_write_record(h, data, len, written)``
     Writes one record of ``len`` bytes. ``written``, when it is not
@@ -1228,12 +1229,45 @@ Writing a log and reading it back:
     #include <string.h>
     #include "tcslog.h"
 
+    /* Handed each filled segment file, and the one still open when the
+     * writer is closed. A real one must leave no file at the path it is
+     * given, as the Callbacks from C section above says; this program
+     * reads the log back below, so it reports what it was handed and
+     * leaves the file where it is. */
+    static int on_send(void *ctx, const char *path) {
+        (void)ctx;
+        printf("send: handed %s\n", path);
+        return 0;
+    }
+
+    /* Nothing to do: not flushing trades a window in which a reset
+     * loses the last record for the throughput of not flushing. */
+    static int on_record_complete(void *ctx, int fd) {
+        (void)ctx;
+        (void)fd;
+        return 0;
+    }
+
+    static void on_timer_resolution_adjusted(void *ctx, uint64_t ns) {
+        (void)ctx;
+        (void)ns;
+    }
+
     int main(void) {
+        /* Copied by the open below, so it may live on this stack. The
+         * `ctx` is null here because none of the three needs one. */
+        TcslogCallbacks cb = {
+            on_send,
+            on_record_complete,
+            on_timer_resolution_adjusted,
+            NULL,
+        };
+
         TcslogWrite *w = NULL;
         TcslogStatus s = tcslog_write_open(
             "/var/telemetry", "seg-", ".tcslog",
             tcslog_segment_file_header_len() + 1024,
-            TCSLOG_FORMAT_VARIABLE_TS_RC, 0, &w);
+            TCSLOG_FORMAT_VARIABLE_TS_RC, 0, &cb, &w);
         if (s != TCSLOG_STATUS_OK) {
             fprintf(stderr, "open: %s\n", tcslog_status_str(s));
             return 1;
