@@ -16,8 +16,9 @@ publish = false
 [lib]
 # rlib so that `cargo test` has a library to link the unit tests
 # against; cdylib and staticlib are what a C program links. The
-# staticlib is what test/capi-smoke.c uses, there being no install step
-# to put a shared object where a loader would find it.
+# staticlib is what examples/smoke.c links through `make capi-test`,
+# there being no install step to put a shared object where a loader
+# would find it.
 crate-type = ["rlib", "cdylib", "staticlib"]
 
 [dependencies]
