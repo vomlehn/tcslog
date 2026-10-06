@@ -102,7 +102,7 @@ The prefix and suffix uniquely identify a Tcslog log file. The segment file
 IDs gradually increases as new segment files are created. It may be the
 case that Tcslog operations are interrupted deliberately or due to a fault.
 In this case, a new session is created and, when the log is being read,
-Tcslog will indicated the beginning of a new session. Session boundary
+Tcslog will indicate the beginning of a new session. Session boundary
 identification is particularly important when record count metadata is
 being used as there is no way for Tcslog to determine that records have
 been lost and, thus, it is up to user code to determine how to handle
@@ -360,12 +360,12 @@ Fixed(n), four for VariableSimple, and twenty for VariableTsRc:
 
     Fixed(n)
 
-        The data header is zero length, i,e. each telemetry data record is
-        logically continguous with the preceeding telemetry data record.
+        The data header is zero length, i.e. each telemetry data record is
+        logically contiguous with the preceding telemetry data record.
 
     VariableSimple
 
-        There is one field in the data header or this format:
+        There is one field in the data header for this format:
 
         n
 
@@ -373,8 +373,8 @@ Fixed(n), four for VariableSimple, and twenty for VariableTsRc:
 
     VariableTsRc
 
-        The data header type has the same initial fields as the VARABLE_SIMPLE
-        format, plus the following fields:
+        The data header has the same initial field as the VariableSimple
+        format, plus the following:
 
         timestamp
 
@@ -485,7 +485,7 @@ somebody said something wrong.
 
 Operations
 ==========
-Tcslog supports two broad categorie of operations: reading and writing.
+Tcslog supports two broad categories of operations: reading and writing.
 
 Write-Related Operations
 ------------------------
@@ -543,7 +543,7 @@ Error Handling
 If an error happens when writing to the current segment file, close the
 segment file, call send(), and create a new segment file. Errors
 occuring during creation of a new segment file terminate the write
-operation and propogate to the caller.
+operation and propagate to the caller.
 
 Segment File Creation
 ~~~~~~~~~~~~~~~~~~~~~
@@ -2067,16 +2067,16 @@ o   Verify zero length Variable and VariableTsRc records, records that don't
 o   Make sure corrupt header skipping is tested in code that opens the next
     segment
 
-o   Check that sessions are correctly detected and that errors preceeding and
+o   Check that sessions are correctly detected and that errors preceding and
     following yield the expected number of data records.
 
 o   Where it makes sense, all tests should be tested with each segment file
     format.
 
-o   Simulate write errors to verify error propogation and that the next call to
+o   Simulate write errors to verify error propagation and that the next call to
     write() creates a new segment file.
 
-o   Simulate file creation failure to verify error propogation and that the
+o   Simulate file creation failure to verify error propagation and that the
     next call to write() creates a new segment file.
 
 o   Simulate the correct behavior in the presence for faults:
@@ -2630,9 +2630,9 @@ Allocation", which a caller reaches only by asking for them.
 o   Prefix and suffix values must not contain the path delimiters. If they
     do, the return value must be LogError::PathDelimiterNotAllowed
 
-o   LogError values must be returned instead of panicing.
+o   LogError values must be returned instead of panicking.
 
-o   All functions must be preceeded by documentation specifying the
+o   All functions must be preceded by documentation specifying the
     purpose of the function, the usage of parameters, and return values.
 
 o   Avoid operating-system-specific constructs, so that the code works
