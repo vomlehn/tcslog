@@ -226,7 +226,7 @@ created. A program that only reads can take the crate without the
 default features and supply no value at all::
 
     [dependencies]
-    tcslog = { version = "0.2", default-features = false }
+    tcslog = { version = "0.3", default-features = false }
 
 Building a program against the library
 --------------------------------------
@@ -234,7 +234,7 @@ Building a program against the library
 Name the crate as a dependency::
 
     [dependencies]
-    tcslog = "0.2"
+    tcslog = "0.3"
 
 Or, working inside a checkout of this repository::
 
@@ -293,7 +293,8 @@ A complete program that writes a log and reads it back:
 Note that ``()`` as the callbacks does nothing when a segment file
 fills, which leaves the files in the directory. That suits development
 and the examples above. A program storing telemetry in earnest should
-replace the ``send`` member; see `Handing over a segment file`_.
+pass a handler of its own, implementing ``send``; see `Handing over a
+segment file`_.
 
 Inspecting a log: tcslog-tools
 ------------------------------
@@ -848,9 +849,10 @@ Tcslog's care. It may do anything appropriate:
 When it returns there must be no file at the path it was given, and none
 matching the log's naming pattern. That is the contract, and it is what
 makes the storage bound hold: the space is no longer being accounted for
-by the library. The default ``send``, which does nothing, therefore lets
+by the library. ``()``'s ``send``, which does nothing, therefore lets
 segment files accumulate, and is not suitable for a log that runs for
-long.
+long -- which is why the method has no default and ``()`` has to be
+asked for by name.
 
 **Rename the file rather than leave it.** The cheapest way to satisfy the
 contract is to rename the file to something that cannot be a segment file
@@ -898,7 +900,10 @@ Results and errors
     Which record layout a log uses: ``Fixed(RecSize)``,
     ``VariableSimple``, or ``VariableTsRc``. ``data_header_len()`` gives
     what one record costs beyond its payload, and ``fixed_len()`` gives
-    the ``n`` of ``Fixed``, or zero for the others.
+    the ``n`` of ``Fixed``, or zero for the others. ``tag()`` gives the
+    single byte stored in the segment header -- 0, 1 and 2 in the order
+    above -- which is also the ``format_tag`` the C interface takes, the
+    two sides sharing one set of values.
 
 ``SegId``
     A segment file's identifier: nanoseconds since the UNIX epoch, taken
@@ -907,17 +912,36 @@ Results and errors
     be used to count files or to notice a gap between two of them.
     Displaying one yields a fixed-length string of ``SegId::STR_LEN``
     characters, which is the part of a segment file name between the
-    prefix and the suffix.
+    prefix and the suffix. ``parse`` reads one back from that form, and
+    ``from_u64`` and ``as_u64`` convert to and from the underlying
+    count of nanoseconds.
 
 ``SeqId``
     A segment file's position within its session. Unlike ``SegId`` this
     does count, and it is what lets a reader see that a file is missing.
+    ``SeqId::ZERO`` is the value opening a session, ``next`` is the step
+    to the one after -- saturating, because a counter that wrapped to
+    zero would present itself as a session's first segment file -- and
+    ``from_u64`` and ``as_u64`` convert.
 
 ``SegmentHeader``
     What a segment file's header holds, as reported by
     ``LogRead::current_header`` and ``LogRead::take_opened_headers``:
     ``segment_id``, ``session_id``, ``max_size``, ``remaining``,
     ``format``, and ``sequence``.
+
+    It also converts, which is what lets a program read a segment file's
+    header without opening the log it belongs to -- what
+    ``tcslog-dumphdr`` does for a file that has been renamed or copied
+    out of its directory. ``read_from`` and ``write_to`` take a stream,
+    ``from_bytes`` and ``to_bytes`` the on-disk encoding, and the two
+    reading directions refuse a header that does not match the layout
+    with ``InvalidHeader`` or ``VersionMismatch``.
+
+    ``data_section_len(max_size)`` gives the bytes a segment file of that
+    maximum leaves for data, and ``data_len()`` the same for this
+    header's own ``max_size``, so that a caller need not repeat the
+    subtraction or know the header's length to do it.
 
 ``RecSize``, ``Timestamp``, ``RecordCount``
     The types of a payload length, a record timestamp, and a record
@@ -1087,6 +1111,26 @@ Handles are opaque. ``tcslog_write_open`` and ``tcslog_read_open``
 produce one, leaving it null if they fail, and ``tcslog_write_close``
 and ``tcslog_read_close`` release one. Both closers accept null, as
 ``free`` does, and a handle must not be used after being closed.
+
+Three functions need no handle, being what a caller wants before it has
+one. None can fail, so each returns its answer directly rather than a
+status::
+
+    uint32_t    tcslog_segment_file_header_len(void);
+    void        tcslog_format_version(uint32_t *major, uint32_t *minor,
+                                      uint32_t *patch);
+    const char *tcslog_status_str(TcslogStatus status);
+
+``tcslog_segment_file_header_len`` is the C route to
+``SEGMENT_FILE_HEADER_LEN``, which ``seg_size_max`` is given relative
+to, so a caller wanting a particular amount of telemetry per file adds
+the two rather than hard-coding a length this build might not agree
+with. ``tcslog_format_version`` is the route to the three version
+constants; any of its pointers may be null for a caller wanting only
+some of them. ``tcslog_status_str`` renders a status as a static string
+that never needs freeing, and gives one even for a value it does not
+recognize, so a program compiled against an older header still prints
+something.
 
 Writing
 -------
