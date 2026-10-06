@@ -7,14 +7,15 @@ TcsLog Design
 
 Introduction
 ============
-.. note::
+This is the design specification for Tcslog: the on-disk format, the
+public interfaces, the status codes and their ABI numbers, and the
+behaviour the library is required to have. It states what the code must
+do, and a change in behaviour belongs here as well as in the user
+manual, ``docs/tcslog.rst``.
 
-    This was being used to recreate everything from scratch, but the
-    approach will now switch to deltas, instread
-
-Create a Rust library named Tcslog for onboard logging of telemetry data
-for systems such as as spacecraft and autonomous underwater vehicles that
-must store telemetry onboard until opportunies arise for transmission.
+Tcslog is a Rust library for onboard logging of telemetry data, for
+systems such as spacecraft and autonomous underwater vehicles that must
+store telemetry onboard until opportunities arise for transmission.
 
 The deliverable is a Cargo workspace of three crates: ``tcslog``, the
 library; ``tcslog-c``, the C ABI over it, specified under "The C
@@ -2634,32 +2635,33 @@ o   LogError values must be returned instead of panicing.
 o   All functions must be preceeded by documentation specifying the
     purpose of the function, the usage of parameters, and return values.
 
-o   Avoid operating-specific constructs, i.e. generate code that will work on
-    Linux, Windows, VxWorks, FreeRT.
+o   Avoid operating-system-specific constructs, so that the code works
+    on Linux, Windows, VxWorks and FreeRTOS.
 
-o   Check for spelling
+o   Departures from Rust style conventions are errors rather than
+    untidiness. ``cargo fmt -- --check`` and ``cargo clippy -- -D
+    warnings`` are what settle this, and ``make check`` runs both.
+
+o   No dead code. A function, a variant or a field that nothing reaches
+    is a name suggesting coverage the library does not have, which is
+    the same rule the LogError chapter states for its variants.
+
+o   Check for spelling.
 
 Ideally, no dynamic memory allocation would be done at all, if it can be
 avoided.
 
-Code Generation Restrictions
-============================
-o   Request guidance in case of ambiguous, incomplete, or contradictory input
-
-o   Violations of Rust coding style conventions are to be identified and
-    an marked as an error.
-
-o   Do not allow dead code.
-
-o   Do not create a tar file.
-
 Use of AI
 =========
-This file was used as the AI prompt file. The
-file spells out the algorithms used, so AI didn't do this, but the actual
-code generation was done with Claude Code. The user documentation at
-``docs/tcslog.rst`` was generated from this file originally, but is now
-maintained by hand and is no longer regenerated from it.
+The algorithms here were worked out by hand and are spelled out above;
+the code implementing them was written with Claude Code, which was also
+used to review the code and the documentation it produced, with the
+conclusions folded back into this file.
 
-In addition, Claude Code was used to review the code and documentation it
-produced and suggestions incorporated into this file.
+This file was once the prompt that the sources were generated from,
+which is where its old name, ``docs/tcslog-prompt.rst``, came from. That
+stopped being true several releases before the rename: it is a
+specification now, maintained by hand and read rather than run, and the
+code is not regenerated from it. The user manual, ``docs/tcslog.rst``,
+was generated from this file originally and is likewise maintained by
+hand now.
