@@ -21,12 +21,12 @@ Stored format: unchanged, 0.1.0. Nothing about what is written moves here, so
 a reader of this build reads every log any earlier build wrote and the other
 way round.
 
-The crate version is still 0.3.2 and has to move to 0.4.0 before this is
-released: `Record` gains a field, which breaks a caller that built or
-exhaustively destructured one. The bump is not made here because the sibling
-`tcslog-tools` names a caret requirement on this crate, and the two manifests
-have to move together or `cargo check` refuses either mismatch -- the same
-coupling that put the bump for 0.3.0 in its own commit.
+The crate version is 0.4.0. `Record` gains a field, which breaks a caller
+that built or exhaustively destructured one, so the version moves by a minor
+rather than a patch: a caret requirement on 0.3 does not match 0.4, and
+nobody is upgraded into the break. The sibling `tcslog-tools` took its
+requirement on 0.4 in the same operation, the two manifests having to move
+together or `cargo check` refuses either mismatch.
 
 ### Added
 
