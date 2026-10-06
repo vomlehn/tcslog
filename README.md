@@ -87,7 +87,7 @@ cargo install cbindgen
 
 Every function returns a `TcslogStatus` and writes what the caller wanted
 through an out-parameter, so no status can be confused with data. The
-status numbers are ABI, and `docs/tcslog-prompt.rst` specifies them along
+status numbers are ABI, and `docs/design.rst` specifies them along
 with the rest of the interface.
 
 A writer is given its callbacks when it is opened, in a
@@ -142,10 +142,14 @@ There are also two documents under `docs/`, and they are easy to confuse.
 `docs/tcslog.rst` is the user guide: what the library does, how to call it,
 and how it behaves. `make -C docs` renders it to `docs/tcslog.html`.
 
-`docs/tcslog-prompt.rst` is the specification. The sources were originally
-generated from it as a Claude Code prompt, but it no longer generates
-anything; it is read rather than run. Both documents are now maintained by
-hand, and a change in behaviour belongs in both.
+`docs/design.rst` is the specification. The sources were originally
+generated from it as a Claude Code prompt, which is where its old name,
+`docs/tcslog-prompt.rst`, came from, but it no longer generates anything;
+it is read rather than run. Both documents are now maintained by hand, and
+a change in behaviour belongs in both.
+
+`docs/tcslog-prompt.rst` is a deprecated stub that records the rename and
+nothing else.
 
 Making Changes
 --------------

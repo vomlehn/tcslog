@@ -15,6 +15,28 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+### Changed
+
+- `docs/tcslog-prompt.rst` is renamed `docs/design.rst`, and its title is now
+  "TcsLog Design". The text is otherwise unchanged. The old name dated from
+  when the sources were generated from the file as a Claude Code prompt;
+  since that stopped being true the name has described the document's
+  history rather than what it is, which is the design specification, read
+  rather than run.
+
+  `README.md` and `docs/tcslog.rst` point at the new name, and `make -C docs`
+  renders `docs/design.html`.
+
+### Deprecated
+
+- `docs/tcslog-prompt.rst` now holds only a notice saying where the document
+  went and why, so a link or a bookmark to the old name still lands
+  somewhere that explains itself. It will be removed in a later release.
+
 ## [0.3.1] - 2026-10-04
 
 Stored format: unchanged, 0.1.0.

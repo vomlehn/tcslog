@@ -1059,7 +1059,7 @@ with data, and no out-parameter has to double as an error signal.
 failures at all -- they are what the library reports about the telemetry
 itself, and a caller carries on after each. The full list, and which
 ``LogError`` each failure corresponds to, is in
-``docs/tcslog-prompt.rst``; ``tcslog_status_str`` gives a short
+``docs/design.rst``; ``tcslog_status_str`` gives a short
 description of any of them at runtime.
 
 The numbers are ABI. Once a program has been compiled against the

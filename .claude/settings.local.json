@@ -22,8 +22,7 @@
       "Bash(bash -n /home/vomlehn/working/tcslog/bin/run-error-recovery)",
       "Skill(update-config)",
       "Bash(bash -n /home/vomlehn/working/tcslog/bin/error-recovery-common)",
-      "Bash(bin/error-recovery-common *)",
-      "Bash(grep -n -B1 -A15 \"^remaining$\\\\|remaining field value is greater than\" /home/vomlehn/working/tcslog/docs/tcslog-prompt.rst)"
+      "Bash(bin/error-recovery-common *)"
     ],
     "deny": [
       "Bash(git push --force*)",
