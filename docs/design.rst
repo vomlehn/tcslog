@@ -1781,6 +1781,31 @@ prefix, and suffix all being Rust strings underneath. One that is not is
 refused with ``TCSLOG_STATUS_NOT_UTF8`` rather than replaced or
 truncated.
 
+Functions Taking No Handle
+--------------------------
+Three functions are not operations on a log and so take no handle. They
+are what a caller needs before it has one, and none of them can fail:
+
+o   ``tcslog_segment_file_header_len`` returns the bytes a segment file's
+    own header occupies. ``seg_size_max`` must leave room for this and
+    for one data header, so this is the floor a caller computes its own
+    figure from rather than hard-coding a number this build might not
+    agree with.
+
+o   ``tcslog_format_version`` writes the stored format version this build
+    reads and writes, through three ``uint32_t`` out-parameters, any of
+    which may be null for a caller wanting only some of them. It is the
+    C route to the three version constants, and exists for the same
+    reason they are public: a caller can report the version, or refuse a
+    log it was not built for, without parsing a segment header itself.
+    The compatibility rule it feeds is the one under "Segment Header
+    Format" -- major equal, minor no greater.
+
+o   ``tcslog_status_str`` returns a static NUL-terminated description of
+    a status, never null and never needing to be freed. An unrecognized
+    value must give a string rather than null, so that a caller compiled
+    against an older header still prints something.
+
 Status Codes
 ------------
 The numbers are ABI. Once a C program has been compiled against the
@@ -1826,9 +1851,8 @@ Code Name                                         ``LogError``
 19   ``TCSLOG_STATUS_INVALID_FORMAT``             none: a ``format_tag`` outside the three
 ==== ============================================ ==========================================
 
-``tcslog_status_str`` returns a static description of any of them, and
-of a value it does not recognize, so a caller compiled against an older
-header still prints something rather than nothing.
+``tcslog_status_str``, above, renders any of these at runtime, including
+a value this build does not recognize.
 
 Record Formats
 --------------
@@ -2020,11 +2044,12 @@ segment files it wrote, and deletes the directory afterwards.
 
 Testing
 =======
-Testing has two layers and both are required. Unit tests inside the
-crates reach the library through its API, where a fault can be injected
-directly. The error-recovery suite under ``test/`` reaches it the way a
-user does, through ``tcslog-gen`` and ``tcslog-dump``, with the faults
-applied to the bytes on disk.
+Testing has three layers and all three are required. Unit tests inside
+the crates reach the library through its API, where a fault can be
+injected directly. The error-recovery suite under ``test/`` reaches it
+the way a user does, through ``tcslog-gen`` and ``tcslog-dump``, with
+the faults applied to the bytes on disk. The C layer reaches it the way
+a C program does, across the ABI, which neither of the others crosses.
 
 Unit Tests
 ----------
@@ -2115,8 +2140,22 @@ Layout and Naming
 The directory holds a ``Makefile``, a stored-file directory
 ``expected/``, and one script per test case. The driver
 ``error-recovery-common`` lives in ``bin/`` alongside the other
-hand-run tools, as does ``dump-before``, an aid that dumps a directory
-of segment files.
+hand-run tools, as do two aids: ``dump-before``, which dumps a
+directory of segment files, and ``verify-helper``.
+
+``verify-helper`` exists because of the limit on what stored files can
+establish. The suite answers whether a case still produces what it
+produced before; it cannot answer whether what it produces is right,
+since the stored file was itself written from the tools' output. That
+second question is the one a person has to settle, and this walks them
+through it: named any number of cases, it runs each in turn, showing
+the segment files as the reader will find them and then the records the
+reader made of them, stopping after each until ENTER is pressed, so
+that a person decides whether the second follows from the first.
+
+It is the tool to reach for when a regeneration's diff has to be
+reviewed, which is exactly when the stored files have stopped being
+evidence.
 
 Each case is a short script that sets the format, data-section size,
 record count, and the damage it wants as shell variables, then runs the
@@ -2127,8 +2166,11 @@ establishes and why nothing else covers it.
 A case's file name must match what it does, because a name is how a
 reader of the directory judges what is covered:
 
-o   The script's basename and the basename of its stored file must be
-    the same string.
+o   The script's basename and the basename of its stored files must be
+    the same string. A case stores two: ``<name>.expected`` for the
+    verbose capture and ``<name>-records.expected`` for the records-only
+    one, the suffix being the only thing that may differ from the
+    script's name.
 
 o   The name states the format when it is not ``variable-simple``:
     ``tsrc-`` for ``variable-tsrc`` and ``fixed`` for ``Format::Fixed``.
@@ -2136,7 +2178,12 @@ o   The name states the format when it is not ``variable-simple``:
 
 o   A trailing ``_<record>-<data>`` records the format's record length
     and the data-section size, so that two cases differing only in
-    geometry are distinguishable.
+    geometry are distinguishable. Where the format spec is a range the
+    record part is the range itself, giving
+    ``_<min>-<max>-<data>`` -- as in ``variable_0-33-10``, which is
+    lengths from zero to thirty-three against a ten-byte data section.
+    Three numbers rather than two is how a range case is told from a
+    fixed-length one at a glance.
 
 o   A name that disagrees with what the script does is an error, not an
     untidiness: it overstates the coverage the directory has.
@@ -2171,8 +2218,23 @@ o   ``-f``, ``-s``, ``-n``, and ``-S`` set the record format, the
 o   ``-d``, ``-c``, ``-t``, ``-V``, ``-I``, and ``-O`` each take a list
     of segment file indices to damage, described below.
 
+o   ``-q`` compares the records alone, dropping ``--verbose`` from the
+    tcslog-dump run. What is captured is what is compared, so this also
+    chooses which stored file is used: ``<name>-records.expected``
+    rather than ``<name>.expected``. The log is generated and damaged
+    identically either way, so the two forms are the same run read two
+    ways rather than two runs.
+
+o   ``-H`` compares the hexadecimal rendering, dropping ``--text`` from
+    the tcslog-dump run. The rendering is the only difference:
+    everything the reader reports about loss and recovery is the same
+    either way, which is what makes the two forms comparable. Records
+    are otherwise stored as ASCII, that being the form a failing diff
+    can be read in.
+
 o   ``-g`` writes the stored file from this run instead of comparing
-    against it.
+    against it. Which file it writes follows ``-q``, so regenerating
+    both forms of a case means running it twice.
 
 o   ``-k`` keeps the temporary directory and prints its path, and ``-r``
     and ``-x`` hexdump the segment files before and after the damage.
@@ -2310,6 +2372,19 @@ o   The same for ``variable-tsrc``, whose data header is the wider of the
     two and so offers the most bytes that a resynchronizing reader could
     misread as a record length.
 
+o   A gap that swallowed exactly one whole data header and no payload
+    byte of the record it belonged to, in ``variable-tsrc``. This is the
+    one gap whose arithmetic settles where the record after it begins,
+    so a reader can locate that record and still must not return it: the
+    lost header carried a timestamp and a record count that nothing on
+    disk rebuilds. Finding a boundary and being entitled to the record
+    at it are different things, and this is the case that separates
+    them.
+
+o   Both of tcslog-dump's renderings, hex and text, over one log and one
+    set of damage, so that each is covered end to end and the two stored
+    files can be read against each other.
+
 o   Damage that leaves the file in place, in both variable formats: an
     unopenable header, which still leaves a sequence gap, and a short
     data section, which leaves the sequence intact and so must be
@@ -2418,6 +2493,19 @@ file and prove nothing about each other.
      - ``-d 2 -c 6 -t 10``
      - Three kinds of damage in one log, on separate segments, so the
        accounting survives recovering repeatedly.
+   * - ``hex-combined_12-10``
+     - ``variable-simple:12``
+     - 10
+     - 10
+     - ``-d 2 -c 6 -t 10 -H``
+     - The same log and damage read as hexadecimal rather than as the
+       ASCII the rest of the suite stores, which covers the other of
+       tcslog-dump's two renderings end to end. The exception to the
+       one-row-per-geometry rule for the same reason the overflow pair
+       is: the geometry is shared deliberately, so that comparing the
+       two stored files shows what the flag changes and what it does
+       not -- the payload lines differ and every header block, loss
+       notice and total is identical.
    * - ``variable-tsrc_0-10-21``
      - ``variable-tsrc:0..10``
      - 21
@@ -2431,6 +2519,26 @@ file and prove nothing about each other.
      - ``-t 2``; ``-c 2``
      - Damage leaving the file in place where the data header offers the
        most bytes a resync could misread as a length.
+   * - ``tsrc-lost-header_8-24``
+     - ``variable-tsrc:8``
+     - 24
+     - 6
+     - ``-d 2``
+     - A gap of one segment file that swallowed exactly one whole data
+       header and no payload byte of the record it belonged to. The
+       geometry is chosen for it: 8 payload bytes plus a 20-byte data
+       header is 28 against a 24-byte data section, so record 1 owes 4
+       bytes of file 2 and the remaining 20 are precisely record 2's
+       data header, whose payload then begins at the first byte of file
+       3. That is the one gap whose arithmetic settles where the next
+       record starts, and ``combined_12-10`` does recover it in
+       ``variable-simple``, where the surviving ``remaining`` field
+       accounts for the whole of the lost header. Here the header also
+       carried a timestamp and a record count, which nothing on disk
+       rebuilds, so record 2 must be given up rather than handed back
+       with invented metadata. This is the case that distinguishes
+       "the reader found the record boundary" from "the reader may
+       therefore return the record".
    * - ``overflow_300-64``, ``tsrc-overflow_300-64``
      - ``variable-simple:300`` and ``variable-tsrc:300``
      - 64
@@ -2450,13 +2558,58 @@ file and prove nothing about each other.
 The Makefile
 ~~~~~~~~~~~~
 One target per case, gathered into one target per group, with ``test``
-running every group. A ``regenerate`` target rewrites every stored file.
-It must find the cases by walking the directory's executable files and
-skipping the ``Makefile`` and the stored-file directory by name; the
-driver and ``dump-before`` need no exclusion, as they are not in the
-directory being walked. Matching case names against a pattern instead
-leaves the target silently doing nothing the first time the cases are
-renamed.
+running every group.
+
+Every case target passes ``$(VERBOSE_EXPECTED)`` to its script, which is
+empty by default and compares the verbose captures. ``make test
+VERBOSE_EXPECTED=-q`` compares the records-only captures instead. One
+variable rather than a second set of targets, because the two forms
+differ only in a flag the driver already takes, and because a case added
+to the wrong one of two target sets would be silently uncovered in the
+other.
+
+A ``regenerate`` target rewrites every stored file, which means running
+each case twice, once per form. Rebuilding one form alone would leave
+the other compared against output the tools no longer produce, and the
+failure would surface in a later run with nothing to connect it to the
+regeneration. It must find the cases by walking the directory's
+executable files and skipping the ``Makefile`` and the stored-file
+directory by name; the driver and ``dump-before`` need no exclusion, as
+they are not in the directory being walked. Matching case names against
+a pattern instead leaves the target silently doing nothing the first
+time the cases are renamed.
+
+The C Binding
+-------------
+Nothing in the two Rust layers compiles a C program, so nothing in them
+would catch a header that no longer matches the binding or a signature
+that is wrong in C but fine in Rust. Three checks cover that, and each
+is a ``make`` target:
+
+o   ``make check`` regenerates the header with cbindgen and fails if it
+    differs from the one in the tree. The header is generated, not
+    written, so this is what keeps a stale one from reaching a caller --
+    and the status numbers being ABI, a header that disagrees with the
+    binding is worse than no header.
+
+o   ``make capi-test`` compiles ``tcslog-c/examples/smoke.c`` against
+    the header in the tree, links the staticlib cargo built, and runs
+    it. Compiling is half the test: a signature a C compiler rejects is
+    a signature no caller can use, whatever the Rust side thinks of it,
+    and the compiler is held to ``-Wall -Wextra -Werror -std=c11`` so
+    that a warning counts. The staticlib rather than the shared object,
+    there being no install step here to put one where a loader would
+    find it.
+
+o   ``make capi-memcheck`` runs that same program under the address and
+    undefined-behaviour sanitizers. This is the layer where a pointer
+    the binding mishandles can be caught at all: the Rust crates contain
+    no ``unsafe``, and all of the binding's is reached only from C.
+
+``tcslog-c/examples/downlink.c``, run by ``bin/run-capi-example``
+against a temporary directory, is the C counterpart of ``sample``: a
+complete program a newcomer can read, exercising the callbacks rather
+than only the read and write calls.
 
 Restrictions
 ============
