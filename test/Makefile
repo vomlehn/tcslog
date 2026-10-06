@@ -7,6 +7,7 @@
 # stored, so either runs without regenerating the other.
 VERBOSE_EXPECTED =
 
+.PHONY: test
 test: test-fixed test-variable test-variable-tsrc test-damage \
 	test-overflow test-sessions test-rejected test-corrupt
 
@@ -132,9 +133,6 @@ test-sessions: test-sessions_8-40
 test-sessions_8-40:
 	./sessions_8-40 $(VERBOSE_EXPECTED)
 
-# An unopenable segment header, in both variable formats: the
-# variable-tsrc data header is the longer of the two and so offers the
-# most bytes a resync could misread as a record length.
 # The same log and damage as test-combined, read as hexadecimal rather
 # than as the ASCII the rest of the suite stores. Having both covers
 # each of tcslog-dump's two renderings end to end.
@@ -142,6 +140,9 @@ test-sessions_8-40:
 test-hex-combined:
 	./hex-combined_12-10 $(VERBOSE_EXPECTED)
 
+# An unopenable segment header, in both variable formats: the
+# variable-tsrc data header is the longer of the two and so offers the
+# most bytes a resync could misread as a record length.
 .PHONY: test-corrupt
 test-corrupt: test-corrupt_12-10 test-tsrc-corrupt_10-24
 
@@ -157,10 +158,17 @@ test-tsrc-corrupt_10-24:
 # masking timestamps so the results stay reproducible. Review
 # "git diff expected/" afterwards: this records whatever the tools
 # currently do, so a regression is captured just as readily as a fix.
+#
+# Each case stores two files and both are rebuilt here. Regenerating
+# only the verbose form would leave the -records.expected files behind
+# at whatever the tools produced when they were last written, so
+# `make test VERBOSE_EXPECTED=-q` would keep comparing against stale
+# output and would fail for a change this target was run to accept.
 .PHONY: regenerate
 regenerate:
 	@for t in *; do \
 		case $$t in Makefile|expected) continue;; esac; \
 		[ -f $$t ] && [ -x $$t ] || continue; \
 		./$$t -g || exit 1; \
+		./$$t -g -q || exit 1; \
 	done
