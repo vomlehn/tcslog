@@ -21,7 +21,7 @@ The deliverable is a Cargo workspace of three crates: ``tcslog``, the
 library; ``tcslog-c``, the C ABI over it, specified under "The C
 Interface"; and ``tcslog-gen``, specified under "Support Binaries". The
 library also carries the ``sample`` example specified there, and
-``tcslog-c`` the two C programs named under "The C Interface". Only
+``tcslog-c`` the two C programs named under "The C Binding". Only
 ``tcslog`` is published to a registry: a C consumer links what
 ``tcslog-c`` builds and includes the header beside it, neither of which
 cargo delivers, and ``tcslog-gen`` exists for the test suite. The
@@ -1918,13 +1918,18 @@ Rust; see WriteCallbacks_.
 
 Support Binaries
 ================
-Three binaries and one example ship alongside the library:
-``tcslog-gen`` in this workspace, ``tcslog-dump`` and ``tcslog-dumphdr``
-in the ``tcslog-tools`` repository, and the ``sample`` example in the
-library crate. The three binaries are what the error-recovery test suite
-drives, and that suite compares their output against stored files, so the
-output wording specified below is part of the requirement rather than an
+Three binaries and one example are specified here: ``tcslog-gen`` in
+this workspace, ``tcslog-dump`` and ``tcslog-dumphdr`` in the
+``tcslog-tools`` repository, and the ``sample`` example in the library
+crate. The three binaries are what the error-recovery test suite drives,
+and that suite compares their output against stored files, so the output
+wording specified below is part of the requirement rather than an
 illustration of it.
+
+``tcslog-c`` carries two C programs of its own, ``smoke.c`` and
+``downlink.c``. They are specified under "The C Binding" rather than
+here, being what tests and illustrates the ABI rather than tools for
+working with a log.
 
 tcslog-gen
 ----------
