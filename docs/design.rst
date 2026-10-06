@@ -16,9 +16,14 @@ Create a Rust library named Tcslog for onboard logging of telemetry data
 for systems such as as spacecraft and autonomous underwater vehicles that
 must store telemetry onboard until opportunies arise for transmission.
 
-The deliverable is a Cargo workspace of two crates: ``tcslog``, the
-library, and ``tcslog-gen``, specified under "Support Binaries". The
-library also carries the ``sample`` example specified there. The
+The deliverable is a Cargo workspace of three crates: ``tcslog``, the
+library; ``tcslog-c``, the C ABI over it, specified under "The C
+Interface"; and ``tcslog-gen``, specified under "Support Binaries". The
+library also carries the ``sample`` example specified there, and
+``tcslog-c`` the two C programs named under "The C Interface". Only
+``tcslog`` is published to a registry: a C consumer links what
+``tcslog-c`` builds and includes the header beside it, neither of which
+cargo delivers, and ``tcslog-gen`` exists for the test suite. The
 workspace shares one version, which is the crate version. The on-disk
 format described here carries its own version, in VERSION_MAJOR,
 VERSION_MINOR and VERSION_PATCH, and moves only when what is written
@@ -104,9 +109,29 @@ this.
 
 Dynamic Memory Allocation
 -------------------------
-No dynamic memory allocation is done once a LogWrite::new() or LogRead::new()
-function is called, making this well suited for embedded systems with
-limited memory.
+Writing a record and reading a record allocate nothing, making this well
+suited for embedded systems with limited memory. The buffers a segment
+file name and path need are reserved once and reused, so even rolling
+from one segment file to the next allocates nothing.
+
+Three operations are exceptions, and each is one a caller asks for
+explicitly rather than something the steady state does:
+
+o   Enumerating the log's directory, which LogWrite::new(),
+    LogRead::new() and LogWrite::clear() must all do. No platform this
+    library targets offers a directory scan without allocating.
+
+o   LogRead::iter(), whose Record values own their payloads. This is why
+    the iterator is offered alongside read() rather than in place of it.
+
+o   LogRead::take_opened_headers(), which hands back a Vec of the
+    headers retained since the last call.
+
+Each is documented as allocating where it is specified. A caller bound to
+a fixed memory budget can therefore write and read a log for as long as it
+likes without one, provided it uses read() rather than iter() and does not
+clear the log; what it cannot avoid is the allocation of opening the log
+in the first place.
 
 Telemetry Storage Format
 ------------------------
@@ -1202,9 +1227,15 @@ pub fn write(&mut self, msg: &[u8]) -> Result<u32, LogError>
     n like any other wrong length. PayloadTooLarge is returned if
     msg.len() exceeds RecSize::MAX, and also if the payload plus its
     data header would exceed the u32 this function returns -- a count
-    that wrapped would understate what was written. IoError and
-    ClockError are returned as encountered, along with any error from
-    creating a segment file on a roll.
+    that wrapped would understate what was written. IoError is returned
+    as encountered, along with any error from creating a segment file on
+    a roll or from the record_complete() and send() callbacks.
+
+    No clock error can arise here. The real-time clock is read once, by
+    LogWrite::new(), which refuses an unset one before the log exists;
+    the timestamps and segment IDs this function mints come from the
+    pairing that reading established and from the monotonic clock, which
+    does not fail. ClockError is therefore a constructor error only.
 
 pub fn flush(&mut self) -> Result<(), LogError>
 
@@ -1534,11 +1565,15 @@ SegmentHeader
 
 Version Constants
 -----------------
-    The major and minor numbers of the on-disk format this build writes
-    and reads are public, so that a caller can report them or refuse a
-    log it was not built for without parsing a segment file itself. They
-    are the two numbers the compatibility rule under "Segment Header
-    Format" compares against.
+    VERSION_MAJOR, VERSION_MINOR and VERSION_PATCH, the three numbers of
+    the on-disk format this build writes and reads, are public, so that a
+    caller can report the version or refuse a log it was not built for
+    without parsing a segment file itself. All three are written to the
+    version field of every segment header. The first two are what the
+    compatibility rule under "Segment Header Format" compares against;
+    the patch number is stored and reported but takes no part in that
+    decision, which is why it is published alongside them rather than
+    left internal.
 
 RecSize, Timestamp, and RecordCount
 -----------------------------------
@@ -2189,10 +2224,24 @@ blocks, the truncation and overflow notices, the session markers and the
 totals, in the order the reader produced them, so the stored file fixes
 not only what was reported but how the reports interleave: which segment
 each record came from, which session a loss fell in, which record a
-notice follows. Splitting the records and the diagnostics into two
-captures compared against two files would assert each list separately
-and none of that ordering, which is where a reader that recovered the
-right records and attributed them to the wrong place would hide.
+notice follows. What must not be done is to split the records and the
+diagnostics into two captures and keep only those: comparing each list
+separately asserts neither against the other and none of that ordering,
+which is where a reader that recovered the right records and attributed
+them to the wrong place would hide. The combined capture is therefore
+the comparison that has to exist, and is what a case runs by default.
+
+A second stored file per case holds the records-only capture, which
+``-q`` selects in place of the first. It is an addition rather than the
+split just ruled out -- the combined capture is not removed, and a case
+run either way still gets one whole capture held against one stored
+file. What it buys is tcslog-dump's quiet rendering, whose exact record
+lines nothing else pins: the check below establishes that the
+verbose-only lines are absent from that mode, which is not the same as
+establishing that what remains is right. Both files are stored, so
+either form runs without regenerating the other, and ``regenerate``
+rewrites both -- rebuilding one alone would leave the other being
+compared against output the tools no longer produce.
 
 Comparing the header blocks is the point of capturing them. Of their
 fields only the two identifiers fail to repeat: ``max_size``,
@@ -2221,10 +2270,13 @@ o   The ``variable-tsrc`` format stamps every record with the time it
     making. Every other field, the record count included, is compared
     exactly.
 
-Without ``--verbose`` the tool prints records and nothing else. The
-stored file is the verbose form and so cannot show that, which would
-leave the quiet mode uncovered; a run without the flag is therefore
-checked directly for the absence of every verbose-only line.
+Without ``--verbose`` the tool prints records and nothing else. A
+capture cannot show the absence of what it does not contain, so every
+run of a case, in either form, also runs the tool without the flag and
+checks that output directly for the absence of every verbose-only line.
+That check is what keeps a verbose-only line from leaking into the quiet
+mode; the records-only stored file above is what fixes the lines that
+belong there.
 
 Because the stored files are written from the tools' own output, they
 record what the tools currently do, and a regeneration captures a
@@ -2417,8 +2469,9 @@ It is an error if seg_size\ :sub:`max` is less than or equal to the number of
 bytes in the file used for the segment header and the number of bytes
 used for one data header.
 
-No dynamic memory allocations may be done after calls to LogRead::new() and
-LogWrite::new() until those objects are dropped.
+No dynamic memory allocation may be done by writing a record or reading
+a record, save by the three operations named under "Dynamic Memory
+Allocation", which a caller reaches only by asking for them.
 
 o   Prefix and suffix values must not contain the path delimiters. If they
     do, the return value must be LogError::PathDelimiterNotAllowed
