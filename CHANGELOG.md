@@ -57,6 +57,76 @@ together or `cargo check` refuses either mismatch.
   failure, both of which end iteration. `read` is named as the interface for
   a caller that needs either.
 
+- `docs/design.rst` drops the text left over from when it was a Claude Code
+  prompt, which the rename in 0.3.2 acknowledged it is not. A note saying the
+  approach "will now switch to deltas" and an opening that instructed a
+  reader to "Create a Rust library named Tcslog" are gone, and the
+  `Code Generation Restrictions` chapter with them -- two of its four bullets
+  addressed a generator, and the two that are standing requirements on the
+  code, no dead code and style departures being errors, moved into
+  `Restrictions` where the rest live. `Use of AI` no longer says the file
+  "was used as the AI prompt file" in the present tense.
+
+### Fixed
+
+- The manual's two dependency snippets, and the same line in the library's
+  doc comment, asked for `tcslog = "0.2"`. The crate was at 0.3.2, so a
+  reader following the manual got a requirement that does not resolve to the
+  library the rest of the page describes. They name 0.4 now. `tcslog/README.md`
+  is generated from the doc comment, so crates.io carried the stale figure
+  too.
+
+- The manual said both that `send` has no default "on purpose" and that "the
+  default `send`, which does nothing, therefore lets segment files
+  accumulate". The second is 0.2.x text: `send` was a struct member with a
+  do-nothing default then and has been the one trait method with no default
+  since 0.3.0. What does nothing is `()`'s implementation, which a caller has
+  to ask for by name. A few lines earlier the manual told a reader to
+  "replace the `send` member", from the same era; there is no member to
+  replace, only a handler to pass.
+
+- `tcslog_format_version` was documented nowhere in the project -- the only
+  exported C function with no prose anywhere -- and
+  `tcslog_segment_file_header_len` only inside an example. Both, with
+  `tcslog_status_str`, are what a C caller needs before it has a handle, and
+  the manual and the specification now list them together for that reason.
+
+- The manual's type listings were short of what the crate exports.
+  `SegmentHeader` gave its six fields and none of its methods, though the
+  conversions are what let a program read a header without opening the log it
+  belongs to. `SegId` and `SeqId` gave neither their conversions nor `SeqId`'s
+  saturating step, and `Format::tag` was missing, which hid that the Rust and
+  C interfaces share one set of format numbers.
+
+- Five statements in `docs/design.rst` no longer described the code: that
+  `write()` can return `ClockError`, which only the constructor can raise;
+  that no allocation happens after `new()`, which has three documented
+  exceptions, one of them `clear()` rather than a constructor; that the
+  workspace is two crates, which has not been true since `tcslog-c` joined it
+  in 0.2.7; that two version constants are public, when three are; and an
+  argument against splitting the suite's stored captures in two, which the
+  suite has since done for a reason the chapter can now state.
+
+- `docs/design.rst` was missing things the code has: two of the
+  error-recovery suite's cases, so the table that is the document's claim
+  about coverage understated it by two; the driver's `-q` and `-H` options,
+  `-q` being why each case has two stored files at all; the `VERBOSE_EXPECTED`
+  switch; `bin/verify-helper`; and the third layer of testing, the C binding's
+  header check, smoke test and sanitizer run, none of which the Rust layers
+  reach.
+
+- The error-recovery suite's `regenerate` target rebuilt only the verbose half
+  of each case's stored files, leaving the records-only half to go stale
+  silently until a later `make test VERBOSE_EXPECTED=-q` failed for a change
+  the target had been run to accept. It rebuilds both. Also in that Makefile:
+  `test` had no `.PHONY` line, alone among its targets, and a comment sat
+  above the wrong target.
+
+- Eleven spellings in `docs/design.rst`, which lists "Check for spelling"
+  among the restrictions it states, and a comment in `tcslog-c/Cargo.toml`
+  naming a path, `test/capi-smoke.c`, that does not exist and never did at
+  that location.
+
 ## [0.3.2] - 2026-10-06
 
 Stored format: unchanged, 0.1.0.
