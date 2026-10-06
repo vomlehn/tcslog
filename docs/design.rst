@@ -1314,6 +1314,22 @@ pub fn iter(&mut self) -> LogReadIter<'_>
     up the crate's no-allocation guarantee; read() is what a caller bound
     by that guarantee uses.
 
+    Records are read into a buffer of the iterator's own, fixed at 64
+    KiB, and a payload longer than that is yielded cut to it. Session
+    boundaries are skipped, as are records of which no byte survived. A
+    record of which some bytes survived must be yielded with truncated
+    set rather than skipped or handed over unmarked: the bytes are real
+    telemetry, and the mark is what keeps the front of a record from
+    passing as the whole of one.
+
+    Iteration ends at the end of the log and also at an I/O failure,
+    which an iterator cannot hand back. Two things therefore cannot be
+    reached through this interface -- the count of files a loss cost,
+    which has no place on a record, and the difference between a
+    finished log and failed storage -- and read() is where a caller
+    needing either goes. That is the price of the convenience, and it is
+    why iter() is offered alongside read() rather than in place of it.
+
 pub fn current_header(&self) -> Option<&SegmentHeader>
 
     The header of the segment file now open, or None whenever none is:
@@ -1462,10 +1478,22 @@ ReadResult
 Record
 ------
     One record's payload together with its metadata, produced by
-    LogRead::iter(). It holds meta, of type Meta, and payload, which owns
-    its bytes. This is the one public structure that allocates, which is
-    why the iterator that yields it is offered alongside read() rather
-    than in place of it.
+    LogRead::iter(). It holds meta, of type Meta; payload, which owns its
+    bytes; and truncated, a bool. This is the one public structure that
+    allocates, which is why the iterator that yields it is offered
+    alongside read() rather than in place of it.
+
+    truncated must be false for a record handed over entire and true
+    when the bytes in payload are the front of a record whose remainder
+    did not reach the iterator, whether because a segment file carrying
+    it was lost or damaged or because the record was longer than the
+    iterator's buffer. The field is required rather than a convenience:
+    the bytes of a partial record cannot be told from a whole record's,
+    the library's contract is that a loss is reported and not hidden,
+    and an unmarked partial record is the quiet substitution of a
+    smaller log for the real one that read() exists to refuse. A caller
+    needing to know why a record is short, or how much went missing,
+    uses read().
 
 Meta
 ----
@@ -2029,6 +2057,14 @@ o   Check that the first write() after clear() starts a new session, with
     a new session identifier and its record count restarted at one, and
     that the log then reads back as exactly the records written after the
     clear, with no loss reported.
+
+o   Check that iter() marks a partial record and only a partial record.
+    Both causes need a case, a lost segment file and a payload past the
+    iterator's buffer, and the assertion must run both ways: every record
+    marked truncated is a proper prefix of one that was written, and
+    every record not marked is one that was written whole. A flag set on
+    everything would pass a test that only looked for it somewhere, and
+    would have a caller discarding good telemetry.
 
 Error-Recovery Test Suite
 -------------------------

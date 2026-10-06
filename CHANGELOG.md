@@ -15,6 +15,48 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0. Nothing about what is written moves here, so
+a reader of this build reads every log any earlier build wrote and the other
+way round.
+
+The crate version is still 0.3.2 and has to move to 0.4.0 before this is
+released: `Record` gains a field, which breaks a caller that built or
+exhaustively destructured one. The bump is not made here because the sibling
+`tcslog-tools` names a caret requirement on this crate, and the two manifests
+have to move together or `cargo check` refuses either mismatch -- the same
+coupling that put the bump for 0.3.0 in its own commit.
+
+### Added
+
+- `Record::truncated`, which says whether the record the iterator handed back
+  is the whole of one or only its front.
+
+  `LogRead::iter` yields a record for the bytes recovered from a record cut
+  short -- by a lost or damaged segment file, or by a payload longer than the
+  iterator's own 64 KiB buffer -- because those bytes are real telemetry and
+  discarding them would lose measurements that survived. But it yielded them
+  as an ordinary `Record`, indistinguishable from a whole one, so a caller
+  reading a damaged log through the iterator got a quietly smaller log: the
+  thing this crate says it never does, and which `LogRead::read` refuses to
+  do by reporting `ReadTruncated` instead. The flag is what makes the
+  iterator keep the promise the first entry in this file makes for the
+  library as a whole.
+
+  **This breaks a caller that constructs or exhaustively destructures a
+  `Record`**, which is why the next release is 0.4.0. A caller that only
+  reads the two fields it had is unaffected. Nothing that
+  `LogRead::read` returns changed.
+
+### Changed
+
+- `LogRead::iter`'s documentation says what the iterator cannot report, rather
+  than leaving it to be discovered: how much was lost, the file count having
+  no place on a record, and the difference between a finished log and an I/O
+  failure, both of which end iteration. `read` is named as the interface for
+  a caller that needs either.
+
 ## [0.3.2] - 2026-10-06
 
 Stored format: unchanged, 0.1.0.

@@ -701,11 +701,26 @@ Reading: LogRead
     *Returns* an iterator over the remaining records, yielding ``Record``
     values that own their payloads. This is a convenience that gives up
     the crate's no-allocation guarantee; ``read`` is what a caller bound
-    by that guarantee uses. Session boundaries and unrecoverable records
-    are skipped, and a payload longer than the iterator's internal buffer
-    of 64 KiB is yielded cut to it. A caller with records that long
-    should size its own buffer and use ``read``, which reports the
+    by that guarantee uses. A payload longer than the iterator's internal
+    buffer of 64 KiB is yielded cut to it. A caller with records that
+    long should size its own buffer and use ``read``, which reports the
     overflow.
+
+    Session boundaries are skipped, as are records of which no byte
+    survived. A record of which some bytes did survive -- cut short by a
+    loss, or longer than that buffer -- is yielded with ``truncated``
+    set, so that the front of a record is not mistaken here for the
+    whole of one.
+
+    Two things this interface cannot report. How much was lost: the count
+    of missing files that ``ReadTruncated`` carries has no place on a
+    record, so a caller that must account for a loss rather than merely
+    notice it uses ``read``. And the difference between a finished log
+    and failed storage: iteration ends at either, an ``IoError`` being
+    something an iterator has no way to hand back. Under ``read`` that
+    error arrives as an error and the reader is still fit to continue
+    past it, which is the other reason a caller reading a log that may be
+    damaged should prefer ``read``.
 
 ``LogRead::current_header(&self) -> Option<&SegmentHeader>``
     *Returns* the header of the segment file now open, or ``None``
@@ -868,8 +883,10 @@ Results and errors
 
 ``Record``
     One record's payload with its metadata, as produced by
-    ``LogRead::iter``: ``meta``, and ``payload``, which owns its bytes.
-    This is the one public structure that allocates.
+    ``LogRead::iter``: ``meta``; ``payload``, which owns its bytes; and
+    ``truncated``, which is true when those bytes are the front of a
+    record rather than the whole of one. This is the one public
+    structure that allocates.
 
 ``Meta``
     The metadata a record carried, which follows the log's format:

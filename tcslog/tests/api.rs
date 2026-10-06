@@ -1615,6 +1615,83 @@ fn the_iterator_yields_every_record_with_its_metadata() {
     for (record, want) in records.iter().zip(written.iter()) {
         assert_eq!(&record.payload, want);
         assert!(matches!(record.meta, Meta::VariableTsRc(_, _)));
+        assert!(
+            !record.truncated,
+            "a whole record from an undamaged log was marked truncated"
+        );
+    }
+}
+
+#[test]
+fn the_iterator_marks_a_record_it_could_only_partly_recover() {
+    // One record covers several files, so deleting one that holds its
+    // middle leaves the bytes before the gap in the buffer with the rest
+    // of the record gone. Those bytes are real telemetry and are handed
+    // over, but they are the front of a record rather than the whole of
+    // one, and a caller cannot tell that from the bytes themselves.
+    let log = Log::new(16);
+    let written = payloads(6, 100);
+    log.write_session(Format::VariableSimple, &written);
+
+    let files = log.segment_files();
+    let per_record = files.len() / written.len();
+    assert!(per_record >= 3, "expected a record to span several files");
+    fs::remove_file(&files[2 * per_record + per_record / 2]).expect("a removable segment file");
+
+    let mut reader = log.reader().expect("a readable log");
+    let records: Vec<_> = reader.iter().collect();
+
+    assert!(
+        records.iter().any(|r| r.truncated),
+        "a record cut short by a lost segment file was not marked"
+    );
+    // The marking has to be accurate in both directions: a whole record
+    // carrying the flag would have a caller discarding good telemetry.
+    for record in &records {
+        let whole = written.iter().any(|w| w == &record.payload);
+        let front = written
+            .iter()
+            .any(|w| w.starts_with(&record.payload) && w.len() > record.payload.len());
+        if record.truncated {
+            assert!(
+                front,
+                "a record marked truncated is not the front of anything written: {:?}",
+                String::from_utf8_lossy(&record.payload)
+            );
+        } else {
+            assert!(
+                whole,
+                "a record not marked truncated is not one that was written: {:?}",
+                String::from_utf8_lossy(&record.payload)
+            );
+        }
+    }
+}
+
+#[test]
+fn the_iterator_marks_a_record_too_long_for_its_own_buffer() {
+    // The iterator reads into a 64 KiB buffer of its own, so a payload
+    // past that overflows it. The bytes captured are the front of the
+    // record and the rest is skipped, which is the same loss a gap
+    // causes and is marked the same way.
+    let log = Log::new(96 * 1024);
+    let written = payloads(2, 70 * 1024);
+    log.write_session(Format::VariableSimple, &written);
+
+    let mut reader = log.reader().expect("a readable log");
+    let records: Vec<_> = reader.iter().collect();
+
+    assert_eq!(records.len(), written.len());
+    for (record, want) in records.iter().zip(written.iter()) {
+        assert!(
+            record.truncated,
+            "a record longer than the iterator's buffer was not marked"
+        );
+        assert_eq!(record.payload.len(), 64 * 1024);
+        assert!(
+            want.starts_with(&record.payload),
+            "the bytes captured are not the front of the record written"
+        );
     }
 }
 

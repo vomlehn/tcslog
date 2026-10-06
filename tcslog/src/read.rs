@@ -42,6 +42,27 @@ pub struct Record {
 
     /// The record's payload bytes.
     pub payload: Vec<u8>,
+
+    /// Whether this is the front of a record rather than the whole of
+    /// one.
+    ///
+    /// `false` for a record handed over entire, which is the ordinary
+    /// case. `true` when the bytes in `payload` are real telemetry from
+    /// a record whose remainder did not reach the iterator -- either
+    /// because the segment file carrying it was lost or damaged, or
+    /// because the record was longer than the iterator's own buffer.
+    /// Either way the rest of it is gone, and no later record makes it
+    /// up.
+    ///
+    /// The field exists because the bytes themselves cannot be told
+    /// apart from a whole record's: this crate reports a loss rather
+    /// than hiding it, and an unmarked partial record handed back
+    /// through an iterator would be exactly the quiet substitution of
+    /// a smaller log for the real one that [`LogRead::read`] refuses to
+    /// make. A caller that must distinguish *why* the record is short,
+    /// or that wants the loss counted, uses
+    /// [`read`](LogRead::read) and reads the error.
+    pub truncated: bool,
 }
 
 /// The segment file currently open.
@@ -367,13 +388,27 @@ impl LogRead {
     /// gives up the crate's no-allocation guarantee;
     /// [`read`](Self::read) is what a caller bound by that guarantee
     /// uses. A payload longer than the iterator's internal buffer of
-    /// 64 KiB is yielded truncated to it, for the same reason a
-    /// truncated read's bytes are still returned: they are real
-    /// telemetry. A caller with records that long should size its own
-    /// buffer and use [`read`](Self::read), which reports the overflow.
+    /// 64 KiB is yielded cut to it, for the same reason a truncated
+    /// read's bytes are still returned: they are real telemetry. A
+    /// caller with records that long should size its own buffer and use
+    /// [`read`](Self::read), which reports the overflow.
     ///
-    /// Records the reader could not recover are skipped, as are session
-    /// boundaries. Iteration ends at the end of the log.
+    /// Session boundaries are skipped, as are records of which no byte
+    /// survived. A record of which some bytes did survive -- cut short
+    /// by a loss, or longer than the buffer above -- is yielded with
+    /// [`Record::truncated`] set, so that the front of a record cannot
+    /// be mistaken here for the whole of one. What this cannot report
+    /// is how much was lost: the file count a
+    /// [`LogError::ReadTruncated`] carries has no place on a record, so
+    /// a caller that must account for the loss rather than merely
+    /// notice it uses [`read`](Self::read).
+    ///
+    /// Iteration ends at the end of the log, and also at an
+    /// [`io`](LogError::IoError) failure, which the iterator has no way
+    /// to report. The two are indistinguishable through this interface.
+    /// A caller that must tell a finished log from failed storage uses
+    /// [`read`](Self::read), where the storage error arrives as an
+    /// error and the reader stays fit to continue past it.
     ///
     /// Returns the iterator, which borrows the reader for its lifetime.
     pub fn iter(&mut self) -> LogReadIter<'_> {
@@ -952,7 +987,8 @@ impl Iterator for LogReadIter<'_> {
     type Item = Record;
 
     /// Returns the next record, skipping session boundaries and records
-    /// the reader could not recover, and stopping at the end of the log.
+    /// of which no byte survived, and stopping at the end of the log or
+    /// at an I/O failure.
     fn next(&mut self) -> Option<Record> {
         loop {
             match self.log.read(&mut self.buf) {
@@ -960,15 +996,18 @@ impl Iterator for LogReadIter<'_> {
                     return Some(Record {
                         meta: result.meta,
                         payload: self.buf[..result.n as usize].to_vec(),
+                        truncated: false,
                     })
                 }
                 // Bytes captured before an overflow or a gap are real
                 // telemetry, so they are handed over rather than
-                // dropped.
+                // dropped -- marked, because they are the front of a
+                // record and not the whole of one.
                 Err(LogError::ReadOverflow(n) | LogError::ReadTruncated { n, .. }) if n > 0 => {
                     return Some(Record {
                         meta: self.log.last_meta,
                         payload: self.buf[..n as usize].to_vec(),
+                        truncated: true,
                     })
                 }
                 Err(LogError::SessionEnd | LogError::ReadTruncated { .. }) => (),
