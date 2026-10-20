@@ -1,0 +1,100 @@
+# Runs what `make check` and `make test` run locally, and what they
+# leave out for want of tools: the sanitizer run, the Windows
+# type-check, clang, the oldest Python the package supports, and the
+# Rust version the crate declares.
+#
+# The error-recovery suite drives the tools in tcslog-tools, which
+# depends on this repository by path, so both are checked out side by
+# side as they are on a developer's machine.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  # A writer needs a build-time timer resolution; a developer sets it in
+  # the gitignored .cargo/config.toml. One nanosecond is the documented
+  # starting point, and a writer widens it if it proves too small.
+  TIMER_RESOLUTION: "1"
+
+jobs:
+  check-and-test:
+    name: make check, make test, make capi-memcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: tcslog
+      - uses: actions/checkout@v4
+        with:
+          repository: vomlehn/tcslog-tools
+          path: tcslog-tools
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cbindgen,cargo-rdme
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+      - name: Install the Python checkers
+        run: python -m pip install ruff mypy
+      - name: make check
+        working-directory: tcslog
+        run: make check PYTHON=python
+      - name: make test
+        working-directory: tcslog
+        run: make test PYTHON=python
+      - name: make capi-memcheck
+        working-directory: tcslog
+        run: make capi-memcheck
+
+  clang:
+    name: C/C++ binding under clang
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: make capi-test with clang
+        run: make capi-test CC=clang CXX=clang++
+
+  cross-check:
+    name: Windows type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-gnu
+      - name: make cross-check
+        run: make cross-check
+
+  python-oldest:
+    name: Python 3.8, the oldest supported
+    # setup-python has no 3.8 for the newest runner image.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.8"
+      - name: make python-test
+        run: make python-test PYTHON=python
+
+  msrv:
+    name: Rust 1.75, the declared rust-version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.75
+      # The library alone: its dependencies are what a dependent
+      # compiles, where the dev-dependencies and the binding's are not.
+      - name: cargo check
+        run: cargo check -p tcslog
