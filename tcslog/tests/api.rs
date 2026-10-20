@@ -1729,7 +1729,7 @@ fn headers_are_retained_only_when_asked_for() {
     let mut reader = log.reader().expect("a readable log");
     let mut buf = [0u8; 64];
     while reader.read(&mut buf).is_ok() {}
-    assert!(reader.take_opened_headers().is_empty());
+    assert_eq!(reader.take_opened_headers(), Vec::new());
 
     let mut reader = log.reader().expect("a readable log");
     reader.collect_opened_headers(true);
@@ -1746,7 +1746,7 @@ fn headers_are_retained_only_when_asked_for() {
     assert_eq!(seen.len() as u64, total);
     assert_eq!(reader.segments_opened(), total);
     // Taking them leaves nothing behind.
-    assert!(reader.take_opened_headers().is_empty());
+    assert_eq!(reader.take_opened_headers(), Vec::new());
 }
 
 #[test]

@@ -125,7 +125,7 @@ fn create_sample_logs(
         let secs = dur.as_secs(); // u64, whole seconds
         let nanos = dur.subsec_nanos(); // u32, 0..1_000_000_000
 
-        let content = format!("time={secs}.{nanos:09}s message={}", message_count + 1,);
+        let content = format!("time={secs}.{nanos:09}s message={}", message_count + 1);
         println!("{content}");
         log.write(content.as_bytes())?;
         message_count += 1;
