@@ -25,6 +25,17 @@ o   Python 3: `tcslog-py`, a pure-Python package over `ctypes`. See
 
 A log written from any of them reads in the other two.
 
+Integration with cFS and F´
+---------------------------
+Work is under way on using Tcslog with NASA's core Flight System (cFS), as a
+cFS library whose filled segments go down through CFDP, and with JPL's F´
+(F Prime), as a component whose segments go down through FileDownlink. The
+plan, shared with tcspecial and tcsxtce, is in tcspecial's
+[`docs/third-party.rst`](https://github.com/vomlehn/tcspecial/blob/main/docs/third-party.rst).
+
+> **Note:** integration with cFS and F´ is a work in progress. None of it is
+> built yet, and the plan may change as it is.
+
 Memory
 ------
 Writing a record and reading a record allocate nothing, in any of the

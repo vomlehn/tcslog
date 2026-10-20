@@ -16,6 +16,11 @@
 //! Python 3*. All three offer the same operations under the same names,
 //! and a log written from any one reads in the other two.
 //!
+//! Work is under way on using Tcslog with NASA's core Flight System
+//! (cFS) and JPL's F´ (F Prime): the plan is in tcspecial's
+//! [`docs/third-party.rst`](https://github.com/vomlehn/tcspecial/blob/main/docs/third-party.rst).
+//! That work is in progress: none of it is built yet.
+//!
 //! A Tcslog log is a directory of *segment files*. Each one is at most a
 //! size the caller chooses, and its name is a caller-chosen prefix and
 //! suffix wrapped around a [`SegId`]. Records are appended to the file
