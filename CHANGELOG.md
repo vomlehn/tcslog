@@ -15,74 +15,83 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
-## [Unreleased]
+## [0.4.1] - 2026-10-19
 
-Stored format: unchanged, 0.1.0.
+Stored format: unchanged, 0.1.0. Nothing about what is written moves here, so
+a reader of this build reads every log any earlier build wrote and the other
+way round.
 
-Tcslog now supports three languages -- Rust, C/C++, and Python 3 -- and the
-documentation says so throughout.
+Tcslog now supports three languages -- Rust, C/C++, and Python 3 -- with the
+same operations under the same names in each, and the documentation says so
+throughout. Everything here adds to an interface rather than changing one, so
+this is a patch: a caret requirement on 0.4 matches it.
 
 ### Added
 
 - `tcslog-py`, a Python 3 package (`import tcslog`) over the C ABI through
-  `ctypes`, with the Rust crate's names: `LogWrite`, `LogRead`,
-  `WriteCallbacks`, `Format`, `Meta`, `ReadResult`, `Record`, and a
-  `LogError` subclass per variant. Tests under `tcslog-py/tests` run from
-  `make python-test` and `make test`; `bin/run-python-example` runs
-  `tcslog-py/examples/downlink.py`.
-- `tcslog.hpp`, a header-only C++11 interface over the C ABI: `tcslog::LogWrite`
-  and `tcslog::LogRead`, which close their handles themselves and move but do
-  not copy, and `tcslog::WriteCallbacks`, whose overridden methods alone are
+  `ctypes`, needing nothing compiled beyond the C library and nothing outside
+  the standard library. Its names are the Rust crate's: `LogWrite`, `LogRead`,
+  `WriteCallbacks`, `Format`, `Meta`, `ReadResult`, `Record`, `RecordMeta`,
+  `SegmentHeader`, `SegId`, and a `LogError` subclass for each variant. A
+  callback that raises makes the write raise `IoError` with the callback's
+  exception as its cause. The package is fully annotated and ships `py.typed`.
+  `make python-test`, part of `make test`, runs its tests;
+  `bin/run-python-example` runs `tcslog-py/examples/downlink.py`.
+- `tcslog.hpp`, a header-only C++11 interface over the C ABI:
+  `tcslog::LogWrite` and `tcslog::LogRead`, which close their handles
+  themselves and move but do not copy, and `tcslog::WriteCallbacks`, whose
+  methods a handler overrides and whose overridden methods alone are
   installed. It needs no exceptions, RTTI, or heap, which
-  `tcslog-c/examples/wrapper.cpp` checks under `make capi-test`. `make install`
-  installs it beside `tcslog.h`.
-- C++ support for the C binding is now tested: `make capi-test` and
-  `make capi-memcheck` compile and run `smoke.c` as C11 and as C++11, and
-  `bin/run-capi-example --cxx` builds `downlink.c` as C++.
-- `LogRead::last_meta`, the metadata of the record most recently decoded,
-  which is what describes the bytes a `ReadOverflow` or `ReadTruncated` left
-  in the buffer.
-- The C/C++ and Python 3 interfaces now cover every query the Rust one
-  offers a caller: a writer's `session_id`, `current_segment_id` and
-  `last_meta`; a reader's `last_meta`, `current_header`,
-  `collect_opened_headers` and `take_opened_headers`; and the text forms of
-  segment identifiers and timestamps. In C these are `tcslog_write_*` and
-  `tcslog_read_*` functions with `TcslogRecordMeta` and `TcslogSegmentHeader`,
-  and `tcslog_seg_id_format`, `tcslog_seg_id_parse` and
-  `tcslog_format_timestamp`, which render into a caller's buffer and refuse
-  one too short with the new `TCSLOG_STATUS_BUFFER_TOO_SMALL` (20). In
-  Python they are methods of the same names, with `SegmentHeader`, `SegId`,
-  `RecordMeta` and `format_timestamp`.
-- The Python 3 package is fully annotated and ships `py.typed`, and `make
-  check` runs `ruff check`, `ruff format --check` and `mypy --strict` over
-  it.
-- `LogRead::take_opened_headers_into`, which drains retained headers into a
-  caller's slice without allocating, and `write_timestamp` with
-  `TIMESTAMP_STR_LEN`, which renders a timestamp without allocating.
+  `tcslog-c/examples/wrapper.cpp` checks under `make capi-test`.
+- The C ABI, and so the Python package, now covers every query the Rust crate
+  offers a caller: `tcslog_write_session_id`,
+  `tcslog_write_current_segment_id`, `tcslog_write_last_meta`,
+  `tcslog_read_last_meta`, `tcslog_read_current_header`,
+  `tcslog_read_collect_opened_headers` and `tcslog_read_take_opened_headers`,
+  with the structures `TcslogRecordMeta` and `TcslogSegmentHeader`; and
+  `tcslog_seg_id_format`, `tcslog_seg_id_parse` and `tcslog_format_timestamp`,
+  which render into a caller's buffer and refuse one too short with the new
+  `TCSLOG_STATUS_BUFFER_TOO_SMALL` (20) rather than truncate.
+- In the Rust crate: `LogRead::last_meta`, the metadata of the record most
+  recently decoded, which describes the bytes a `ReadOverflow` or
+  `ReadTruncated` left in the buffer; `LogRead::take_opened_headers_into`,
+  which drains retained headers into a caller's slice without allocating; and
+  `write_timestamp` with `TIMESTAMP_STR_LEN`, which renders a timestamp
+  without allocating.
+- `make install` installs the Python package and `tcslog.hpp` along with
+  `tcslog.h` and the libraries. The package goes into the user site
+  directory under the default `PREFIX`, or that prefix's `site-packages`
+  (`PYDIR` overrides), without `pip`, so it works on an externally managed
+  Python too, and with a link to the installed library beside it so it needs
+  no `LD_LIBRARY_PATH`. `make uninstall` removes all of it.
+- `make check` runs `ruff check`, `ruff format --check` and `mypy --strict`
+  over the Python package, as it runs clippy and rustfmt over the crates.
+  `make cross-check` type-checks the workspace for Windows.
 
 ### Changed
 
-- `tcslog-c` builds on platforms other than Unix. `record_complete` is
-  handed the file's descriptor on Unix and -1 elsewhere, where a file is a
-  handle that does not fit the `int`. `make cross-check` type-checks the
-  workspace for Windows.
-
-- `make install` installs the Python 3 package too, without `pip`: into the
-  user site directory under the default `PREFIX`, or that prefix's
-  `site-packages` (`PYDIR` overrides), with a link to the installed library
-  beside it so it needs no `LD_LIBRARY_PATH`. `make uninstall` removes it.
-
 - `tcslog_read_record` fills `meta`, `timestamp` and `record_count` whenever
   `n` is non-zero, including on `TCSLOG_STATUS_READ_OVERFLOW` and
-  `TCSLOG_STATUS_READ_TRUNCATED`, where they were zero before.
-- Handing a segment file to a C `send` callback no longer allocates: the
-  path is built in a buffer reserved when the writer is opened. A callback's
+  `TCSLOG_STATUS_READ_TRUNCATED`, where they were zero, so the front of a
+  record is described as a whole one would be.
+- C++ is tested wherever C is: `make capi-test` and `make capi-memcheck`
+  compile and run `smoke.c` as C11 and as C++11, and
+  `bin/run-capi-example --cxx` builds `downlink.c` as C++. The examples and
+  the C programs in the manual are written in the common subset of the two.
+- Handing a segment file to a C `send` callback no longer allocates: the path
+  is built in a buffer the writer reserves when it is opened. A callback's
   failure, and the writer's internal "no segment file open" error, no longer
-  allocate a message.
-- The examples and documented C programs are written in the common subset of
-  C and C++.
-- Every place that still allocates is documented, with why, in the crate
-  documentation, `docs/tcslog.rst` and `docs/design.rst`.
+  allocate a message either.
+- Every place that still allocates is documented, with why it cannot be
+  avoided, in the crate documentation, `docs/tcslog.rst` and
+  `docs/design.rst`, for all three languages.
+
+### Fixed
+
+- `tcslog-c` built only on Unix, handing `record_complete` a descriptor
+  through `AsRawFd`, though `docs/design.rst` asks for code that works beyond
+  Linux. It now hands the descriptor on Unix and -1 elsewhere, where a file
+  is a handle that does not fit the `int` the ABI promises.
 
 ## [0.4.0] - 2026-10-06
 
@@ -847,6 +856,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[0.4.1]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.1
 [0.4.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.0
 [0.3.2]: https://github.com/vomlehn/tcslog/releases/tag/v0.3.2
 [0.3.1]: https://github.com/vomlehn/tcslog/releases/tag/v0.3.1
