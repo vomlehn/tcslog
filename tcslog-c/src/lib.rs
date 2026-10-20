@@ -51,6 +51,7 @@
 //!   allocated description. A callback's failure does not.
 
 use std::ffi::{c_char, c_int, c_void, CStr};
+use std::fmt::{self, Write as _};
 use std::fs::File;
 use std::io;
 use std::os::fd::AsRawFd;
@@ -58,8 +59,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use tcslog::{
-    Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, WriteCallbacks,
-    SEGMENT_FILE_HEADER_LEN, VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH,
+    write_timestamp, Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, SegmentHeader,
+    WriteCallbacks, SEGMENT_FILE_HEADER_LEN, TIMESTAMP_STR_LEN, VERSION_MAJOR, VERSION_MINOR,
+    VERSION_PATCH,
 };
 
 /// What a call reported.
@@ -143,6 +145,10 @@ pub enum TcslogStatus {
 
     /// `format_tag` is not one of the three formats.
     InvalidFormat = 19,
+
+    /// A buffer offered for text is too short for it and its NUL.
+    /// Nothing was written to it.
+    BufferTooSmall = 20,
 }
 
 /// The record layouts a log may use, as `format_tag` values for
@@ -234,6 +240,92 @@ impl TcslogReadResult {
         }
     }
 }
+
+/// A record's metadata, mirroring [`Meta`]: what
+/// [`tcslog_write_last_meta`] and [`tcslog_read_last_meta`] report.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct TcslogRecordMeta {
+    /// Which of the three metadata shapes the record had.
+    pub meta: TcslogMeta,
+
+    /// Nanoseconds since the UNIX epoch, when `meta` is
+    /// [`TcslogMeta::VariableTsRc`]. Zero otherwise.
+    pub timestamp: u64,
+
+    /// Position of the record within its session, counting from one,
+    /// when `meta` is [`TcslogMeta::VariableTsRc`]. Zero otherwise.
+    pub record_count: u64,
+}
+
+impl From<Meta> for TcslogRecordMeta {
+    fn from(meta: Meta) -> Self {
+        let mut out = TcslogReadResult::empty();
+        set_meta(&mut out, meta);
+        Self {
+            meta: out.meta,
+            timestamp: out.timestamp,
+            record_count: out.record_count,
+        }
+    }
+}
+
+/// The header that opens a segment file, mirroring [`SegmentHeader`]:
+/// what [`tcslog_read_current_header`] and
+/// [`tcslog_read_take_opened_headers`] report.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct TcslogSegmentHeader {
+    /// Identifier of this segment file, which [`tcslog_seg_id_format`]
+    /// renders as it appears in the file's name.
+    pub segment_id: u64,
+
+    /// Identifier of the first segment file of this session.
+    pub session_id: u64,
+
+    /// Bytes at the start of the data section that are the tail of a
+    /// record begun in an earlier segment file, its data header counted.
+    pub remaining: u64,
+
+    /// Zero-based position of this segment file within its session.
+    pub sequence: u64,
+
+    /// The maximum size, in bytes, of a segment file of this log.
+    pub max_size: u32,
+
+    /// How records in this file are laid out, as a [`TcslogFormat`]
+    /// value.
+    pub format_tag: u32,
+
+    /// The record length when `format_tag` is
+    /// [`TcslogFormat::Fixed`]. Zero otherwise.
+    pub fixed_len: u32,
+}
+
+impl From<&SegmentHeader> for TcslogSegmentHeader {
+    fn from(h: &SegmentHeader) -> Self {
+        Self {
+            segment_id: h.segment_id.as_u64(),
+            session_id: h.session_id.as_u64(),
+            remaining: h.remaining,
+            sequence: h.sequence.as_u64(),
+            max_size: h.max_size,
+            format_tag: u32::from(h.format.tag()),
+            fixed_len: h.format.fixed_len(),
+        }
+    }
+}
+
+/// The characters a segment identifier renders as, without the NUL.
+pub const TCSLOG_SEG_ID_STR_LEN: usize = 19;
+
+/// The characters a timestamp renders as, without the NUL.
+pub const TCSLOG_TIMESTAMP_STR_LEN: usize = 30;
+
+// Literals above because cbindgen can only emit a literal into the
+// header; these keep them from drifting from the library's own.
+const _: () = assert!(TCSLOG_SEG_ID_STR_LEN == SegId::STR_LEN);
+const _: () = assert!(TCSLOG_TIMESTAMP_STR_LEN == TIMESTAMP_STR_LEN);
 
 /// A writer. Opaque to C: made by [`tcslog_write_open`] and released by
 /// [`tcslog_write_close`].
@@ -469,6 +561,55 @@ fn format_of(tag: u32, fixed_len: u32) -> Result<Format, TcslogStatus> {
     }
 }
 
+/// A [`fmt::Write`] over a caller's buffer, which refuses rather than
+/// truncates when the text does not fit, and allocates nothing.
+struct SliceWriter<'a> {
+    buf: &'a mut [u8],
+    len: usize,
+}
+
+impl fmt::Write for SliceWriter<'_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let end = self.len + s.len();
+        let dst = self.buf.get_mut(self.len..end).ok_or(fmt::Error)?;
+        dst.copy_from_slice(s.as_bytes());
+        self.len = end;
+        Ok(())
+    }
+}
+
+/// Renders `render`'s text into the caller's `cap` bytes at `buf` with
+/// a NUL after it.
+///
+/// `len` is the length the text always has, so a buffer too short for
+/// it and the NUL is refused before anything is written to it.
+///
+/// # Safety
+///
+/// `buf` must be null or point to `cap` writable bytes.
+unsafe fn render_into(
+    buf: *mut c_char,
+    cap: usize,
+    len: usize,
+    render: impl FnOnce(&mut SliceWriter<'_>) -> fmt::Result,
+) -> TcslogStatus {
+    if buf.is_null() {
+        return TcslogStatus::NullArgument;
+    }
+    if cap <= len {
+        return TcslogStatus::BufferTooSmall;
+    }
+    // SAFETY: the caller guarantees `cap` writable bytes.
+    let dst = unsafe { std::slice::from_raw_parts_mut(buf.cast::<u8>(), cap) };
+    let mut w = SliceWriter { buf: dst, len: 0 };
+    if render(&mut w).is_err() {
+        return TcslogStatus::BufferTooSmall;
+    }
+    let end = w.len;
+    dst[end] = 0;
+    TcslogStatus::Ok
+}
+
 /// Writes the stored format version this build reads and writes.
 ///
 /// A build reads a segment file whose major version matches this one
@@ -540,8 +681,94 @@ pub extern "C" fn tcslog_status_str(status: TcslogStatus) -> *const c_char {
         TcslogStatus::NotUtf8 => cstr(b"argument is not valid UTF-8\0"),
         TcslogStatus::Panic => cstr(b"panic caught at the boundary\0"),
         TcslogStatus::InvalidFormat => cstr(b"format tag is not one of the three formats\0"),
+        TcslogStatus::BufferTooSmall => cstr(b"buffer too small for the text\0"),
     };
     s.as_ptr()
+}
+
+/// Renders a segment identifier as it appears in a segment file's name:
+/// four dash-separated groups of four lower-case hexadecimal digits.
+///
+/// `buf` must hold at least [`TCSLOG_SEG_ID_STR_LEN`] + 1 bytes, for the
+/// text and its NUL; a shorter one is refused as
+/// [`TcslogStatus::BufferTooSmall`] and left untouched.
+///
+/// # Safety
+///
+/// `buf` must point to `cap` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_seg_id_format(
+    id: u64,
+    buf: *mut c_char,
+    cap: usize,
+) -> TcslogStatus {
+    guard(|| {
+        // SAFETY: the caller guarantees `cap` writable bytes.
+        unsafe {
+            render_into(buf, cap, TCSLOG_SEG_ID_STR_LEN, |w| {
+                write!(w, "{}", SegId::from_u64(id))
+            })
+        }
+    })
+}
+
+/// Parses a segment identifier in the form [`tcslog_seg_id_format`]
+/// renders.
+///
+/// Text in any other form is refused as
+/// [`TcslogStatus::InvalidPathname`], as the library refuses it, since
+/// it names no segment file.
+///
+/// # Safety
+///
+/// `text` must be a NUL-terminated string, and `out` must point to
+/// writable storage for one `uint64_t`.
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_seg_id_parse(text: *const c_char, out: *mut u64) -> TcslogStatus {
+    guard(|| {
+        if out.is_null() {
+            return TcslogStatus::NullArgument;
+        }
+        // SAFETY: the caller guarantees a NUL-terminated string.
+        let text = match unsafe { as_str(text) } {
+            Ok(t) => t,
+            Err(e) => return e,
+        };
+        match SegId::parse(text) {
+            Ok(id) => {
+                // SAFETY: checked non-null above.
+                unsafe { *out = id.as_u64() };
+                TcslogStatus::Ok
+            }
+            Err(e) => status_only(&e),
+        }
+    })
+}
+
+/// Renders a timestamp as an ISO 8601 UTC date and time with nanosecond
+/// precision, for example `2026-09-21T16:45:12.123456789Z`.
+///
+/// `buf` must hold at least [`TCSLOG_TIMESTAMP_STR_LEN`] + 1 bytes, for
+/// the text and its NUL; a shorter one is refused as
+/// [`TcslogStatus::BufferTooSmall`] and left untouched.
+///
+/// # Safety
+///
+/// `buf` must point to `cap` writable bytes.
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_format_timestamp(
+    ts: u64,
+    buf: *mut c_char,
+    cap: usize,
+) -> TcslogStatus {
+    guard(|| {
+        // SAFETY: the caller guarantees `cap` writable bytes.
+        unsafe {
+            render_into(buf, cap, TCSLOG_TIMESTAMP_STR_LEN, |w| {
+                write_timestamp(w, ts)
+            })
+        }
+    })
 }
 
 /// Opens a writer on the log in `dir` whose segment files are named
@@ -744,6 +971,78 @@ pub unsafe extern "C" fn tcslog_write_timer_resolution(
     })
 }
 
+/// Writes the identifier of the session being written, which is the
+/// identifier of its first segment file.
+///
+/// After [`tcslog_write_clear`] this still names the cleared session
+/// until the next write starts one.
+///
+/// # Safety
+///
+/// `h` must come from [`tcslog_write_open`] and not yet be closed, and
+/// `out` must point to writable storage for one `uint64_t`.
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_write_session_id(
+    h: *mut TcslogWrite,
+    out: *mut u64,
+) -> TcslogStatus {
+    guard(|| {
+        if h.is_null() || out.is_null() {
+            return TcslogStatus::NullArgument;
+        }
+        // SAFETY: the caller guarantees a live handle and writable
+        // storage.
+        unsafe { *out = (*h).inner.session_id().as_u64() };
+        TcslogStatus::Ok
+    })
+}
+
+/// Writes the identifier of the segment file being written.
+///
+/// # Safety
+///
+/// `h` must come from [`tcslog_write_open`] and not yet be closed, and
+/// `out` must point to writable storage for one `uint64_t`.
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_write_current_segment_id(
+    h: *mut TcslogWrite,
+    out: *mut u64,
+) -> TcslogStatus {
+    guard(|| {
+        if h.is_null() || out.is_null() {
+            return TcslogStatus::NullArgument;
+        }
+        // SAFETY: the caller guarantees a live handle and writable
+        // storage.
+        unsafe { *out = (*h).inner.current_segment_id().as_u64() };
+        TcslogStatus::Ok
+    })
+}
+
+/// Writes the metadata minted for the most recently written record,
+/// which is how a caller learns the timestamp and record count a
+/// variable-tsrc record was stamped with.
+///
+/// # Safety
+///
+/// `h` must come from [`tcslog_write_open`] and not yet be closed, and
+/// `out` must point to writable storage for one [`TcslogRecordMeta`].
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_write_last_meta(
+    h: *mut TcslogWrite,
+    out: *mut TcslogRecordMeta,
+) -> TcslogStatus {
+    guard(|| {
+        if h.is_null() || out.is_null() {
+            return TcslogStatus::NullArgument;
+        }
+        // SAFETY: the caller guarantees a live handle and writable
+        // storage.
+        unsafe { *out = (*h).inner.last_meta().into() };
+        TcslogStatus::Ok
+    })
+}
+
 /// Closes a writer and releases it. Null is accepted and does nothing,
 /// as `free` does.
 ///
@@ -898,6 +1197,148 @@ pub unsafe extern "C" fn tcslog_read_segments_opened(
         // SAFETY: the caller guarantees a live handle and writable
         // storage.
         unsafe { *out = (*h).inner.segments_opened() };
+        TcslogStatus::Ok
+    })
+}
+
+/// Writes the metadata of the record most recently decoded, which is
+/// what describes the bytes a [`TcslogStatus::ReadOverflow`] or a
+/// [`TcslogStatus::ReadTruncated`] left in the buffer.
+///
+/// # Safety
+///
+/// `h` must come from [`tcslog_read_open`] and not yet be closed, and
+/// `out` must point to writable storage for one [`TcslogRecordMeta`].
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_read_last_meta(
+    h: *mut TcslogRead,
+    out: *mut TcslogRecordMeta,
+) -> TcslogStatus {
+    guard(|| {
+        if h.is_null() || out.is_null() {
+            return TcslogStatus::NullArgument;
+        }
+        // SAFETY: the caller guarantees a live handle and writable
+        // storage.
+        unsafe { *out = (*h).inner.last_meta().into() };
+        TcslogStatus::Ok
+    })
+}
+
+/// Writes the header of the segment file now open.
+///
+/// `*present` is set to 1 and `*out` filled when a segment file is
+/// open, and `*present` set to 0 and `*out` left alone when none is:
+/// before the first read, and after a read that returned
+/// [`TcslogStatus::Eof`], [`TcslogStatus::SessionEnd`] or
+/// [`TcslogStatus::ReadTruncated`].
+///
+/// # Safety
+///
+/// `h` must come from [`tcslog_read_open`] and not yet be closed, `out`
+/// must point to writable storage for one [`TcslogSegmentHeader`], and
+/// `present` to writable storage for one `int`.
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_read_current_header(
+    h: *mut TcslogRead,
+    out: *mut TcslogSegmentHeader,
+    present: *mut c_int,
+) -> TcslogStatus {
+    guard(|| {
+        if h.is_null() || out.is_null() || present.is_null() {
+            return TcslogStatus::NullArgument;
+        }
+        // SAFETY: the caller guarantees a live handle and writable
+        // storage for both.
+        unsafe {
+            match (*h).inner.current_header() {
+                Some(header) => {
+                    *out = header.into();
+                    *present = 1;
+                }
+                None => *present = 0,
+            }
+        }
+        TcslogStatus::Ok
+    })
+}
+
+/// Asks the reader to retain the header of every segment file it opens,
+/// when `enable` is non-zero, or to stop.
+///
+/// Retention is off by default and must be: the headers accumulate,
+/// allocating as they do, until taken by
+/// [`tcslog_read_take_opened_headers`].
+///
+/// # Safety
+///
+/// `h` must come from [`tcslog_read_open`] and not yet be closed.
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_read_collect_opened_headers(
+    h: *mut TcslogRead,
+    enable: c_int,
+) -> TcslogStatus {
+    guard(|| {
+        if h.is_null() {
+            return TcslogStatus::NullArgument;
+        }
+        // SAFETY: the caller guarantees a live handle.
+        unsafe { (*h).inner.collect_opened_headers(enable != 0) };
+        TcslogStatus::Ok
+    })
+}
+
+/// Moves the oldest of the headers retained since the last take into
+/// the `cap` entries at `out`, and writes how many to `*n`.
+///
+/// Those that do not fit stay retained, in order, so a caller drains
+/// them by calling until `*n` comes back less than `cap`.
+///
+/// # Safety
+///
+/// `h` must come from [`tcslog_read_open`] and not yet be closed, `out`
+/// must point to `cap` writable [`TcslogSegmentHeader`] entries, and
+/// `n` to writable storage for one `size_t`. `out` may be null when
+/// `cap` is zero.
+#[no_mangle]
+pub unsafe extern "C" fn tcslog_read_take_opened_headers(
+    h: *mut TcslogRead,
+    out: *mut TcslogSegmentHeader,
+    cap: usize,
+    n: *mut usize,
+) -> TcslogStatus {
+    guard(|| {
+        if h.is_null() || n.is_null() || (out.is_null() && cap != 0) {
+            return TcslogStatus::NullArgument;
+        }
+        // SAFETY: the caller guarantees a live handle.
+        let log = unsafe { &mut (*h).inner };
+        // Drained through a small array on the stack and converted, so
+        // that taking them allocates nothing whatever `cap` is.
+        let mut chunk = [SegmentHeader {
+            segment_id: SegId::from_u64(0),
+            session_id: SegId::from_u64(0),
+            max_size: 0,
+            remaining: 0,
+            format: Format::VariableSimple,
+            sequence: tcslog::SeqId::ZERO,
+        }; 16];
+        let mut done = 0;
+        while done < cap {
+            let want = (cap - done).min(chunk.len());
+            let got = log.take_opened_headers_into(&mut chunk[..want]);
+            for (i, header) in chunk[..got].iter().enumerate() {
+                // SAFETY: `done + i` is below `cap`, and the caller
+                // guarantees `cap` writable entries.
+                unsafe { *out.add(done + i) = header.into() };
+            }
+            done += got;
+            if got < want {
+                break;
+            }
+        }
+        // SAFETY: checked non-null above.
+        unsafe { *n = done };
         TcslogStatus::Ok
     })
 }

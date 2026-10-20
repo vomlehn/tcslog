@@ -1,6 +1,7 @@
 //! Shared helpers: segment file naming, directory scanning, and the two
 //! rendering functions the support binaries print through.
 
+use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -140,13 +141,35 @@ pub(crate) fn scan_segment_ids(
 /// for software that flies.
 ///
 /// Allocates the string it returns. It is for tools that display a log,
-/// not for the path that writes or reads one.
+/// not for the path that writes or reads one; [`write_timestamp`] is the
+/// same rendering without the allocation.
 ///
 /// * `ts` -- nanoseconds since the UNIX epoch.
 ///
 /// Returns the rendered string.
 #[must_use]
 pub fn format_timestamp(ts: Timestamp) -> String {
+    let mut s = String::with_capacity(TIMESTAMP_STR_LEN);
+    // Writing to a String cannot fail.
+    let _ = write_timestamp(&mut s, ts);
+    s
+}
+
+/// The length of every timestamp [`write_timestamp`] renders. A `u64`
+/// of nanoseconds reaches only the year 2554, so the year always has
+/// four digits and the rendering a fixed length.
+pub const TIMESTAMP_STR_LEN: usize = 30;
+
+/// Renders a timestamp as [`format_timestamp`] does, into `w`, allocating
+/// nothing.
+///
+/// * `w` -- where to write the [`TIMESTAMP_STR_LEN`] characters.
+/// * `ts` -- nanoseconds since the UNIX epoch.
+///
+/// # Errors
+///
+/// Returns what `w` returns, which for a `String` is never an error.
+pub fn write_timestamp<W: fmt::Write + ?Sized>(w: &mut W, ts: Timestamp) -> fmt::Result {
     let secs = ts / NANOS_PER_SEC;
     let nanos = ts % NANOS_PER_SEC;
     let days = secs / SECS_PER_DAY;
@@ -155,7 +178,10 @@ pub fn format_timestamp(ts: Timestamp) -> String {
     let hour = secs_of_day / 3600;
     let minute = (secs_of_day % 3600) / 60;
     let second = secs_of_day % 60;
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{nanos:09}Z")
+    write!(
+        w,
+        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{nanos:09}Z"
+    )
 }
 
 /// Converts a count of days since 1970-01-01 into a calendar date.
@@ -209,6 +235,13 @@ pub fn record_trailer(payload_len: usize, meta: Meta) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_timestamp_renders_at_the_fixed_length() {
+        for ts in [0, 1_234_567_890_000_000_000, u64::MAX] {
+            assert_eq!(format_timestamp(ts).len(), TIMESTAMP_STR_LEN);
+        }
+    }
 
     #[test]
     fn epoch_renders_as_nineteen_seventy() {

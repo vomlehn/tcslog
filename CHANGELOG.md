@@ -36,6 +36,20 @@ documentation says so throughout.
 - `LogRead::last_meta`, the metadata of the record most recently decoded,
   which is what describes the bytes a `ReadOverflow` or `ReadTruncated` left
   in the buffer.
+- The C/C++ and Python 3 interfaces now cover every query the Rust one
+  offers a caller: a writer's `session_id`, `current_segment_id` and
+  `last_meta`; a reader's `last_meta`, `current_header`,
+  `collect_opened_headers` and `take_opened_headers`; and the text forms of
+  segment identifiers and timestamps. In C these are `tcslog_write_*` and
+  `tcslog_read_*` functions with `TcslogRecordMeta` and `TcslogSegmentHeader`,
+  and `tcslog_seg_id_format`, `tcslog_seg_id_parse` and
+  `tcslog_format_timestamp`, which render into a caller's buffer and refuse
+  one too short with the new `TCSLOG_STATUS_BUFFER_TOO_SMALL` (20). In
+  Python they are methods of the same names, with `SegmentHeader`, `SegId`,
+  `RecordMeta` and `format_timestamp`.
+- `LogRead::take_opened_headers_into`, which drains retained headers into a
+  caller's slice without allocating, and `write_timestamp` with
+  `TIMESTAMP_STR_LEN`, which renders a timestamp without allocating.
 
 ### Changed
 

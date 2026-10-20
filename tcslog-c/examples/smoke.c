@@ -662,6 +662,116 @@ static void scenario_two_contexts(const char *base) {
     check(a.sends == 1 && b.sends == 1, "each close handed over its own log's file");
 }
 
+/* The queries beyond writing and reading: identifiers, metadata,
+ * segment headers, and the text forms of identifiers and timestamps. */
+static void scenario_queries(const char *base) {
+    char dir[PATH_LEN];
+    if (scenario_dir(base, "queries", dir, sizeof dir) != 0) {
+        failures++;
+        return;
+    }
+    printf("-- identifiers, metadata, and segment headers\n");
+
+    TcslogWrite *w = NULL;
+    TcslogStatus s = open_writer(dir, 32, TCSLOG_FORMAT_VARIABLE_TS_RC, 0, NULL, &w);
+    check_status(s, TCSLOG_STATUS_OK, "a writer opens");
+    if (s != TCSLOG_STATUS_OK) {
+        return;
+    }
+    const int record_count = 6;
+    for (int i = 0; i < record_count; i++) {
+        check_status(tcslog_write_record(w, (const uint8_t *)"telemetry", 9, NULL),
+                     TCSLOG_STATUS_OK, "a record is written");
+    }
+    uint64_t session = 0, current = 0;
+    check_status(tcslog_write_session_id(w, &session), TCSLOG_STATUS_OK,
+                 "the session identifier is reported");
+    check_status(tcslog_write_current_segment_id(w, &current), TCSLOG_STATUS_OK,
+                 "the current segment identifier is reported");
+    check(session != 0 && current > session,
+          "a session that rolled is in a later segment file than it began in");
+    TcslogRecordMeta wm;
+    check_status(tcslog_write_last_meta(w, &wm), TCSLOG_STATUS_OK,
+                 "the last record's metadata is reported");
+    check(wm.meta == TCSLOG_META_VARIABLE_TS_RC && wm.record_count == (uint64_t)record_count &&
+              wm.timestamp > 0,
+          "it is the metadata the last record was stamped with");
+    tcslog_write_close(w);
+
+    /* The session identifier is the first segment file's name. */
+    char text[TCSLOG_SEG_ID_STR_LEN + 1];
+    check_status(tcslog_seg_id_format(session, text, sizeof text), TCSLOG_STATUS_OK,
+                 "an identifier renders into a buffer of exactly its length");
+    char names[MAX_SEGMENTS][NAME_LEN];
+    int count = segment_files(dir, names, MAX_SEGMENTS);
+    check(count >= 2 && strncmp(names[0] + strlen(PREFIX), text, TCSLOG_SEG_ID_STR_LEN) == 0,
+          "the rendered session identifier names the first segment file");
+    uint64_t parsed = 0;
+    check_status(tcslog_seg_id_parse(text, &parsed), TCSLOG_STATUS_OK,
+                 "the rendering parses back");
+    check(parsed == session, "parsing gives back the identifier rendered");
+    check_status(tcslog_seg_id_parse("not-an-identifier", &parsed),
+                 TCSLOG_STATUS_INVALID_PATHNAME, "text in another form is refused");
+    char small[TCSLOG_SEG_ID_STR_LEN];
+    small[0] = 'x';
+    check_status(tcslog_seg_id_format(session, small, sizeof small),
+                 TCSLOG_STATUS_BUFFER_TOO_SMALL, "a buffer with no room for the NUL is refused");
+    check(small[0] == 'x', "a refused buffer is left untouched");
+
+    char when[TCSLOG_TIMESTAMP_STR_LEN + 1];
+    check_status(tcslog_format_timestamp(0, when, sizeof when), TCSLOG_STATUS_OK,
+                 "a timestamp renders");
+    check(strcmp(when, "1970-01-01T00:00:00.000000000Z") == 0,
+          "the epoch renders as the start of 1970");
+
+    TcslogRead *r = NULL;
+    s = tcslog_read_open(dir, PREFIX, SUFFIX, &r);
+    check_status(s, TCSLOG_STATUS_OK, "a reader opens");
+    if (s != TCSLOG_STATUS_OK) {
+        return;
+    }
+    TcslogSegmentHeader header;
+    int present = 1;
+    check_status(tcslog_read_current_header(r, &header, &present), TCSLOG_STATUS_OK,
+                 "the current header is asked for");
+    check(present == 0, "no segment file is open before the first read");
+    check_status(tcslog_read_collect_opened_headers(r, 1), TCSLOG_STATUS_OK,
+                 "header retention is turned on");
+
+    uint8_t buf[BUF_LEN];
+    TcslogReadResult result;
+    check_status(tcslog_read_record(r, buf, sizeof buf, &result), TCSLOG_STATUS_OK,
+                 "the first record is read");
+    check_status(tcslog_read_current_header(r, &header, &present), TCSLOG_STATUS_OK,
+                 "the current header is asked for again");
+    check(present == 1 && header.session_id == session &&
+              header.max_size == tcslog_segment_file_header_len() + 32 &&
+              header.format_tag == TCSLOG_FORMAT_VARIABLE_TS_RC,
+          "it is the header of this log's first segment file");
+    TcslogRecordMeta rm;
+    check_status(tcslog_read_last_meta(r, &rm), TCSLOG_STATUS_OK,
+                 "the reader's last metadata is reported");
+    check(rm.record_count == result.record_count && rm.timestamp == result.timestamp,
+          "it is the metadata of the record just read");
+
+    while (tcslog_read_record(r, buf, sizeof buf, &result) != TCSLOG_STATUS_EOF) {
+    }
+    /* Two at a time, so the drain takes several calls and the last one
+     * comes back short. */
+    TcslogSegmentHeader headers[2];
+    size_t n = 0, taken = 0;
+    do {
+        check_status(tcslog_read_take_opened_headers(r, headers, 2, &n), TCSLOG_STATUS_OK,
+                     "retained headers are taken");
+        taken += n;
+    } while (n == 2);
+    uint64_t opened = 0;
+    tcslog_read_segments_opened(r, &opened);
+    check(taken == opened && taken == (size_t)count,
+          "every segment file opened was retained, and taken once");
+    tcslog_read_close(r);
+}
+
 /* Arguments the binding has to refuse rather than dereference. */
 static void scenario_null_arguments(void) {
     printf("-- null arguments\n");
@@ -682,6 +792,16 @@ static void scenario_null_arguments(void) {
                  "a null writer has no resolution");
     check_status(tcslog_read_segments_opened(NULL, &out), TCSLOG_STATUS_NULL_ARGUMENT,
                  "a null reader has no segment count");
+    check_status(tcslog_write_session_id(NULL, &out), TCSLOG_STATUS_NULL_ARGUMENT,
+                 "a null writer has no session");
+    TcslogRecordMeta meta;
+    check_status(tcslog_read_last_meta(NULL, &meta), TCSLOG_STATUS_NULL_ARGUMENT,
+                 "a null reader has no metadata");
+    size_t n = 0;
+    check_status(tcslog_read_take_opened_headers(NULL, NULL, 0, &n),
+                 TCSLOG_STATUS_NULL_ARGUMENT, "a null reader has no headers");
+    check_status(tcslog_seg_id_format(0, NULL, 64), TCSLOG_STATUS_NULL_ARGUMENT,
+                 "a null buffer is refused");
 
     /* Null is accepted by both closers, as free() accepts it. */
     tcslog_write_close(NULL);
@@ -711,6 +831,7 @@ int main(int argc, char **argv) {
     scenario_clear(base);
     scenario_timer_resolution_callback(base);
     scenario_two_contexts(base);
+    scenario_queries(base);
     scenario_null_arguments();
 
     if (failures == 0) {

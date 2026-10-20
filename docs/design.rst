@@ -1414,6 +1414,13 @@ pub fn last_meta(&self) -> Meta
     reports Meta::VariableSimple. Before the first read it reports
     Meta::VariableSimple.
 
+pub fn take_opened_headers_into(&mut self, out: &mut [SegmentHeader]) -> usize
+
+    Move the oldest retained headers into out, as many as fit, and
+    return how many. Those that do not fit stay retained, in order, for
+    the next call. This allocates nothing, which is why the C/C++
+    interface offers it rather than take_opened_headers().
+
 pub fn collect_opened_headers(&mut self, enable: bool)
 
     Ask the reader to retain the header of every segment file it opens.
@@ -1777,6 +1784,13 @@ Free Functions
         nanosecond precision, for example 2026-09-21T16:45:12.123456789Z.
         The conversion is done in the crate rather than through a
         date-and-time crate, so that the dependency set stays minimal.
+        It allocates the String it returns.
+
+    write_timestamp<W: fmt::Write + ?Sized>(w: &mut W, ts: Timestamp) -> fmt::Result
+
+        The same rendering written to w, allocating nothing. Every
+        rendering is TIMESTAMP_STR_LEN (30) characters, since a u64 of
+        nanoseconds reaches only the year 2554.
 
     record_trailer(payload_len: usize, meta: Meta) -> String
 
@@ -1853,6 +1867,49 @@ o   ``tcslog_status_str`` returns a static NUL-terminated description of
     value must give a string rather than null, so that a caller compiled
     against an older header still prints something.
 
+Three more render and parse the text forms a log uses, and allocate
+nothing:
+
+o   ``tcslog_seg_id_format(id, buf, cap)`` renders an identifier as
+    SegId's Display does, and ``tcslog_seg_id_parse(text, out)`` parses
+    it as SegId::parse() does, refusing other text with
+    ``TCSLOG_STATUS_INVALID_PATHNAME``.
+
+o   ``tcslog_format_timestamp(ts, buf, cap)`` renders a timestamp as
+    format_timestamp() does, through write_timestamp().
+
+A rendering has a fixed length, ``TCSLOG_SEG_ID_STR_LEN`` (19) or
+``TCSLOG_TIMESTAMP_STR_LEN`` (30), and the buffer must hold that and a
+NUL. A shorter one must be refused with
+``TCSLOG_STATUS_BUFFER_TOO_SMALL`` before anything is written to it,
+rather than truncated: a truncated identifier names a different file.
+
+Queries
+-------
+Every query a LogWrite or LogRead offers a caller has a function here,
+so that a C/C++ caller can learn what a Rust caller can:
+
+o   ``tcslog_write_session_id``, ``tcslog_write_current_segment_id`` and
+    ``tcslog_write_last_meta``; ``tcslog_read_segments_opened``,
+    ``tcslog_read_last_meta`` and ``tcslog_read_current_header``.
+    Metadata is reported in a ``TcslogRecordMeta`` of ``meta``,
+    ``timestamp`` and ``record_count``, and a header in a
+    ``TcslogSegmentHeader`` whose ``format_tag`` and ``fixed_len`` give
+    its Format. ``tcslog_read_current_header`` sets an ``int``
+    ``*present`` to 0, and leaves the header alone, when no segment file
+    is open.
+
+o   ``tcslog_read_collect_opened_headers`` and
+    ``tcslog_read_take_opened_headers``. The latter is
+    take_opened_headers_into(), filling a caller's array of ``cap``
+    entries and writing the count to ``*n``, so that taking headers
+    allocates nothing.
+
+What is not offered is what a C/C++ caller has no use for: handler()
+and handler_mut(), the caller holding its own ``ctx``; SegmentHeader's
+byte encoding and SeqId, which are for tools that take segment files
+apart; and record_trailer(), the support binaries' output format.
+
 Status Codes
 ------------
 The numbers are ABI. Once a C program has been compiled against the
@@ -1876,7 +1933,7 @@ Code Name                             Meaning
 ==== ================================ ============================================================
 
 The rest are failures. Each maps one-to-one onto a ``LogError``
-variant, except the last four, which the binding itself produces:
+variant, except the last five, which the binding itself produces:
 
 ==== ============================================ ==========================================
 Code Name                                         ``LogError``
@@ -1896,6 +1953,7 @@ Code Name                                         ``LogError``
 17   ``TCSLOG_STATUS_NOT_UTF8``                   none: a string that is not UTF-8
 18   ``TCSLOG_STATUS_PANIC``                      none: a panic caught at the boundary
 19   ``TCSLOG_STATUS_INVALID_FORMAT``             none: a ``format_tag`` outside the three
+20   ``TCSLOG_STATUS_BUFFER_TOO_SMALL``           none: a text buffer too short for the text
 ==== ============================================ ==========================================
 
 ``tcslog_status_str``, above, renders any of these at runtime, including
@@ -1984,9 +2042,14 @@ Names
 Names follow the Rust crate: ``LogWrite``, ``LogRead``,
 ``WriteCallbacks``, ``Format``, ``Meta``, ``ReadResult``, ``Record``,
 ``LogError``, and methods ``write``, ``write_str``, ``flush``,
-``clear``, ``timer_resolution``, ``read``, ``read_str``, ``iter``, and
-``segments_opened``. ``LogWrite(...)`` and ``LogRead(...)`` take the
-arguments ``new`` takes, and both close on ``close()``, at the end of a
+``clear``, ``timer_resolution``, ``session_id``,
+``current_segment_id``, ``last_meta``, ``read``, ``read_str``,
+``iter``, ``segments_opened``, ``current_header``,
+``collect_opened_headers`` and ``take_opened_headers``. Alongside them
+are ``SegmentHeader``; ``SegId``, an ``int`` whose ``str`` is its
+rendering, with ``SegId.parse``; ``RecordMeta``, what ``last_meta``
+returns; and ``format_timestamp``. ``LogWrite(...)`` and
+``LogRead(...)`` take the arguments ``new`` takes, and both close on ``close()``, at the end of a
 ``with`` block, or when collected. ``Format.fixed(n)``,
 ``Format.VARIABLE_SIMPLE`` and ``Format.VARIABLE_TS_RC`` are the three
 formats. ``format_version()``, ``segment_file_header_len()`` and

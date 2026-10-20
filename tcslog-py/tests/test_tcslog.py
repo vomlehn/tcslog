@@ -288,6 +288,47 @@ class Scenarios(unittest.TestCase):
         r.close()
         other.extend(b"x")  # and by the close
 
+    def test_queries(self):
+        with tcslog.LogWrite(
+            self.dir, PREFIX, SUFFIX, seg_size(32), tcslog.Format.VARIABLE_TS_RC
+        ) as w:
+            # Enough files that taking the headers drains them from C in
+            # more than one chunk.
+            for _ in range(40):
+                w.write(b"telemetry")
+            session = w.session_id()
+            self.assertGreater(w.current_segment_id(), session)
+            meta = w.last_meta()
+            self.assertEqual(meta.meta, tcslog.Meta.VARIABLE_TS_RC)
+            self.assertEqual(meta.record_count, 40)
+
+        # The session identifier is the first segment file's name.
+        names = segment_files(self.dir)
+        self.assertEqual(names[0], PREFIX + str(session) + SUFFIX)
+        self.assertEqual(tcslog.SegId.parse(str(session)), session)
+        with self.assertRaises(tcslog.InvalidPathname):
+            tcslog.SegId.parse("not-an-identifier")
+        self.assertEqual(tcslog.format_timestamp(0), "1970-01-01T00:00:00.000000000Z")
+
+        buf = bytearray(256)
+        with tcslog.LogRead(self.dir, PREFIX, SUFFIX) as r:
+            self.assertIsNone(r.current_header())
+            r.collect_opened_headers(True)
+            res = r.read(buf)
+            header = r.current_header()
+            self.assertEqual(header.session_id, session)
+            self.assertEqual(header.max_size, seg_size(32))
+            self.assertEqual(header.format, tcslog.Format.VARIABLE_TS_RC)
+            self.assertEqual(r.last_meta().record_count, res.record_count)
+            for _ in r:
+                pass
+            headers = r.take_opened_headers()
+            self.assertEqual(len(headers), r.segments_opened())
+            self.assertEqual(len(headers), len(names))
+            self.assertGreater(len(headers), 16)
+            self.assertEqual([h.sequence for h in headers], list(range(len(headers))))
+            self.assertEqual(r.take_opened_headers(), [])
+
     def test_closed_handles(self):
         w = tcslog.LogWrite(
             self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE

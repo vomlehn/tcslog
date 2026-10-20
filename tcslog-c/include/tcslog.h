@@ -8,6 +8,16 @@
 #include <stddef.h>
 
 /**
+ * The characters a segment identifier renders as, without the NUL.
+ */
+#define TCSLOG_SEG_ID_STR_LEN 19
+
+/**
+ * The characters a timestamp renders as, without the NUL.
+ */
+#define TCSLOG_TIMESTAMP_STR_LEN 30
+
+/**
  * What a call reported.
  *
  * `Ok` is zero and every failure is positive, so `if (status)` reads
@@ -113,6 +123,11 @@ enum TcslogStatus
      * `format_tag` is not one of the three formats.
      */
     TCSLOG_STATUS_INVALID_FORMAT = 19,
+    /**
+     * A buffer offered for text is too short for it and its NUL.
+     * Nothing was written to it.
+     */
+    TCSLOG_STATUS_BUFFER_TOO_SMALL = 20,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L
@@ -239,6 +254,27 @@ typedef struct TcslogCallbacks {
 } TcslogCallbacks;
 
 /**
+ * A record's metadata, mirroring [`Meta`]: what
+ * [`tcslog_write_last_meta`] and [`tcslog_read_last_meta`] report.
+ */
+typedef struct TcslogRecordMeta {
+    /**
+     * Which of the three metadata shapes the record had.
+     */
+    TcslogMeta meta;
+    /**
+     * Nanoseconds since the UNIX epoch, when `meta` is
+     * [`TcslogMeta::VariableTsRc`]. Zero otherwise.
+     */
+    uint64_t timestamp;
+    /**
+     * Position of the record within its session, counting from one,
+     * when `meta` is [`TcslogMeta::VariableTsRc`]. Zero otherwise.
+     */
+    uint64_t record_count;
+} TcslogRecordMeta;
+
+/**
  * What a read produced.
  *
  * Which fields mean anything depends on the status the read returned,
@@ -280,6 +316,46 @@ typedef struct TcslogReadResult {
     uint64_t lost;
 } TcslogReadResult;
 
+/**
+ * The header that opens a segment file, mirroring [`SegmentHeader`]:
+ * what [`tcslog_read_current_header`] and
+ * [`tcslog_read_take_opened_headers`] report.
+ */
+typedef struct TcslogSegmentHeader {
+    /**
+     * Identifier of this segment file, which [`tcslog_seg_id_format`]
+     * renders as it appears in the file's name.
+     */
+    uint64_t segment_id;
+    /**
+     * Identifier of the first segment file of this session.
+     */
+    uint64_t session_id;
+    /**
+     * Bytes at the start of the data section that are the tail of a
+     * record begun in an earlier segment file, its data header counted.
+     */
+    uint64_t remaining;
+    /**
+     * Zero-based position of this segment file within its session.
+     */
+    uint64_t sequence;
+    /**
+     * The maximum size, in bytes, of a segment file of this log.
+     */
+    uint32_t max_size;
+    /**
+     * How records in this file are laid out, as a [`TcslogFormat`]
+     * value.
+     */
+    uint32_t format_tag;
+    /**
+     * The record length when `format_tag` is
+     * [`TcslogFormat::Fixed`]. Zero otherwise.
+     */
+    uint32_t fixed_len;
+} TcslogSegmentHeader;
+
 #ifdef __cplusplus
 extern "C" {
 #endif // __cplusplus
@@ -309,6 +385,49 @@ uint32_t tcslog_segment_file_header_len(void);
  * against an older header still prints something.
  */
 const char *tcslog_status_str(TcslogStatus status);
+
+/**
+ * Renders a segment identifier as it appears in a segment file's name:
+ * four dash-separated groups of four lower-case hexadecimal digits.
+ *
+ * `buf` must hold at least [`TCSLOG_SEG_ID_STR_LEN`] + 1 bytes, for the
+ * text and its NUL; a shorter one is refused as
+ * [`TcslogStatus::BufferTooSmall`] and left untouched.
+ *
+ * # Safety
+ *
+ * `buf` must point to `cap` writable bytes.
+ */
+TcslogStatus tcslog_seg_id_format(uint64_t id, char *buf, uintptr_t cap);
+
+/**
+ * Parses a segment identifier in the form [`tcslog_seg_id_format`]
+ * renders.
+ *
+ * Text in any other form is refused as
+ * [`TcslogStatus::InvalidPathname`], as the library refuses it, since
+ * it names no segment file.
+ *
+ * # Safety
+ *
+ * `text` must be a NUL-terminated string, and `out` must point to
+ * writable storage for one `uint64_t`.
+ */
+TcslogStatus tcslog_seg_id_parse(const char *text, uint64_t *out);
+
+/**
+ * Renders a timestamp as an ISO 8601 UTC date and time with nanosecond
+ * precision, for example `2026-09-21T16:45:12.123456789Z`.
+ *
+ * `buf` must hold at least [`TCSLOG_TIMESTAMP_STR_LEN`] + 1 bytes, for
+ * the text and its NUL; a shorter one is refused as
+ * [`TcslogStatus::BufferTooSmall`] and left untouched.
+ *
+ * # Safety
+ *
+ * `buf` must point to `cap` writable bytes.
+ */
+TcslogStatus tcslog_format_timestamp(uint64_t ts, char *buf, uintptr_t cap);
 
 /**
  * Opens a writer on the log in `dir` whose segment files are named
@@ -396,6 +515,42 @@ TcslogStatus tcslog_write_clear(struct TcslogWrite *h);
 TcslogStatus tcslog_write_timer_resolution(struct TcslogWrite *h, uint64_t *out);
 
 /**
+ * Writes the identifier of the session being written, which is the
+ * identifier of its first segment file.
+ *
+ * After [`tcslog_write_clear`] this still names the cleared session
+ * until the next write starts one.
+ *
+ * # Safety
+ *
+ * `h` must come from [`tcslog_write_open`] and not yet be closed, and
+ * `out` must point to writable storage for one `uint64_t`.
+ */
+TcslogStatus tcslog_write_session_id(struct TcslogWrite *h, uint64_t *out);
+
+/**
+ * Writes the identifier of the segment file being written.
+ *
+ * # Safety
+ *
+ * `h` must come from [`tcslog_write_open`] and not yet be closed, and
+ * `out` must point to writable storage for one `uint64_t`.
+ */
+TcslogStatus tcslog_write_current_segment_id(struct TcslogWrite *h, uint64_t *out);
+
+/**
+ * Writes the metadata minted for the most recently written record,
+ * which is how a caller learns the timestamp and record count a
+ * variable-tsrc record was stamped with.
+ *
+ * # Safety
+ *
+ * `h` must come from [`tcslog_write_open`] and not yet be closed, and
+ * `out` must point to writable storage for one [`TcslogRecordMeta`].
+ */
+TcslogStatus tcslog_write_last_meta(struct TcslogWrite *h, struct TcslogRecordMeta *out);
+
+/**
  * Closes a writer and releases it. Null is accepted and does nothing,
  * as `free` does.
  *
@@ -464,6 +619,70 @@ TcslogStatus tcslog_read_record(struct TcslogRead *h,
  * `out` must point to writable storage for one `uint64_t`.
  */
 TcslogStatus tcslog_read_segments_opened(struct TcslogRead *h, uint64_t *out);
+
+/**
+ * Writes the metadata of the record most recently decoded, which is
+ * what describes the bytes a [`TcslogStatus::ReadOverflow`] or a
+ * [`TcslogStatus::ReadTruncated`] left in the buffer.
+ *
+ * # Safety
+ *
+ * `h` must come from [`tcslog_read_open`] and not yet be closed, and
+ * `out` must point to writable storage for one [`TcslogRecordMeta`].
+ */
+TcslogStatus tcslog_read_last_meta(struct TcslogRead *h, struct TcslogRecordMeta *out);
+
+/**
+ * Writes the header of the segment file now open.
+ *
+ * `*present` is set to 1 and `*out` filled when a segment file is
+ * open, and `*present` set to 0 and `*out` left alone when none is:
+ * before the first read, and after a read that returned
+ * [`TcslogStatus::Eof`], [`TcslogStatus::SessionEnd`] or
+ * [`TcslogStatus::ReadTruncated`].
+ *
+ * # Safety
+ *
+ * `h` must come from [`tcslog_read_open`] and not yet be closed, `out`
+ * must point to writable storage for one [`TcslogSegmentHeader`], and
+ * `present` to writable storage for one `int`.
+ */
+TcslogStatus tcslog_read_current_header(struct TcslogRead *h,
+                                        struct TcslogSegmentHeader *out,
+                                        int *present);
+
+/**
+ * Asks the reader to retain the header of every segment file it opens,
+ * when `enable` is non-zero, or to stop.
+ *
+ * Retention is off by default and must be: the headers accumulate,
+ * allocating as they do, until taken by
+ * [`tcslog_read_take_opened_headers`].
+ *
+ * # Safety
+ *
+ * `h` must come from [`tcslog_read_open`] and not yet be closed.
+ */
+TcslogStatus tcslog_read_collect_opened_headers(struct TcslogRead *h, int enable);
+
+/**
+ * Moves the oldest of the headers retained since the last take into
+ * the `cap` entries at `out`, and writes how many to `*n`.
+ *
+ * Those that do not fit stay retained, in order, so a caller drains
+ * them by calling until `*n` comes back less than `cap`.
+ *
+ * # Safety
+ *
+ * `h` must come from [`tcslog_read_open`] and not yet be closed, `out`
+ * must point to `cap` writable [`TcslogSegmentHeader`] entries, and
+ * `n` to writable storage for one `size_t`. `out` may be null when
+ * `cap` is zero.
+ */
+TcslogStatus tcslog_read_take_opened_headers(struct TcslogRead *h,
+                                             struct TcslogSegmentHeader *out,
+                                             uintptr_t cap,
+                                             uintptr_t *n);
 
 /**
  * Closes a reader and releases it. Null is accepted and does nothing,

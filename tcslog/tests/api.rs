@@ -1750,6 +1750,53 @@ fn headers_are_retained_only_when_asked_for() {
 }
 
 #[test]
+fn headers_drain_into_a_slice_a_few_at_a_time() {
+    let log = Log::new(10);
+    log.write_session(Format::VariableSimple, &payloads(8, 9));
+
+    let mut all = log.reader().expect("a readable log");
+    all.collect_opened_headers(true);
+    let mut buf = [0u8; 64];
+    while all.read(&mut buf).is_ok() {}
+    let expected = all.take_opened_headers();
+    assert!(expected.len() > 3, "the log spans several segment files");
+
+    let mut reader = log.reader().expect("a readable log");
+    reader.collect_opened_headers(true);
+    while reader.read(&mut buf).is_ok() {}
+    // Three at a time, so the last call comes back short and the
+    // headers that did not fit are kept, in order, for the next one.
+    let mut out = [expected[0]; 3];
+    let mut seen = Vec::new();
+    loop {
+        let n = reader.take_opened_headers_into(&mut out);
+        seen.extend_from_slice(&out[..n]);
+        if n < out.len() {
+            break;
+        }
+    }
+    assert_eq!(seen, expected);
+    assert_eq!(reader.take_opened_headers_into(&mut out), 0);
+}
+
+#[test]
+fn last_meta_describes_the_front_of_an_overflowed_record() {
+    let log = Log::new(400);
+    let mut w = log.writer(Format::VariableTsRc);
+    w.write(&[7u8; 100]).expect("a writable record");
+    let written = w.last_meta();
+    drop(w);
+
+    let mut reader = log.reader().expect("a readable log");
+    let mut small = [0u8; 8];
+    assert!(matches!(
+        reader.read(&mut small),
+        Err(LogError::ReadOverflow(8))
+    ));
+    assert_eq!(reader.last_meta(), written);
+}
+
+#[test]
 fn read_str_reads_what_write_str_wrote() {
     let log = Log::new(400);
     let mut w = log.writer(Format::VariableSimple);

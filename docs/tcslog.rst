@@ -1166,6 +1166,22 @@ status::
                                       uint32_t *patch);
     const char *tcslog_status_str(TcslogStatus status);
 
+Three more render and parse the text forms a log uses, into a buffer
+the caller supplies::
+
+    TcslogStatus tcslog_seg_id_format(uint64_t id, char *buf, size_t cap);
+    TcslogStatus tcslog_seg_id_parse(const char *text, uint64_t *out);
+    TcslogStatus tcslog_format_timestamp(uint64_t ts, char *buf, size_t cap);
+
+``tcslog_seg_id_format`` renders an identifier as it appears in a
+segment file's name, which is ``SegId``'s ``Display``, and
+``tcslog_seg_id_parse`` is ``SegId::parse``. ``tcslog_format_timestamp``
+renders a record's timestamp as ``format_timestamp`` does. Each
+rendering has a fixed length, ``TCSLOG_SEG_ID_STR_LEN`` and
+``TCSLOG_TIMESTAMP_STR_LEN``, and a buffer must hold that and a NUL; a
+shorter one is refused with ``TCSLOG_STATUS_BUFFER_TOO_SMALL`` and left
+untouched.
+
 ``tcslog_segment_file_header_len`` is the C route to
 ``SEGMENT_FILE_HEADER_LEN``, which ``seg_size_max`` is given relative
 to, so a caller wanting a particular amount of telemetry per file adds
@@ -1207,6 +1223,16 @@ Writing
 ``tcslog_write_timer_resolution(h, out)``
     Writes the resolution in force, which is the build-time value unless
     the writer found it too small and widened it.
+
+``tcslog_write_session_id(h, out)``, ``tcslog_write_current_segment_id(h, out)``
+    Write the identifier of the session being written and of the
+    segment file being written, as ``LogWrite::session_id`` and
+    ``LogWrite::current_segment_id`` return them.
+
+``tcslog_write_last_meta(h, out)``
+    Fills a ``TcslogRecordMeta`` -- ``meta``, ``timestamp`` and
+    ``record_count`` -- with the metadata minted for the last record
+    written, as ``LogWrite::last_meta`` returns it.
 
 ``tcslog_write_close(h)``
     Closes the writer. The segment file being written is flushed and, if
@@ -1254,6 +1280,27 @@ Reading
 
 ``tcslog_read_segments_opened(h, out)``
     Writes the number of segment files this reader has opened.
+
+``tcslog_read_last_meta(h, out)``
+    Fills a ``TcslogRecordMeta`` with the metadata of the record most
+    recently decoded, as ``LogRead::last_meta`` returns it.
+
+``tcslog_read_current_header(h, out, present)``
+    Fills a ``TcslogSegmentHeader`` with the header of the segment file
+    now open and sets ``*present`` to 1, or sets ``*present`` to 0 when
+    none is open, as ``LogRead::current_header`` returns ``None``.
+
+``tcslog_read_collect_opened_headers(h, enable)``
+    Turns header retention on, for non-zero ``enable``, or off, as
+    ``LogRead::collect_opened_headers`` does.
+
+``tcslog_read_take_opened_headers(h, out, cap, n)``
+    Moves up to ``cap`` of the retained headers, oldest first, into the
+    array at ``out`` and writes how many to ``*n``. Those that did not
+    fit stay retained, so a caller drains them by calling until ``*n``
+    comes back less than ``cap``. This is
+    ``LogRead::take_opened_headers_into``, which allocates nothing,
+    rather than ``take_opened_headers``, which returns a ``Vec``.
 
 ``tcslog_read_close(h)``
     Releases the reader.
@@ -1507,6 +1554,18 @@ dropping a ``LogWrite``         ``tcslog_write_close``                  ``LogWri
 ``LogRead::read_str``           ``tcslog_read_record``                  ``LogRead.read_str``
 ``LogRead::iter``               --                                      ``LogRead.iter``, or ``for``
 ``LogRead::segments_opened``    ``tcslog_read_segments_opened``         ``LogRead.segments_opened``
+``LogWrite::session_id``        ``tcslog_write_session_id``             ``LogWrite.session_id``
+``current_segment_id``          ``tcslog_write_current_segment_id``     ``LogWrite.current_segment_id``
+``LogWrite::last_meta``         ``tcslog_write_last_meta``              ``LogWrite.last_meta``
+``LogRead::last_meta``          ``tcslog_read_last_meta``               ``LogRead.last_meta``
+``LogRead::current_header``     ``tcslog_read_current_header``          ``LogRead.current_header``
+``collect_opened_headers``      ``tcslog_read_collect_opened_headers``  ``LogRead.collect_opened_headers``
+``take_opened_headers``         --                                      ``LogRead.take_opened_headers``
+``take_opened_headers_into``    ``tcslog_read_take_opened_headers``     --
+``SegmentHeader``               ``TcslogSegmentHeader``                 ``SegmentHeader``
+``SegId`` and ``SegId::parse``  ``tcslog_seg_id_format``, ``_parse``    ``SegId``, ``SegId.parse``
+``format_timestamp``            ``tcslog_format_timestamp``             ``format_timestamp``
+``Meta`` from ``last_meta``     ``TcslogRecordMeta``                    ``RecordMeta``
 dropping a ``LogRead``          ``tcslog_read_close``                   ``LogRead.close``, or ``with``
 ``WriteCallbacks``              ``TcslogCallbacks``                     ``WriteCallbacks``
 ``Format::Fixed(n)``            ``TCSLOG_FORMAT_FIXED``, ``n``          ``Format.fixed(n)``
@@ -1520,10 +1579,16 @@ dropping a ``LogRead``          ``tcslog_read_close``                   ``LogRea
 ``VERSION_*``                   ``tcslog_format_version``               ``format_version()``
 ==============================  ======================================  ==================================
 
-The package covers what the C ABI covers, since that is what it calls.
-The Rust-only queries on a writer -- its session and segment
-identifiers and the metadata of its last record -- and a reader's
-header retention are not offered from C/C++ or Python.
+The table is the whole of the reading and writing interface, and the
+three columns cover the same ground. What is Rust's alone is what only
+a Rust caller could use: ``LogWrite::handler`` and ``handler_mut``,
+which Python offers as the ``handler`` property and C/C++ has no need
+of, holding its own ``ctx``; ``SegmentHeader``'s encoding to and from
+bytes, and ``SeqId``, which are for tools that take segment files apart;
+and ``record_trailer``, the support binaries' output format. C/C++ has
+``take_opened_headers_into`` rather than ``take_opened_headers``, so
+that it allocates nothing, and Python the other way round, there being
+no list it could fill without making one.
 
 Failures are exceptions, one class for each ``LogError`` variant and
 each ``TcslogStatus``, all subclasses of ``tcslog.LogError`` and named

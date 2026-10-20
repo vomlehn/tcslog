@@ -52,6 +52,10 @@ rest of tcslog documents its exceptions:
   with the ctypes callback objects for the methods the handler overrides.
 * :meth:`LogRead.iter`, whose records own their payloads, allocates a
   ``bytes`` per record and a 64 KiB buffer per iterator, as in Rust.
+* :meth:`LogRead.take_opened_headers` returns a new list, as Rust's
+  returns a ``Vec``; the headers reach it through an array the reader
+  made when it was opened. :func:`format_timestamp` and ``str`` of a
+  :class:`SegId` return a new ``str``.
 
 The library is found by looking, in order, at the ``TCSLOG_LIB``
 environment variable, which names the file; beside this module; on the
@@ -69,6 +73,7 @@ from pathlib import Path
 from typing import NamedTuple, Optional
 
 __all__ = [
+    "BufferTooSmall",
     "ClockError",
     "Eof",
     "FixedLenMismatch",
@@ -92,12 +97,18 @@ __all__ = [
     "ReadResult",
     "ReadTruncated",
     "Record",
+    "RecordMeta",
+    "SEG_ID_STR_LEN",
+    "SegId",
+    "SegmentHeader",
+    "TIMESTAMP_STR_LEN",
     "SegSizeTooSmall",
     "SessionEnd",
     "Status",
     "TimerResolutionZero",
     "VersionMismatch",
     "WriteCallbacks",
+    "format_timestamp",
     "format_version",
     "segment_file_header_len",
     "status_str",
@@ -170,6 +181,7 @@ class Status(enum.IntEnum):
     NOT_UTF8 = 17
     PANIC = 18
     INVALID_FORMAT = 19
+    BUFFER_TOO_SMALL = 20
 
 
 class Meta(enum.IntEnum):
@@ -240,6 +252,61 @@ class Record(NamedTuple):
     truncated: bool
     timestamp: int = 0
     record_count: int = 0
+
+
+class RecordMeta(NamedTuple):
+    """A record's metadata: the Rust ``Meta`` and C ``TcslogRecordMeta``.
+
+    What :meth:`LogWrite.last_meta` and :meth:`LogRead.last_meta` return.
+    """
+
+    meta: Meta
+    timestamp: int = 0
+    record_count: int = 0
+
+
+# The lengths of the text forms, without a NUL: the C
+# TCSLOG_SEG_ID_STR_LEN and TCSLOG_TIMESTAMP_STR_LEN, and the Rust
+# SegId::STR_LEN and TIMESTAMP_STR_LEN.
+SEG_ID_STR_LEN = 19
+TIMESTAMP_STR_LEN = 30
+
+
+class SegId(int):
+    """A segment file identifier: the Rust ``SegId``.
+
+    An ``int`` whose ``str`` is the form that appears in a segment file's
+    name, four dash-separated groups of four lower-case hexadecimal
+    digits.
+    """
+
+    def __str__(self) -> str:
+        buf = ctypes.create_string_buffer(SEG_ID_STR_LEN + 1)
+        _raise(_seg_id_format(self, buf, len(buf)))
+        return buf.value.decode()
+
+    def __repr__(self) -> str:
+        return f"SegId({str(self)!r})"
+
+    @classmethod
+    def parse(cls, text: str) -> "SegId":
+        """Parses the form ``str`` gives, raising :class:`InvalidPathname`
+        for text in any other form."""
+        out = ctypes.c_uint64()
+        _raise(_seg_id_parse(text.encode(), ctypes.byref(out)))
+        return cls(out.value)
+
+
+class SegmentHeader(NamedTuple):
+    """The header that opens a segment file: the Rust ``SegmentHeader``
+    and C ``TcslogSegmentHeader``."""
+
+    segment_id: SegId
+    session_id: SegId
+    max_size: int
+    remaining: int
+    format: "Format"
+    sequence: int
 
 
 class LogError(Exception):
@@ -394,6 +461,12 @@ class InvalidFormat(LogError):
     status = Status.INVALID_FORMAT
 
 
+class BufferTooSmall(LogError):
+    """A buffer for text is too short for it. Indicates a bug in this module."""
+
+    status = Status.BUFFER_TOO_SMALL
+
+
 _ERRORS = {
     cls.status: cls
     for cls in (
@@ -414,6 +487,7 @@ _ERRORS = {
         NotUtf8,
         Panic,
         InvalidFormat,
+        BufferTooSmall,
     )
 }
 
@@ -443,6 +517,42 @@ class _ReadResultStruct(ctypes.Structure):
         ("lost", ctypes.c_uint64),
     ]
 
+
+class _RecordMetaStruct(ctypes.Structure):
+    _fields_ = [
+        ("meta", ctypes.c_int32),
+        ("timestamp", ctypes.c_uint64),
+        ("record_count", ctypes.c_uint64),
+    ]
+
+    def value(self) -> RecordMeta:
+        return RecordMeta(Meta(self.meta), self.timestamp, self.record_count)
+
+
+class _SegmentHeaderStruct(ctypes.Structure):
+    _fields_ = [
+        ("segment_id", ctypes.c_uint64),
+        ("session_id", ctypes.c_uint64),
+        ("remaining", ctypes.c_uint64),
+        ("sequence", ctypes.c_uint64),
+        ("max_size", ctypes.c_uint32),
+        ("format_tag", ctypes.c_uint32),
+        ("fixed_len", ctypes.c_uint32),
+    ]
+
+    def value(self) -> SegmentHeader:
+        return SegmentHeader(
+            SegId(self.segment_id),
+            SegId(self.session_id),
+            self.max_size,
+            self.remaining,
+            Format(FormatTag(self.format_tag), self.fixed_len),
+            self.sequence,
+        )
+
+
+# How many headers LogRead.take_opened_headers drains per call into C.
+_HEADER_CHUNK = 16
 
 _P = ctypes.c_void_p
 _Status = ctypes.c_int32
@@ -505,6 +615,45 @@ _read_segments_opened = _declare(
     "tcslog_read_segments_opened", _Status, _P, ctypes.POINTER(ctypes.c_uint64)
 )
 _read_close = _declare("tcslog_read_close", None, _P)
+_write_session_id = _declare(
+    "tcslog_write_session_id", _Status, _P, ctypes.POINTER(ctypes.c_uint64)
+)
+_write_current_segment_id = _declare(
+    "tcslog_write_current_segment_id", _Status, _P, ctypes.POINTER(ctypes.c_uint64)
+)
+_write_last_meta = _declare(
+    "tcslog_write_last_meta", _Status, _P, ctypes.POINTER(_RecordMetaStruct)
+)
+_read_last_meta = _declare(
+    "tcslog_read_last_meta", _Status, _P, ctypes.POINTER(_RecordMetaStruct)
+)
+_read_current_header = _declare(
+    "tcslog_read_current_header",
+    _Status,
+    _P,
+    ctypes.POINTER(_SegmentHeaderStruct),
+    ctypes.POINTER(ctypes.c_int),
+)
+_read_collect_opened_headers = _declare(
+    "tcslog_read_collect_opened_headers", _Status, _P, ctypes.c_int
+)
+_read_take_opened_headers = _declare(
+    "tcslog_read_take_opened_headers",
+    _Status,
+    _P,
+    ctypes.POINTER(_SegmentHeaderStruct),
+    ctypes.c_size_t,
+    ctypes.POINTER(ctypes.c_size_t),
+)
+_seg_id_format = _declare(
+    "tcslog_seg_id_format", _Status, ctypes.c_uint64, ctypes.c_char_p, ctypes.c_size_t
+)
+_seg_id_parse = _declare(
+    "tcslog_seg_id_parse", _Status, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint64)
+)
+_format_timestamp = _declare(
+    "tcslog_format_timestamp", _Status, ctypes.c_uint64, ctypes.c_char_p, ctypes.c_size_t
+)
 
 
 def format_version() -> tuple:
@@ -518,6 +667,15 @@ def format_version() -> tuple:
 def segment_file_header_len() -> int:
     """The bytes a segment file's own header occupies."""
     return _segment_file_header_len()
+
+
+def format_timestamp(ts: int) -> str:
+    """Renders nanoseconds since the UNIX epoch as an ISO 8601 UTC date and
+    time with nanosecond precision, such as
+    ``2026-09-21T16:45:12.123456789Z``."""
+    buf = ctypes.create_string_buffer(TIMESTAMP_STR_LEN + 1)
+    _raise(_format_timestamp(ts, buf, len(buf)))
+    return buf.value.decode()
 
 
 def status_str(status: int) -> str:
@@ -625,6 +783,7 @@ class LogWrite:
         # Out-parameters, made once and reused by every call.
         self._written = ctypes.c_uint32()
         self._u64 = ctypes.c_uint64()
+        self._meta = _RecordMetaStruct()
         # An exception a callback raised, re-raised once C returns.
         self._pending: Optional[BaseException] = None
         self._handler = handler
@@ -743,6 +902,22 @@ class LogWrite:
         self._check(_write_timer_resolution(self._handle(), ctypes.byref(self._u64)))
         return self._u64.value
 
+    def session_id(self) -> SegId:
+        """The identifier of the session being written, which is that of
+        its first segment file."""
+        self._check(_write_session_id(self._handle(), ctypes.byref(self._u64)))
+        return SegId(self._u64.value)
+
+    def current_segment_id(self) -> SegId:
+        """The identifier of the segment file being written."""
+        self._check(_write_current_segment_id(self._handle(), ctypes.byref(self._u64)))
+        return SegId(self._u64.value)
+
+    def last_meta(self) -> RecordMeta:
+        """The metadata minted for the most recently written record."""
+        self._check(_write_last_meta(self._handle(), ctypes.byref(self._meta)))
+        return self._meta.value()
+
     def close(self) -> None:
         """Closes the writer. Closing twice does nothing.
 
@@ -780,6 +955,11 @@ class LogRead:
         self._h = _P()
         self._result = _ReadResultStruct()
         self._u64 = ctypes.c_uint64()
+        self._meta = _RecordMetaStruct()
+        self._header = _SegmentHeaderStruct()
+        self._present = ctypes.c_int()
+        self._headers = (_SegmentHeaderStruct * _HEADER_CHUNK)()
+        self._n = ctypes.c_size_t()
         self._pin: Optional[_Pin] = None
         _raise(
             _read_open(
@@ -857,6 +1037,46 @@ class LogRead:
         """The number of segment files this reader has opened."""
         _raise(_read_segments_opened(self._handle(), ctypes.byref(self._u64)))
         return self._u64.value
+
+    def last_meta(self) -> RecordMeta:
+        """The metadata of the record most recently decoded, which is what
+        describes the bytes a :class:`ReadOverflow` or :class:`ReadTruncated`
+        left in the buffer."""
+        _raise(_read_last_meta(self._handle(), ctypes.byref(self._meta)))
+        return self._meta.value()
+
+    def current_header(self) -> Optional[SegmentHeader]:
+        """The header of the segment file now open, or ``None`` when none
+        is: before the first read, and after one that raised :class:`Eof`,
+        :class:`SessionEnd` or :class:`ReadTruncated`."""
+        _raise(
+            _read_current_header(
+                self._handle(), ctypes.byref(self._header), ctypes.byref(self._present)
+            )
+        )
+        return self._header.value() if self._present.value else None
+
+    def collect_opened_headers(self, enable: bool) -> None:
+        """Asks the reader to retain, or stop retaining, the header of every
+        segment file it opens. Off by default, since the headers
+        accumulate until taken."""
+        _raise(_read_collect_opened_headers(self._handle(), 1 if enable else 0))
+
+    def take_opened_headers(self) -> list:
+        """Removes and returns the headers retained since the last call,
+        oldest first, as a list of :class:`SegmentHeader`."""
+        h = self._handle()
+        out = []
+        while True:
+            _raise(
+                _read_take_opened_headers(
+                    h, self._headers, _HEADER_CHUNK, ctypes.byref(self._n)
+                )
+            )
+            n = self._n.value
+            out.extend(self._headers[i].value() for i in range(n))
+            if n < _HEADER_CHUNK:
+                return out
 
     def close(self) -> None:
         """Closes the reader. Closing twice does nothing."""

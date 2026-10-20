@@ -484,6 +484,26 @@ impl LogRead {
         std::mem::take(&mut self.opened_headers)
     }
 
+    /// Moves the oldest of the headers retained since the last take into
+    /// `out`, allocating nothing.
+    ///
+    /// The headers that do not fit stay retained, oldest first, for the
+    /// next call; a caller drains them by calling until it returns less
+    /// than `out.len()`. Retaining the headers in the first place still
+    /// allocates, since how many segment files a read opens is not
+    /// bounded; see [`collect_opened_headers`](Self::collect_opened_headers).
+    ///
+    /// * `out` -- where to put the headers.
+    ///
+    /// Returns how many were placed at the front of `out`.
+    pub fn take_opened_headers_into(&mut self, out: &mut [SegmentHeader]) -> usize {
+        let n = out.len().min(self.opened_headers.len());
+        for (dst, src) in out.iter_mut().zip(self.opened_headers.drain(..n)) {
+            *dst = src;
+        }
+        n
+    }
+
     /// Reads and decodes one data record's data header.
     ///
     /// Returns the payload length it declares and the metadata it

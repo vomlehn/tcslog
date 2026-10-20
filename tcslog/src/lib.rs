@@ -301,7 +301,7 @@ pub use header::{
 pub use read::{LogRead, LogReadIter, ReadResult, Record};
 pub use segid::SegId;
 pub use seq_id::SeqId;
-pub use util::{format_timestamp, record_trailer};
+pub use util::{format_timestamp, record_trailer, write_timestamp, TIMESTAMP_STR_LEN};
 #[cfg(feature = "write")]
 pub use write::{LogWrite, WriteCallbacks};
 
