@@ -53,6 +53,11 @@ documentation says so throughout.
 
 ### Changed
 
+- `make install` installs the Python 3 package too, without `pip`: into the
+  user site directory under the default `PREFIX`, or that prefix's
+  `site-packages` (`PYDIR` overrides), with a link to the installed library
+  beside it so it needs no `LD_LIBRARY_PATH`. `make uninstall` removes it.
+
 - `tcslog_read_record` fills `meta`, `timestamp` and `record_count` whenever
   `n` is non-zero, including on `TCSLOG_STATUS_READ_OVERFLOW` and
   `TCSLOG_STATUS_READ_TRUNCATED`, where they were zero before.

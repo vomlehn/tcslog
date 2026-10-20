@@ -1519,19 +1519,27 @@ Rust or C/C++, and the other way round.
 Installing the package
 ----------------------
 
-Install the C/C++ binding's library first, as `Installing`_ under `Calling From C/C++`_
-describes, then the package::
+``make install``, described under `Installing`_ in `Calling From
+C/C++`_, installs the package along with the header and libraries.
+Under the default ``PREFIX`` it goes to the user site directory, which
+Python searches without being told; under any other it goes to that
+prefix's ``site-packages``, and the install says so if that is not on
+Python's path and needs adding to ``PYTHONPATH``. ``PYDIR`` chooses
+somewhere else, and ``make uninstall`` removes it.
 
-    make install
-    pip install ./tcslog-py
+The install uses no ``pip``. A Python that is externally managed (PEP
+668) refuses ``pip install`` outside a virtual environment, but not a
+package placed where it already looks. Inside a virtual environment,
+``pip install ./tcslog-py`` works as well, though it then finds the
+library only through the search below.
 
 The package finds the library by looking, in order, at the
 ``TCSLOG_LIB`` environment variable, which names the file; beside the
 package; on the system loader's search path, which
 ``LD_LIBRARY_PATH`` extends; and in ``target/release`` then
-``target/debug`` of the repository the package sits in. A library under
-``$HOME/lib`` is on none of those by default, so either add that to
-``LD_LIBRARY_PATH`` or name the file in ``TCSLOG_LIB``.
+``target/debug`` of the repository the package sits in. ``make
+install`` puts a link to the installed library beside the package, so
+an installed package needs neither variable.
 
 How the Python interface is shaped
 ----------------------------------

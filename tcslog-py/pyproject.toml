@@ -1,10 +1,11 @@
 # The Python 3 interface to tcslog: pure Python over ctypes, calling
-# the libtcslog_c shared library that `make install` puts under PREFIX.
-# Nothing here is compiled, so installing it is
+# the libtcslog_c shared library. `make install` installs both, without
+# pip; this file is for installing the package into a virtual
+# environment instead, with
 #
 #     pip install ./tcslog-py
 #
-# and the library it loads is found as tcslog/__init__.py describes.
+# where the library it loads is found as tcslog/__init__.py describes.
 [build-system]
 requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"

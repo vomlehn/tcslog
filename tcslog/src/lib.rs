@@ -265,8 +265,8 @@
 //! `WriteCallbacks`, `Format`, `Meta`, `ReadResult`, `Record`, and a
 //! `LogError` subclass for each variant of [`LogError`]. It is pure
 //! Python over `ctypes`, calling the C ABI's shared library, so it needs
-//! nothing compiled beyond that library. `pip install ./tcslog-py`
-//! installs it.
+//! nothing compiled beyond that library. `make install` installs it
+//! with the C/C++ binding.
 //!
 //! # Documentation
 //!

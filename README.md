@@ -100,6 +100,8 @@ c++ prog.cpp -I$HOME/include -L$HOME/lib -ltcslog_c
 ```
 
 `make uninstall` removes them again, honouring the same two variables.
+`make install` also installs the Python 3 package; see *Python 3
+interface* below.
 
 `tcslog-c/include/tcslog.h` is generated from `tcslog-c/src/lib.rs` by
 `cbindgen` and is not written by hand: `make header` regenerates it and
@@ -160,13 +162,17 @@ variant an exception class. It is pure Python over `ctypes`, calling the
 C ABI's shared library, so it needs no compiler and nothing outside the
 standard library:
 
-```sh
-make install                       # the shared library it calls
-pip install ./tcslog-py
-```
+`make install` installs it along with the C/C++ binding: into the user
+site directory under the default `PREFIX`, which Python searches without
+being told, and otherwise into that prefix's `site-packages`, which may
+need adding to `PYTHONPATH`. It needs no `pip`, so it works on a Python
+that refuses `pip install` outside a virtual environment (PEP 668), and
+it puts a link to the installed library beside the package, so the
+package finds it with no `LD_LIBRARY_PATH`. `PYDIR` overrides where it
+goes. In a virtual environment, `pip install ./tcslog-py` works too.
 
-It finds the library through `TCSLOG_LIB`, if set, then beside the
-package, then on the loader's path (`LD_LIBRARY_PATH`), then in this
+The package finds the library through `TCSLOG_LIB`, if set, then beside
+the package, then on the loader's path (`LD_LIBRARY_PATH`), then in this
 repository's `target/` directory.
 
 ```sh

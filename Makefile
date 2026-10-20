@@ -26,6 +26,20 @@ LIBDIR  := $(DESTDIR)$(PREFIX)/lib
 CAPI_HEADER := tcslog-c/include/tcslog.h
 CAPI_LIBS   := libtcslog_c.a libtcslog_c.so
 
+# The Python 3 interpreter, for the package's tests and its install.
+PYTHON := python3
+# Where `make install` puts the Python 3 package. Under the default
+# PREFIX that is the user site directory, which Python searches without
+# being told and which needs no pip -- an externally managed Python
+# (PEP 668) refuses `pip install` outside a virtual environment, but
+# not a package placed where it already looks. Under any other PREFIX
+# it is that prefix's site-packages, which may need adding to
+# PYTHONPATH; install says so when it does. Evaluated only when used,
+# so a build without Python never runs it.
+PYDIR ?= $(shell $(PYTHON) -c 'import os, site, sysconfig; \
+	print(site.getusersitepackages() if os.path.realpath("$(PREFIX)") == os.path.realpath(os.path.expanduser("~")) \
+	else sysconfig.get_path("purelib", "posix_prefix", vars={"base": "$(PREFIX)", "platbase": "$(PREFIX)"}))')
+
 # The C and C++ compilers for the binding's smoke test, and the warnings
 # it is held to. -Werror because a warning in a 180-line test is a
 # mistake in the test, not noise to scroll past. The test is one file in
@@ -111,7 +125,6 @@ capi-test:			## Compile and run the C binding's smoke test as C and C++
 # scenarios smoke.c drives the C/C++ binding through. TCSLOG_LIB names
 # the library cargo just built, so an installed copy elsewhere on the
 # loader's path cannot stand in for it.
-PYTHON := python3
 .PHONY: python-test
 python-test:			## Run the Python 3 interface's tests
 	@echo "Running the Python 3 interface tests..."
@@ -169,7 +182,7 @@ header:				## Regenerate the C header from tcslog-c/src/lib.rs
 # optimized libraries; CARGO_TARGET_DIR says which directory those
 # landed in.
 .PHONY: install
-install: header		## Install the C header and libraries under PREFIX
+install: header		## Install the C/C++ header, the libraries, and the Python 3 package
 	@echo "Installing the C binding to $(DESTDIR)$(PREFIX)..."
 	cargo build $(RELEASE) -p tcslog-c
 	install -d $(INCDIR) $(LIBDIR)
@@ -179,19 +192,32 @@ install: header		## Install the C header and libraries under PREFIX
 	done
 	@echo "[OK] Installed $(CAPI_HEADER) to $(INCDIR)/"
 	@echo "[OK] Installed $(CAPI_LIBS) to $(LIBDIR)/"
+	# The package, and beside it a link to the shared library just
+	# installed, which is the first place the package looks after
+	# TCSLOG_LIB -- so it finds the library with no LD_LIBRARY_PATH.
+	# The link names the library's final path, not the DESTDIR one.
+	install -d $(DESTDIR)$(PYDIR)/tcslog
+	install -m 644 tcslog-py/tcslog/*.py $(DESTDIR)$(PYDIR)/tcslog/
+	ln -sf $(PREFIX)/lib/libtcslog_c.so $(DESTDIR)$(PYDIR)/tcslog/libtcslog_c.so
+	@echo "[OK] Installed the Python 3 package to $(DESTDIR)$(PYDIR)/tcslog/"
+	@# Staged with DESTDIR, the path is not this machine's to check.
+	@[ -n "$(DESTDIR)" ] || $(PYTHON) -c 'import sys; sys.exit("$(PYDIR)" in sys.path)' \
+		&& echo "     $(PYDIR) is not on Python's path; add it to PYTHONPATH" \
+		|| true
 	@echo "     Compile against it with:"
 	@echo "       cc  prog.c   -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
 	@echo "       c++ prog.cpp -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
-	@echo "     and install the Python 3 package with:"
-	@echo "       pip install ./tcslog-py"
+	@echo "     and from Python 3 with:"
+	@echo "       import tcslog"
 
 # Removes what install put there, honouring the same two variables.
 # Nothing else in those directories is touched.
 .PHONY: uninstall
-uninstall:			## Remove the installed C header and libraries
+uninstall:			## Remove the installed header, libraries, and Python 3 package
 	@echo "Removing the C binding from $(DESTDIR)$(PREFIX)..."
 	$(RM) $(INCDIR)/tcslog.h
 	$(RM) $(addprefix $(LIBDIR)/,$(CAPI_LIBS))
+	$(RMDIR) $(DESTDIR)$(PYDIR)/tcslog
 	@echo "[OK] Uninstalled from $(DESTDIR)$(PREFIX)"
 
 # Clean build artifacts
