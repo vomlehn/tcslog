@@ -2001,3 +2001,37 @@ fn an_adjustment_is_reported_exactly_when_the_resolution_changes() {
         );
     }
 }
+
+#[test]
+fn a_segment_file_cut_short_mid_session_is_not_stitched_over() {
+    // Found by fuzzing. Three segment files of 84 data bytes hold a
+    // 127-byte record and a 59-byte one; the middle file is cut to 5
+    // data bytes. The record still owes 58 bytes when that file runs
+    // out, and the last file's header says 58 bytes of a record begun
+    // earlier continue there -- the tail of the second record. The
+    // reader must report the loss rather than take that tail for the
+    // first record's.
+    let log = Log::new(84);
+    let first: Vec<u8> = (0..127u8).collect();
+    let second: Vec<u8> = (0..59u8).map(|b| b.wrapping_add(200)).collect();
+    log.write_session(Format::VariableTsRc, &[first.clone(), second.clone()]);
+    let files = log.segment_files();
+    assert_eq!(files.len(), 3);
+    let middle = fs::OpenOptions::new()
+        .write(true)
+        .open(&files[1])
+        .expect("a writable segment file");
+    middle
+        .set_len(u64::from(SEGMENT_FILE_HEADER_LEN) + 5)
+        .expect("a file that can be cut short");
+
+    for buf_len in [86, 4096] {
+        let out = log.read_with(buf_len);
+        for p in out.payloads.iter().chain(&out.partials) {
+            assert!(
+                first.starts_with(p) || second.starts_with(p) || second.ends_with(p),
+                "buffer of {buf_len}: bytes stitched from two records: {p:?}"
+            );
+        }
+    }
+}

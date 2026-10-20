@@ -15,6 +15,33 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+### Fixed
+
+- **The reader could return a record that was never written.** A segment
+  file cut short in the middle of a session -- by a failed write or a damaged
+  sector -- went undetected when the next file's `remaining` field happened
+  to equal what the record being read still owed. The reader then spliced
+  the next file's bytes, the tail of a later record, onto the front of the
+  current one, and returned the result as a whole record or as the bytes of
+  a `ReadOverflow`. The reader now requires every segment file it leaves for
+  another of the same session to have held a full data section, as every
+  file but a session's last does, and reports `ReadTruncated` with `lost` of
+  zero when one did not. Found by fuzzing, and covered by a new API test.
+- Reading allocated once, the first time it opened a segment file whose
+  name was longer than the placeholder its path buffer started with, though
+  the documentation promises reading allocates nothing. The buffer is now
+  reserved at open.
+
+### Added
+
+- `tcslog/tests/no_alloc.rs`, which holds writing and reading to their
+  promise of no allocation with a counting allocator, across rolls, across
+  segment files, and past a lost one.
+
 ## [0.4.1] - 2026-10-19
 
 Stored format: unchanged, 0.1.0. Nothing about what is written moves here, so

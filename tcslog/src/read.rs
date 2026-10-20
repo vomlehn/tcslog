@@ -209,14 +209,20 @@ impl LogRead {
         if ids.is_empty() {
             return Err(LogError::NoSegmentFiles);
         }
-        let name_buf = String::with_capacity(prefix.len() + SegId::STR_LEN + suffix.len());
+        let name_len = prefix.len() + SegId::STR_LEN + suffix.len();
+        let name_buf = String::with_capacity(name_len);
         // The last component has to exist for `set_file_name` to
         // replace: given a path ending in a separator it would replace
         // the directory instead.
         // The directory is not kept beyond this: every path the reader
         // builds replaces this buffer's last component, so the buffer
         // carries the directory from here on.
-        let path_buf = dir.join("placeholder");
+        let mut path_buf = dir.join("placeholder");
+        // Room for a segment file name in place of the placeholder,
+        // reserved now so that opening one later does not grow the
+        // buffer: "placeholder" is shorter than any such name, and
+        // without this the first file opened would reallocate.
+        path_buf.reserve(name_len);
         Ok(Self {
             prefix: prefix.to_string(),
             suffix: suffix.to_string(),
@@ -755,6 +761,17 @@ impl LogRead {
     fn cross(&mut self, cursor: &mut Cursor) -> Result<(), LogError> {
         let prev_seq = self.prev_seq;
         let prev_session = self.session;
+        // Every segment file but a session's last holds a full data
+        // section, so one that ran out early and is followed by another
+        // of its session was cut short, and what it lost cannot be
+        // measured. Neither check below sees that: the sequence advances
+        // by one, and the next file's `remaining` can equal what this
+        // record still owes by coincidence, which would stitch another
+        // record's bytes onto this one.
+        let prev_short = self
+            .current
+            .as_ref()
+            .is_some_and(|segment| segment.data_len < u64::from(segment.header.data_len()));
         self.current = None;
 
         let opened = match self.open_next() {
@@ -825,6 +842,8 @@ impl LogRead {
             }
         }
 
+        reject |= prev_short;
+
         // The sequence check is what sees a segment file lost on a
         // record boundary, where `remaining` is zero on both sides of
         // the gap and the check above is satisfied.
@@ -848,8 +867,10 @@ impl LogRead {
         if reject {
             // A single missing segment file held exactly one data
             // section, which is sometimes enough to place the record
-            // continuing out of it. Leave what the attempt needs.
-            if lost == 1 {
+            // continuing out of it. Leave what the attempt needs -- but
+            // not after a file cut short, whose lost bytes would put
+            // the arithmetic off by an amount nothing records.
+            if lost == 1 && !prev_short {
                 if let Some(total) = cursor.total {
                     self.recovery = Some(Recovery {
                         segment: id,

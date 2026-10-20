@@ -71,12 +71,20 @@ buffer the caller owns, and the internal buffers a segment file name and
 path need are reserved once and reused, so even rolling from one segment
 file to the next allocates nothing.
 
+``tcslog/tests/no_alloc.rs`` holds the library to this: a counting
+allocator fails the test if writing records across rolls, or reading
+them across files and past a lost one, allocates anything, in any of the
+three formats.
+
 The exceptions are all operations a caller asks for explicitly, and
 each says so where it is described:
 
 - opening, where ``LogRead::new`` and ``LogWrite::new`` reserve those
   buffers and enumerate the directory, which no platform offers without
-  allocating;
+  allocating. That costs a few allocations plus about two per directory
+  entry, the standard library allocating each entry's name as it lists
+  them; only platform-specific directory calls would avoid it, at the
+  price of the portability the library keeps;
 - ``LogWrite::clear``, which enumerates the directory again;
 - ``LogRead::iter``, whose records own their payloads;
 - ``LogRead::take_opened_headers``;
@@ -2060,7 +2068,7 @@ Crossing from one segment file into the next
 --------------------------------------------
 
 A record may span files, so mid-record the reader crosses into the next
-one. Before consuming a single byte of it, two things must hold.
+one. Before consuming a single byte of it, three things must hold.
 
 **The new file must owe exactly what is outstanding.** If the reader has
 already taken some of this record from earlier files, the new file must
@@ -2078,6 +2086,18 @@ that case both surrounding files say they owe nothing, which is just what
 the reader expects, so the crossing is accepted and whole files' worth of
 records vanish with no error raised. The count catches it, and says how
 many files went.
+
+**The file being left must have been full.** Every file but a session's
+last is exactly the maximum size, so one that ran out early and is
+followed by another of its session was cut short, by a failed write or a
+damaged sector. Neither check above sees that. The count steps by one,
+since no file is missing, and the next file can owe exactly what the
+record in hand still needs by coincidence, when what it owes is in fact
+the tail of a later record. Accepting the crossing would splice that
+tail onto this record's front and hand back something that was never
+written -- which is how this check came to be added: fuzzing found it.
+The loss is reported with no files missing, since none are; only bytes
+are.
 
 One crossing cannot be checked the first way, and it is the one the
 writer does produce: a crossing part way through a record's bookkeeping,

@@ -962,6 +962,20 @@ o   The new segment's sequence field equals the previous segment's
     close the segment, push its ID to the front of the pending list,
     set the resync flag, and return the read-truncated error.
 
+o   The segment being left held a full data section. Every segment
+    file but a session's last is exactly ``seg_size_max`` bytes, so one
+    that ended early and is followed by another of its session was cut
+    short, and the bytes it lost cannot be counted. Neither check above
+    sees this: the sequence advances by one, and the new segment's
+    ``remaining`` can equal what the current record still owes by
+    coincidence, when it is in fact the tail of a later record --
+    accepting the crossing would then splice that record's bytes onto
+    this one's front and return the result as a record that was never
+    written. The reader must reject the crossing as for the two failures
+    above, reporting ``lost`` as zero since no segment file is missing,
+    and must leave no recovery hint, the hint's arithmetic assuming the
+    file before the gap was full. (Fuzzing found this.)
+
 The number of bytes still owed to the in-progress record cannot be
 computed until the current record's data header has been fully decoded,
 since Variable* record sizes come from the header itself. A crossing
@@ -2280,7 +2294,8 @@ segment files it wrote, and deletes the directory afterwards.
 
 Testing
 =======
-Testing has four layers and all four are required. Unit tests inside
+Testing has four layers and all four are required, with an allocation
+check beside them. Unit tests inside
 the crates reach the library through its API, where a fault can be
 injected directly. The error-recovery suite under ``test/`` reaches it
 the way a user does, through ``tcslog-gen`` and ``tcslog-dump``, with
@@ -2816,6 +2831,17 @@ directory by name; the driver and ``dump-before`` need no exclusion, as
 they are not in the directory being walked. Matching case names against
 a pattern instead leaves the target silently doing nothing the first
 time the cases are renamed.
+
+Allocation
+----------
+``tcslog/tests/no_alloc.rs`` installs a counting global allocator and
+requires that writing records, across rolls, and reading them, across
+segment files and past a lost one, allocate nothing in any of the three
+formats. A further test checks the counter counts, without which the
+first would pass vacuously. Opening a log is not counted: it allocates
+in proportion to the directory's entries, the standard library
+allocating each entry's name as it lists them, which only
+platform-specific directory calls would avoid.
 
 The C/C++ Binding
 -----------------
