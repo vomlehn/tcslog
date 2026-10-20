@@ -22,3 +22,36 @@ Repository = "https://github.com/vomlehn/tcslog"
 
 [tool.setuptools]
 packages = ["tcslog"]
+
+[tool.setuptools.package-data]
+# Marks the package as typed (PEP 561), so a type checker reads the
+# annotations in tcslog/__init__.py rather than treating it as untyped.
+tcslog = ["py.typed"]
+
+# `make check` runs `ruff check`, `ruff format --check`, and
+# `mypy --strict` over this directory, as it runs clippy and rustfmt
+# over the crates.
+[tool.ruff]
+line-length = 100
+target-version = "py38"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "B", "I", "SIM", "UP", "D"]
+ignore = [
+    # The docstrings are this repository's prose, not pydocstyle's: a
+    # summary may run past one line and need not end the line.
+    "D200", "D205", "D209", "D212", "D213", "D400", "D401", "D415",
+    # A class's docstring describes its constructor, and Python's own
+    # documentation describes the dunder methods.
+    "D105", "D107",
+    # Exceptions name the variant; their docstrings describe it.
+    "D203",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests and examples are described by their module docstrings.
+"tests/*" = ["D101", "D102", "D103", "D107"]
+"examples/*" = ["D101", "D102", "D103", "D107"]
+
+[tool.mypy]
+strict = true

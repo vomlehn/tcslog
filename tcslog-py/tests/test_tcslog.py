@@ -9,6 +9,7 @@ TCSLOG_LIB at the library cargo just built.
 import os
 import tempfile
 import unittest
+from typing import List
 
 import tcslog
 
@@ -16,50 +17,50 @@ PREFIX = "seg-"
 SUFFIX = ".log"
 
 
-def seg_size(data_bytes):
+def seg_size(data_bytes: int) -> int:
     return tcslog.segment_file_header_len() + data_bytes
 
 
-def segment_files(d):
+def segment_files(d: str) -> List[str]:
     return sorted(n for n in os.listdir(d) if n.startswith(PREFIX) and n.endswith(SUFFIX))
 
 
 class Counters(tcslog.WriteCallbacks):
     """Counts each callback, and refuses send when asked to."""
 
-    def __init__(self, refuse_send=False):
+    def __init__(self, refuse_send: bool = False) -> None:
         self.sends = 0
         self.completes = 0
         self.adjustments = 0
         self.refuse_send = refuse_send
 
-    def send(self, path):
+    def send(self, path: str) -> None:
         self.sends += 1
         if self.refuse_send:
             raise OSError(f"refusing {path}")
 
-    def record_complete(self, fd):
+    def record_complete(self, fd: int) -> None:
         self.completes += 1
 
-    def timer_resolution_adjusted(self, resolution_ns):
+    def timer_resolution_adjusted(self, resolution_ns: int) -> None:
         self.adjustments += 1
 
 
 class Scenarios(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory(prefix="tcslog-py-")
         self.dir = self._tmp.name
 
-    def tearDown(self):
+    def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_version_and_header_len(self):
+    def test_version_and_header_len(self) -> None:
         major, minor, patch = tcslog.format_version()
         self.assertEqual((major, minor), (0, 1))
         self.assertEqual(tcslog.segment_file_header_len(), 53)
         self.assertEqual(tcslog.status_str(tcslog.Status.EOF), tcslog.Eof().args[0])
 
-    def test_round_trip(self):
+    def test_round_trip(self) -> None:
         # send counts but does not move the file, so the reader still
         # finds it, as in the C smoke test.
         c = Counters()
@@ -94,7 +95,7 @@ class Scenarios(unittest.TestCase):
             self.assertGreaterEqual(r.segments_opened(), 1)
         self.assertEqual(got, msgs)
 
-    def test_write_accepts_any_bytes_like(self):
+    def test_write_accepts_any_bytes_like(self) -> None:
         with tcslog.LogWrite(
             self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE
         ) as w:
@@ -107,10 +108,8 @@ class Scenarios(unittest.TestCase):
             got = [rec.payload for rec in r]
         self.assertEqual(got, [b"bytes", b"bytearray", b"read-only view", b"text", b""])
 
-    def test_fixed_format(self):
-        with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.fixed(8)
-        ) as w:
+    def test_fixed_format(self) -> None:
+        with tcslog.LogWrite(self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.fixed(8)) as w:
             self.assertEqual(w.write(b"01234567"), 8)
             with self.assertRaises(tcslog.FixedLenMismatch):
                 w.write(b"0123456")
@@ -123,7 +122,7 @@ class Scenarios(unittest.TestCase):
         self.assertEqual(res.meta, tcslog.Meta.FIXED)
         self.assertEqual((res.timestamp, res.record_count), (0, 0))
 
-    def test_invalid_format(self):
+    def test_invalid_format(self) -> None:
         with self.assertRaises(tcslog.InvalidFormat):
             tcslog.LogWrite(self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format(3))
         with self.assertRaises(tcslog.SegSizeTooSmall):
@@ -131,11 +130,11 @@ class Scenarios(unittest.TestCase):
         with self.assertRaises(tcslog.PathDelimiterNotAllowed):
             tcslog.LogWrite(self.dir, "a/b", SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE)
 
-    def test_no_log_to_read(self):
+    def test_no_log_to_read(self) -> None:
         with self.assertRaises(tcslog.NoSegmentFiles):
             tcslog.LogRead(self.dir, PREFIX, SUFFIX)
 
-    def test_read_overflow(self):
+    def test_read_overflow(self) -> None:
         payload = bytes(ord("a") + i % 26 for i in range(200))
         nxt = b"the record after it"
         with tcslog.LogWrite(
@@ -157,23 +156,22 @@ class Scenarios(unittest.TestCase):
             with self.assertRaises(tcslog.Eof):
                 r.read(big)
 
-    def test_read_needs_writable_buffer(self):
+    def test_read_needs_writable_buffer(self) -> None:
         with tcslog.LogWrite(
             self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE
         ) as w:
             w.write(b"x")
-        with tcslog.LogRead(self.dir, PREFIX, SUFFIX) as r:
-            with self.assertRaises(TypeError):
-                r.read(bytes(16))
+        with tcslog.LogRead(self.dir, PREFIX, SUFFIX) as r, self.assertRaises(TypeError):
+            r.read(bytes(16))
 
-    def _write_many(self, count):
+    def _write_many(self, count: int) -> None:
         with tcslog.LogWrite(
             self.dir, PREFIX, SUFFIX, seg_size(32), tcslog.Format.VARIABLE_SIMPLE
         ) as w:
             for i in range(count):
                 w.write(b"record%02d" % i)
 
-    def test_truncation(self):
+    def test_truncation(self) -> None:
         count = 12
         self._write_many(count)
         names = segment_files(self.dir)
@@ -200,7 +198,7 @@ class Scenarios(unittest.TestCase):
         self.assertGreater(records, 0)
         self.assertLess(records, count)
 
-    def test_iter(self):
+    def test_iter(self) -> None:
         payload = b"z" * 100
         with tcslog.LogWrite(
             self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_TS_RC
@@ -213,7 +211,7 @@ class Scenarios(unittest.TestCase):
         self.assertFalse(any(x.truncated for x in recs))
         self.assertEqual([x.record_count for x in recs], [1, 2])
 
-    def test_send_failure(self):
+    def test_send_failure(self) -> None:
         c = Counters(refuse_send=True)
         w = tcslog.LogWrite(
             self.dir, PREFIX, SUFFIX, seg_size(32), tcslog.Format.VARIABLE_SIMPLE, c
@@ -225,7 +223,7 @@ class Scenarios(unittest.TestCase):
         self.assertGreaterEqual(c.sends, 1)
         w.close()
 
-    def test_clear(self):
+    def test_clear(self) -> None:
         self._write_many(12)
         self.assertTrue(segment_files(self.dir))
         with tcslog.LogWrite(
@@ -234,7 +232,7 @@ class Scenarios(unittest.TestCase):
             w.clear()
             self.assertEqual(segment_files(self.dir), [])
 
-    def test_timer_resolution_callback(self):
+    def test_timer_resolution_callback(self) -> None:
         c = Counters()
         with tcslog.LogWrite(
             self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE, c
@@ -242,7 +240,7 @@ class Scenarios(unittest.TestCase):
             w.write(b"telemetry")
         self.assertEqual(c.adjustments, 0)
 
-    def test_two_contexts(self):
+    def test_two_contexts(self) -> None:
         da = os.path.join(self.dir, "a")
         db = os.path.join(self.dir, "b")
         os.mkdir(da)
@@ -258,7 +256,7 @@ class Scenarios(unittest.TestCase):
         self.assertEqual((a.completes, b.completes), (1, 2))
         self.assertEqual((a.sends, b.sends), (1, 1))
 
-    def test_buffer_is_pinned_and_reused(self):
+    def test_buffer_is_pinned_and_reused(self) -> None:
         with tcslog.LogWrite(
             self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE
         ) as w:
@@ -288,7 +286,7 @@ class Scenarios(unittest.TestCase):
         r.close()
         other.extend(b"x")  # and by the close
 
-    def test_queries(self):
+    def test_queries(self) -> None:
         with tcslog.LogWrite(
             self.dir, PREFIX, SUFFIX, seg_size(32), tcslog.Format.VARIABLE_TS_RC
         ) as w:
@@ -316,6 +314,7 @@ class Scenarios(unittest.TestCase):
             r.collect_opened_headers(True)
             res = r.read(buf)
             header = r.current_header()
+            assert header is not None
             self.assertEqual(header.session_id, session)
             self.assertEqual(header.max_size, seg_size(32))
             self.assertEqual(header.format, tcslog.Format.VARIABLE_TS_RC)
@@ -329,10 +328,8 @@ class Scenarios(unittest.TestCase):
             self.assertEqual([h.sequence for h in headers], list(range(len(headers))))
             self.assertEqual(r.take_opened_headers(), [])
 
-    def test_closed_handles(self):
-        w = tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE
-        )
+    def test_closed_handles(self) -> None:
+        w = tcslog.LogWrite(self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE)
         w.write(b"x")
         w.close()
         w.close()

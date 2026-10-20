@@ -47,6 +47,9 @@ documentation says so throughout.
   one too short with the new `TCSLOG_STATUS_BUFFER_TOO_SMALL` (20). In
   Python they are methods of the same names, with `SegmentHeader`, `SegId`,
   `RecordMeta` and `format_timestamp`.
+- The Python 3 package is fully annotated and ships `py.typed`, and `make
+  check` runs `ruff check`, `ruff format --check` and `mypy --strict` over
+  it.
 - `LogRead::take_opened_headers_into`, which drains retained headers into a
   caller's slice without allocating, and `write_timestamp` with
   `TIMESTAMP_STR_LEN`, which renders a timestamp without allocating.

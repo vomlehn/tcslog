@@ -2870,6 +2870,10 @@ o   Avoid operating-system-specific constructs, so that the code works
 o   Departures from Rust style conventions are errors rather than
     untidiness. ``cargo fmt -- --check`` and ``cargo clippy -- -D
     warnings`` are what settle this, and ``make check`` runs both.
+    The Python 3 package is held to the same standard by ``ruff check``,
+    ``ruff format --check`` and ``mypy --strict``, configured in
+    ``tcslog-py/pyproject.toml``, which ``make check`` also runs. The
+    package is fully annotated and ships ``py.typed``.
 
 o   No dead code. A function, a variant or a field that nothing reaches
     is a name suggesting coverage the library does not have, which is

@@ -184,6 +184,18 @@ Runs `tcslog-py/examples/downlink.py`, the Python counterpart of
 it through the scenarios `smoke.c` drives the C/C++ binding through;
 `make test` includes them.
 
+The package is fully typed and ships `py.typed`, so a type checker reads
+its annotations. `make check` holds it to `ruff check`, `ruff format`,
+and `mypy --strict`, as it holds the crates to clippy and rustfmt. Neither
+tool ships with Python; on a system whose Python refuses `pip install`,
+put them in a virtual environment and point `make` at them:
+
+```sh
+python3 -m venv ~/.venvs/tcslog-lint
+~/.venvs/tcslog-lint/bin/pip install ruff mypy
+make check RUFF=~/.venvs/tcslog-lint/bin/ruff MYPY=~/.venvs/tcslog-lint/bin/mypy
+```
+
 Documentation
 -------------
 `tcslog/README.md` is not written by hand. It is generated from the

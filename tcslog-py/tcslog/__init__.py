@@ -66,11 +66,13 @@ sits in.
 
 import ctypes
 import ctypes.util
+import dataclasses
 import enum
 import os
 import sys
 from pathlib import Path
-from typing import NamedTuple, Optional
+from types import TracebackType
+from typing import Any, ClassVar, Dict, Iterator, List, NamedTuple, Optional, Tuple, Type, Union
 
 __all__ = [
     "BufferTooSmall",
@@ -205,16 +207,21 @@ class FormatTag(enum.IntEnum):
     VARIABLE_TS_RC = 2
 
 
-class Format(NamedTuple):
+@dataclasses.dataclass(frozen=True)
+class Format:
     """A log's record layout: the Rust ``Format``.
 
     Use :meth:`fixed` for fixed-length records, and the class attributes
     ``Format.VARIABLE_SIMPLE`` and ``Format.VARIABLE_TS_RC`` for the
-    other two.
+    other two. ``tag`` is a :class:`FormatTag` value; another is refused
+    as :class:`InvalidFormat` when a writer is opened.
     """
 
-    tag: FormatTag
+    tag: int
     fixed_len: int = 0
+
+    VARIABLE_SIMPLE: ClassVar["Format"]
+    VARIABLE_TS_RC: ClassVar["Format"]
 
     @classmethod
     def fixed(cls, n: int) -> "Format":
@@ -222,7 +229,8 @@ class Format(NamedTuple):
         return cls(FormatTag.FIXED, n)
 
 
-# NamedTuple forbids class attributes of its own type in the body.
+# Assigned after the class, which cannot hold instances of itself while
+# it is being defined.
 Format.VARIABLE_SIMPLE = Format(FormatTag.VARIABLE_SIMPLE)
 Format.VARIABLE_TS_RC = Format(FormatTag.VARIABLE_TS_RC)
 
@@ -305,7 +313,7 @@ class SegmentHeader(NamedTuple):
     session_id: SegId
     max_size: int
     remaining: int
-    format: "Format"
+    format: Format
     sequence: int
 
 
@@ -317,7 +325,7 @@ class LogError(Exception):
 
     status = Status.OK
 
-    def __init__(self, *args):
+    def __init__(self, *args: object) -> None:
         super().__init__(*args or (status_str(self.status),))
 
 
@@ -467,7 +475,7 @@ class BufferTooSmall(LogError):
     status = Status.BUFFER_TOO_SMALL
 
 
-_ERRORS = {
+_ERRORS: Dict[int, Type[LogError]] = {
     cls.status: cls
     for cls in (
         ClockError,
@@ -517,6 +525,9 @@ class _ReadResultStruct(ctypes.Structure):
         ("lost", ctypes.c_uint64),
     ]
 
+    def value(self) -> ReadResult:
+        return ReadResult(self.n, Meta(self.meta), self.timestamp, self.record_count)
+
 
 class _RecordMetaStruct(ctypes.Structure):
     _fields_ = [
@@ -558,7 +569,7 @@ _P = ctypes.c_void_p
 _Status = ctypes.c_int32
 
 
-def _declare(name, restype, *argtypes):
+def _declare(name: str, restype: Any, *argtypes: Any) -> Any:
     f = getattr(_lib, name)
     f.restype = restype
     f.argtypes = argtypes
@@ -624,9 +635,7 @@ _write_current_segment_id = _declare(
 _write_last_meta = _declare(
     "tcslog_write_last_meta", _Status, _P, ctypes.POINTER(_RecordMetaStruct)
 )
-_read_last_meta = _declare(
-    "tcslog_read_last_meta", _Status, _P, ctypes.POINTER(_RecordMetaStruct)
-)
+_read_last_meta = _declare("tcslog_read_last_meta", _Status, _P, ctypes.POINTER(_RecordMetaStruct))
 _read_current_header = _declare(
     "tcslog_read_current_header",
     _Status,
@@ -656,7 +665,7 @@ _format_timestamp = _declare(
 )
 
 
-def format_version() -> tuple:
+def format_version() -> Tuple[int, int, int]:
     """The stored format version this build reads and writes, as
     ``(major, minor, patch)``."""
     major, minor, patch = ctypes.c_uint32(), ctypes.c_uint32(), ctypes.c_uint32()
@@ -666,7 +675,7 @@ def format_version() -> tuple:
 
 def segment_file_header_len() -> int:
     """The bytes a segment file's own header occupies."""
-    return _segment_file_header_len()
+    return int(_segment_file_header_len())
 
 
 def format_timestamp(ts: int) -> str:
@@ -680,7 +689,8 @@ def format_timestamp(ts: int) -> str:
 
 def status_str(status: int) -> str:
     """A short description of a :class:`Status`."""
-    return _status_str(status).decode()
+    text: bytes = _status_str(status)
+    return text.decode()
 
 
 def _raise(status: int) -> None:
@@ -689,6 +699,15 @@ def _raise(status: int) -> None:
         if cls is None:
             raise LogError(f"{status_str(status)} ({status})")
         raise cls()
+
+
+# What write and read accept: any bytes-like object, though only these
+# three are named for a type checker, there being no type for "supports
+# the buffer protocol" before Python 3.12.
+BytesLike = Union[bytes, bytearray, memoryview]
+
+# What a log's directory may be given as.
+PathArg = Union[str, bytes, "os.PathLike[str]", "os.PathLike[bytes]"]
 
 
 class _Pin:
@@ -701,14 +720,17 @@ class _Pin:
 
     __slots__ = ("obj", "view", "ptr", "cap")
 
-    def __init__(self, obj, mv):
+    def __init__(self, obj: object, mv: memoryview) -> None:
         self.obj = obj
-        self.cap = mv.nbytes
-        self.view = ctypes.c_char.from_buffer(mv) if self.cap else None
-        self.ptr = ctypes.addressof(self.view) if self.cap else None
+        self.cap: int = mv.nbytes
+        self.view: Optional[ctypes.c_char] = None
+        self.ptr: Optional[int] = None
+        if self.cap:
+            self.view = ctypes.c_char.from_buffer(mv)
+            self.ptr = ctypes.addressof(self.view)
 
 
-def _pin_buffer(current: Optional[_Pin], obj) -> _Pin:
+def _pin_buffer(current: Optional[_Pin], obj: BytesLike) -> _Pin:
     """The pin for ``obj``, reusing ``current`` when it is the same buffer."""
     if current is not None and current.obj is obj:
         return current
@@ -718,9 +740,9 @@ def _pin_buffer(current: Optional[_Pin], obj) -> _Pin:
     return _Pin(obj, mv)
 
 
-def _path_arg(p) -> bytes:
-    p = os.fspath(p)
-    return p if isinstance(p, bytes) else p.encode()
+def _path_arg(p: PathArg) -> bytes:
+    path = os.fspath(p)
+    return path if isinstance(path, bytes) else path.encode()
 
 
 class WriteCallbacks:
@@ -752,7 +774,7 @@ class WriteCallbacks:
         next time."""
 
 
-def _overrides(handler, name: str) -> bool:
+def _overrides(handler: WriteCallbacks, name: str) -> bool:
     method = getattr(type(handler), name, None)
     if method is None:
         return callable(getattr(handler, name, None))
@@ -773,13 +795,13 @@ class LogWrite:
 
     def __init__(
         self,
-        dir,
+        dir: PathArg,
         prefix: str,
         suffix: str,
         seg_size_max: int,
         format: Format,
         handler: Optional[WriteCallbacks] = None,
-    ):
+    ) -> None:
         self._h = _P()
         # Out-parameters, made once and reused by every call.
         self._written = ctypes.c_uint32()
@@ -809,31 +831,36 @@ class LogWrite:
             _path_arg(prefix),
             _path_arg(suffix),
             seg_size_max,
-            int(format.tag),
+            format.tag,
             format.fixed_len,
             ctypes.byref(cb),
             ctypes.byref(self._h),
         )
         self._check(status)
 
-    def _on_send(self, _ctx, path):
+    # The three trampolines C calls. Each is installed only when the
+    # handler overrides the method, so the handler is never None here.
+    def _on_send(self, _ctx: Optional[int], path: bytes) -> int:
         try:
+            assert self._handler is not None
             self._handler.send(path.decode())
             return 0
         except BaseException as e:  # noqa: BLE001 -- must not unwind into C
             self._pending = e
             return 1
 
-    def _on_record_complete(self, _ctx, fd):
+    def _on_record_complete(self, _ctx: Optional[int], fd: int) -> int:
         try:
+            assert self._handler is not None
             self._handler.record_complete(fd)
             return 0
         except BaseException as e:  # noqa: BLE001
             self._pending = e
             return 1
 
-    def _on_timer_resolution_adjusted(self, _ctx, resolution_ns):
+    def _on_timer_resolution_adjusted(self, _ctx: Optional[int], resolution_ns: int) -> None:
         try:
+            assert self._handler is not None
             self._handler.timer_resolution_adjusted(resolution_ns)
         except BaseException as e:  # noqa: BLE001
             self._pending = e
@@ -853,7 +880,7 @@ class LogWrite:
         except LogError as e:
             raise e from pending
 
-    def _handle(self) -> _P:
+    def _handle(self) -> ctypes.c_void_p:
         if not self._h:
             raise ValueError("I/O operation on a closed LogWrite")
         return self._h
@@ -863,7 +890,7 @@ class LogWrite:
         """The callbacks this writer was given."""
         return self._handler
 
-    def write(self, msg) -> int:
+    def write(self, msg: BytesLike) -> int:
         """Writes ``msg``, any bytes-like object, as one record.
 
         Returns the bytes the record occupied in the log, its data header
@@ -872,6 +899,7 @@ class LogWrite:
         describes; any other read-only buffer is copied first.
         """
         h = self._handle()
+        data: Union[bytes, int, None]
         if isinstance(msg, bytes):
             data, n = msg, len(msg)
         elif self._pin is not None and self._pin.obj is msg:
@@ -935,10 +963,15 @@ class LogWrite:
     def __enter__(self) -> "LogWrite":
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> None:
         self.close()
 
-    def __del__(self):
+    def __del__(self) -> None:
         h = getattr(self, "_h", None)
         if h:
             self.close()
@@ -952,7 +985,7 @@ class LogRead:
     context manager.
     """
 
-    def __init__(self, dir, prefix: str, suffix: str):
+    def __init__(self, dir: PathArg, prefix: str, suffix: str) -> None:
         self._h = _P()
         self._result = _ReadResultStruct()
         self._u64 = ctypes.c_uint64()
@@ -963,17 +996,15 @@ class LogRead:
         self._n = ctypes.c_size_t()
         self._pin: Optional[_Pin] = None
         _raise(
-            _read_open(
-                _path_arg(dir), _path_arg(prefix), _path_arg(suffix), ctypes.byref(self._h)
-            )
+            _read_open(_path_arg(dir), _path_arg(prefix), _path_arg(suffix), ctypes.byref(self._h))
         )
 
-    def _handle(self) -> _P:
+    def _handle(self) -> ctypes.c_void_p:
         if not self._h:
             raise ValueError("I/O operation on a closed LogRead")
         return self._h
 
-    def read(self, buf) -> ReadResult:
+    def read(self, buf: BytesLike) -> ReadResult:
         """Reads the next record into ``buf``, a writable bytes-like object.
 
         ``buf`` stays pinned, unable to be resized, until a different
@@ -991,15 +1022,15 @@ class LogRead:
         r = self._result
         status = _read_record(h, pin.ptr, pin.cap, ctypes.byref(r))
         if status == Status.OK:
-            return ReadResult(r.n, Meta(r.meta), r.timestamp, r.record_count)
+            return r.value()
         if status == Status.READ_OVERFLOW:
-            raise ReadOverflow(ReadResult(r.n, Meta(r.meta), r.timestamp, r.record_count))
+            raise ReadOverflow(r.value())
         if status == Status.READ_TRUNCATED:
-            raise ReadTruncated(ReadResult(r.n, Meta(r.meta), r.timestamp, r.record_count), r.lost)
+            raise ReadTruncated(r.value(), r.lost)
         _raise(status)
         raise AssertionError("unreachable")
 
-    def read_str(self, buf) -> ReadResult:
+    def read_str(self, buf: BytesLike) -> ReadResult:
         """As :meth:`read`, for callers whose payloads are UTF-8 text.
 
         Takes the same byte buffer, since a payload recovered in part
@@ -1007,7 +1038,7 @@ class LogRead:
         """
         return self.read(buf)
 
-    def iter(self):
+    def iter(self) -> Iterator[Record]:
         """An iterator over the remaining records, yielding :class:`Record`.
 
         Skips session boundaries and records of which no byte survived,
@@ -1031,7 +1062,7 @@ class LogRead:
             payload = bytes(memoryview(buf)[: r.n])
             yield Record(r.meta, payload, truncated, r.timestamp, r.record_count)
 
-    def __iter__(self):
+    def __iter__(self) -> Iterator[Record]:
         return self.iter()
 
     def segments_opened(self) -> int:
@@ -1063,16 +1094,14 @@ class LogRead:
         accumulate until taken."""
         _raise(_read_collect_opened_headers(self._handle(), 1 if enable else 0))
 
-    def take_opened_headers(self) -> list:
+    def take_opened_headers(self) -> List[SegmentHeader]:
         """Removes and returns the headers retained since the last call,
-        oldest first, as a list of :class:`SegmentHeader`."""
+        oldest first."""
         h = self._handle()
-        out = []
+        out: List[SegmentHeader] = []
         while True:
             _raise(
-                _read_take_opened_headers(
-                    h, self._headers, _HEADER_CHUNK, ctypes.byref(self._n)
-                )
+                _read_take_opened_headers(h, self._headers, _HEADER_CHUNK, ctypes.byref(self._n))
             )
             n = self._n.value
             out.extend(self._headers[i].value() for i in range(n))
@@ -1089,10 +1118,15 @@ class LogRead:
     def __enter__(self) -> "LogRead":
         return self
 
-    def __exit__(self, *exc) -> None:
+    def __exit__(
+        self,
+        exc_type: Optional[Type[BaseException]],
+        exc: Optional[BaseException],
+        tb: Optional[TracebackType],
+    ) -> None:
         self.close()
 
-    def __del__(self):
+    def __del__(self) -> None:
         h = getattr(self, "_h", None)
         if h:
             self.close()

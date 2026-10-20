@@ -18,6 +18,7 @@ temporary directory.
 
 import os
 import sys
+from typing import List
 
 import tcslog
 
@@ -31,10 +32,10 @@ BUF_LEN = 256
 class Quiet(tcslog.WriteCallbacks):
     """Reports a widened timer resolution, and has no `send`."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.downlinked = 0
 
-    def timer_resolution_adjusted(self, resolution_ns):
+    def timer_resolution_adjusted(self, resolution_ns: int) -> None:
         # The figure to build with next time, so a deployed system
         # records it and carries on.
         print(
@@ -47,11 +48,11 @@ class Quiet(tcslog.WriteCallbacks):
 class Downlink(Quiet):
     """As Quiet, and takes each filled segment file out of the log."""
 
-    def __init__(self, downlink_dir):
+    def __init__(self, downlink_dir: str) -> None:
         super().__init__()
         self.downlink_dir = downlink_dir
 
-    def send(self, path):
+    def send(self, path: str) -> None:
         # Raising makes the write that triggered this raise IoError,
         # which is the right answer: if the file cannot be taken, the
         # storage bound the log was given has stopped holding.
@@ -60,7 +61,7 @@ class Downlink(Quiet):
         self.downlinked += 1
 
 
-def write_telemetry(log_dir, handler):
+def write_telemetry(log_dir: str, handler: Quiet) -> None:
     with tcslog.LogWrite(
         log_dir,
         "seg-",
@@ -79,12 +80,11 @@ def write_telemetry(log_dir, handler):
         # Closing, at the end of the with, flushes the segment file being
         # written and hands it to `send` too if it holds any records.
     print(
-        f"wrote {RECORD_COUNT} records; {handler.downlinked} segment file(s) "
-        "handed to send so far"
+        f"wrote {RECORD_COUNT} records; {handler.downlinked} segment file(s) handed to send so far"
     )
 
 
-def read_remaining(log_dir):
+def read_remaining(log_dir: str) -> None:
     try:
         r = tcslog.LogRead(log_dir, "seg-", ".tcslog")
     except tcslog.NoSegmentFiles:
@@ -132,7 +132,7 @@ def read_remaining(log_dir):
     print(line)
 
 
-def main(argv):
+def main(argv: List[str]) -> int:
     if len(argv) != 2:
         print(f"usage: {argv[0]} <directory>", file=sys.stderr)
         return 2

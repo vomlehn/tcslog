@@ -26,8 +26,12 @@ LIBDIR  := $(DESTDIR)$(PREFIX)/lib
 CAPI_HEADER := tcslog-c/include/tcslog.h
 CAPI_LIBS   := libtcslog_c.a libtcslog_c.so
 
-# The Python 3 interpreter, for the package's tests and its install.
+# The Python 3 interpreter, for the package's tests and its install,
+# and the linter and type checker `make check` holds the package to.
+# Neither tool ships with Python; see README.md for installing them.
 PYTHON := python3
+RUFF   := ruff
+MYPY   := mypy
 # Where `make install` puts the Python 3 package. Under the default
 # PREFIX that is the user site directory, which Python searches without
 # being told and which needs no pip -- an externally managed Python
@@ -197,7 +201,8 @@ install: header		## Install the C/C++ header, the libraries, and the Python 3 pa
 	# TCSLOG_LIB -- so it finds the library with no LD_LIBRARY_PATH.
 	# The link names the library's final path, not the DESTDIR one.
 	install -d $(DESTDIR)$(PYDIR)/tcslog
-	install -m 644 tcslog-py/tcslog/*.py $(DESTDIR)$(PYDIR)/tcslog/
+	install -m 644 tcslog-py/tcslog/*.py tcslog-py/tcslog/py.typed \
+		$(DESTDIR)$(PYDIR)/tcslog/
 	ln -sf $(PREFIX)/lib/libtcslog_c.so $(DESTDIR)$(PYDIR)/tcslog/libtcslog_c.so
 	@echo "[OK] Installed the Python 3 package to $(DESTDIR)$(PYDIR)/tcslog/"
 	@# Staged with DESTDIR, the path is not this machine's to check.
@@ -250,7 +255,7 @@ distclean: clean		## Remove build artifacts and all generated files
 # stripped rather than resolved: resolving them wants a pinned nightly,
 # and `SegId` reads as well as a link to it in a README.
 .PHONY: check
-check:				## Run cargo check, clippy, fmt, and the README check
+check:				## Run cargo check, clippy, fmt, ruff, mypy, and the generated-file checks
 	@echo "Running cargo check..."
 	cargo check --all-targets
 	# The read-only configuration, which nothing else here builds: the
@@ -266,6 +271,8 @@ check:				## Run cargo check, clippy, fmt, and the README check
 		| diff -u include/tcslog.h - \
 		|| { echo "tcslog-c/include/tcslog.h is out of date; run 'make header'" 1>&2; \
 		     exit 1; }
+	@echo "Checking the Python 3 package..."
+	cd tcslog-py && $(RUFF) check . && $(RUFF) format --check . && $(MYPY) .
 	@echo "Checking the Python package version matches the crates..."
 	crate=$$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml); \
 	py=$$(sed -n 's/^version = "\(.*\)"/\1/p' tcslog-py/pyproject.toml); \
@@ -292,8 +299,9 @@ readme:				## Regenerate tcslog/README.md from the library docs
 
 # Format code
 .PHONY: format
-format:				## Format the code with cargo fmt
+format:				## Format the code with cargo fmt and ruff
 	cargo fmt
+	cd tcslog-py && $(RUFF) format .
 
 # Create release build. Reuses `build` so there is one build path.
 .PHONY: release
