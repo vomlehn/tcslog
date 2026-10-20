@@ -33,3 +33,7 @@ build.out
 # Per-developer cargo config; TIMER_RESOLUTION lives here (see
 # .cargo/config.toml.example for the template).
 .cargo/config.toml
+
+# Python bytecode and packaging output from tcslog-py
+__pycache__/
+*.egg-info/

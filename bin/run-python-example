@@ -1,0 +1,45 @@
+#!/bin/bash
+#
+# Build the library and run the Python example against a throwaway
+# directory.
+#
+# This is bin/run-capi-example's counterpart for Python 3: it runs
+# tcslog-py/examples/downlink.py, which does what downlink.c does,
+# through the tcslog module in tcslog-py and the shared library cargo
+# just built, gives it a temporary directory, and lists what is left
+# before deleting it.
+#
+#     ./bin/run-python-example
+#
+# Needs Python 3. PYTHON overrides which.
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+PYTHON=${PYTHON:-python3}
+
+log_dir=$(mktemp -d -t tcslog-py-XXXXXXXX)
+trap 'rm -rf "$log_dir"' EXIT
+
+# Built here rather than assumed, so the example cannot be run against
+# a library older than the source beside it, and named in TCSLOG_LIB so
+# that an installed copy is not picked up instead.
+cargo build --quiet -p tcslog-c
+export TCSLOG_LIB=$PWD/target/debug/libtcslog_c.so
+export PYTHONPATH=$PWD/tcslog-py${PYTHONPATH:+:$PYTHONPATH}
+
+echo "Log directory: $log_dir"
+echo
+
+"$PYTHON" tcslog-py/examples/downlink.py "$log_dir"
+
+echo
+echo "Still in the log:"
+ls -l "$log_dir" | grep -v '^total' | grep -v downlinked$ || true
+
+echo
+echo "Handed over to send, out of the log's namespace:"
+ls -l "$log_dir/downlinked" | grep -v '^total' || true
+
+echo
+echo "Removing $log_dir"

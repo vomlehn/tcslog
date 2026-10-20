@@ -76,6 +76,7 @@ test:				## Run all tests
 	cargo test
 	$(MAKE) -C test
 	$(MAKE) capi-test
+	$(MAKE) python-test
 	@echo "[OK] Tests complete"
 
 # Build and run the C binding's smoke test: tcslog-c/examples/smoke.c
@@ -105,6 +106,20 @@ capi-test:			## Compile and run the C binding's smoke test as C and C++
 	echo "-- as C"; $$tmp/smoke-c $$tmp/c; \
 	echo "-- as C++"; $$tmp/smoke-cxx $$tmp/cxx
 	@echo "[OK] C/C++ binding smoke test passed"
+
+# Run the Python 3 interface's tests, which drive tcslog-py through the
+# scenarios smoke.c drives the C/C++ binding through. TCSLOG_LIB names
+# the library cargo just built, so an installed copy elsewhere on the
+# loader's path cannot stand in for it.
+PYTHON := python3
+.PHONY: python-test
+python-test:			## Run the Python 3 interface's tests
+	@echo "Running the Python 3 interface tests..."
+	cargo build $(RELEASE) -p tcslog-c
+	TCSLOG_LIB=$(abspath $(CARGO_TARGET_DIR))/libtcslog_c.so \
+		PYTHONPATH=$(abspath tcslog-py) \
+		$(PYTHON) -m unittest discover -s tcslog-py/tests
+	@echo "[OK] Python 3 interface tests passed"
 
 # Run the smoke test, as C and as C++, under the address and
 # undefined-behaviour sanitizers, which is what checks the handles for
@@ -167,6 +182,8 @@ install: header		## Install the C header and libraries under PREFIX
 	@echo "     Compile against it with:"
 	@echo "       cc  prog.c   -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
 	@echo "       c++ prog.cpp -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
+	@echo "     and install the Python 3 package with:"
+	@echo "       pip install ./tcslog-py"
 
 # Removes what install put there, honouring the same two variables.
 # Nothing else in those directories is touched.
@@ -183,6 +200,7 @@ clean:				## Remove build artifacts
 	@echo "Cleaning build artifacts..."
 	-cargo clean
 	$(RM) build.out
+	$(RMDIR) tcslog-py/tcslog/__pycache__ tcslog-py/tests/__pycache__
 	$(MAKE) -C docs clean
 	@echo "[OK] Clean complete"
 
@@ -221,6 +239,12 @@ check:				## Run cargo check, clippy, fmt, and the README check
 		--output /dev/stdout 2>/dev/null \
 		| diff -u include/tcslog.h - \
 		|| { echo "tcslog-c/include/tcslog.h is out of date; run 'make header'" 1>&2; \
+		     exit 1; }
+	@echo "Checking the Python package version matches the crates..."
+	crate=$$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml); \
+	py=$$(sed -n 's/^version = "\(.*\)"/\1/p' tcslog-py/pyproject.toml); \
+	[ "$$crate" = "$$py" ] \
+		|| { echo "tcslog-py/pyproject.toml is $$py, the crates $$crate" 1>&2; \
 		     exit 1; }
 
 # Regenerate the library's README from tcslog/src/lib.rs. Needs
