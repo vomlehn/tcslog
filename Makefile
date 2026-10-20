@@ -302,13 +302,17 @@ check:				## Run cargo check, clippy, fmt (fuzz crate too), ruff, mypy, and gene
 # toolchain and `cargo install cargo-fuzz`. Not part of `make test`,
 # being open-ended: a failure leaves the input that caused it under
 # fuzz/artifacts, which `cargo +nightly fuzz run <target> <file>`
-# replays. See docs/design.rst, "Fuzzing".
+# replays. See docs/design.rst, "Fuzzing". FUZZ_FLAGS goes to
+# `cargo fuzz run`: CI names the target there, since the prebuilt
+# cargo-fuzz it installs is a musl binary and defaults to building for
+# musl, where the sanitizer cannot run.
 FUZZ_TIME    := 60
 FUZZ_TARGETS := damaged_log arbitrary_files
+FUZZ_FLAGS   :=
 .PHONY: fuzz
 fuzz:				## Fuzz the reader for FUZZ_TIME seconds a target (nightly, cargo-fuzz)
 	cd fuzz && for t in $(FUZZ_TARGETS); do \
-		cargo +nightly fuzz run $$t -- -max_total_time=$(FUZZ_TIME) -max_len=8192 || exit 1; \
+		cargo +nightly fuzz run $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) -max_len=8192 || exit 1; \
 	done
 	@echo "[OK] No fuzz target failed in $(FUZZ_TIME)s each"
 
