@@ -1,10 +1,10 @@
 O = ../OUT
 
 .PHONY: all
-all:	tcslog.html design.html tcslog-prompt.html
+all:	manual.html design.html tcslog-prompt.html
 
-tcslog.html: tcslog.rst
-	rst2html tcslog.rst tcslog.html
+manual.html: manual.rst
+	rst2html manual.rst manual.html
 
 design.html: design.rst
 	rst2html design.rst design.html
@@ -14,7 +14,7 @@ tcslog-prompt.html: tcslog-prompt.rst
 
 .PHONY: clean
 clean:
-	rm -f tcslog.html design.html tcslog-prompt.html
+	rm -f manual.html design.html tcslog-prompt.html
 
 .PHONY: distclean
 distclean:

@@ -31,7 +31,7 @@ Writing a record and reading a record allocate nothing, in any of the
 three languages; records are read into a buffer the caller owns. The
 few places that do allocate -- opening a log, clearing one, the Rust
 iterator, and, in Python, the objects Python makes for every value --
-are listed, with why each is unavoidable, in `docs/tcslog.rst`.
+are listed, with why each is unavoidable, in `docs/manual.rst`.
 
 Building
 --------
@@ -223,8 +223,8 @@ cargo install cargo-rdme
 
 There are also two documents under `docs/`, and they are easy to confuse.
 
-`docs/tcslog.rst` is the user guide: what the library does, how to call it,
-and how it behaves. `make -C docs` renders it to `docs/tcslog.html`.
+`docs/manual.rst` is the user guide: what the library does, how to call it,
+and how it behaves. `make -C docs` renders it to `docs/manual.html`.
 
 `docs/design.rst` is the specification. The sources were originally
 generated from it as a Claude Code prompt, which is where its old name,

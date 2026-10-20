@@ -49,6 +49,11 @@ Stored format: unchanged, 0.1.0.
   segment files, and past a lost one.
 - `make check` checks the fuzz crate's formatting and clippy.
 
+### Changed
+
+- The user manual is `docs/manual.rst`, renamed from `docs/tcslog.rst`, and
+  `make -C docs` renders it to `docs/manual.html`.
+
 ## [0.4.1] - 2026-10-19
 
 Stored format: unchanged, 0.1.0. Nothing about what is written moves here, so

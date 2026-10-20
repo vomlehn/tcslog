@@ -155,7 +155,7 @@
 //! is a fine way to find it.
 //!
 //! Both requirements, and the reasoning behind them, are set out at
-//! length in the user manual, `docs/tcslog.rst` in [the
+//! length in the user manual, `docs/manual.rst` in [the
 //! repository](https://github.com/vomlehn/tcslog).
 //!
 //! # Writing
@@ -271,7 +271,7 @@
 //!
 //! # Documentation
 //!
-//! The full manual, including the theory of operation, is `docs/tcslog.rst` in
+//! The full manual, including the theory of operation, is `docs/manual.rst` in
 //! [the repository](https://github.com/vomlehn/tcslog).
 //!
 //! # License

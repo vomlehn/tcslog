@@ -11,7 +11,7 @@ This is the design specification for Tcslog: the on-disk format, the
 public interfaces, the status codes and their ABI numbers, and the
 behaviour the library is required to have. It states what the code must
 do, and a change in behaviour belongs here as well as in the user
-manual, ``docs/tcslog.rst``.
+manual, ``docs/manual.rst``.
 
 Tcslog is a library for onboard logging of telemetry data, for
 systems such as spacecraft and autonomous underwater vehicles that must
@@ -2980,6 +2980,6 @@ This file was once the prompt that the sources were generated from,
 which is where its old name, ``docs/tcslog-prompt.rst``, came from. That
 stopped being true several releases before the rename: it is a
 specification now, maintained by hand and read rather than run, and the
-code is not regenerated from it. The user manual, ``docs/tcslog.rst``,
+code is not regenerated from it. The user manual, ``docs/manual.rst``,
 was generated from this file originally and is likewise maintained by
 hand now.
