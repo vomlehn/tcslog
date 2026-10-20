@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tcslog"
-version = "0.4.0"
+version = "0.4.1"
 description = "Python 3 interface to tcslog, a segmented telemetry log for storage-bounded systems"
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.8"
