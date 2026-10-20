@@ -1,11 +1,11 @@
-//! Tcslog stores telemetry on board a vehicle that cannot send it home
-//! as it is produced. Spacecraft, autonomous underwater vehicles, buoys,
-//! and balloons all spend long stretches out of contact, and all of them
-//! have a storage budget fixed long before launch. Tcslog is built for
-//! that situation: it keeps telemetry in a form that can be handed down
-//! in small pieces whenever a link appears, and it keeps it in a form
-//! that still yields most of its contents after part of the storage has
-//! gone bad.
+//! Tcslog is flight software. It stores telemetry on board a vehicle
+//! that cannot send it home as it is produced. Spacecraft, autonomous
+//! underwater vehicles, buoys, and balloons all spend long stretches
+//! out of contact, and all of them have a storage budget fixed long
+//! before launch. Tcslog is built for that situation: it keeps
+//! telemetry in a form that can be handed down in small pieces whenever
+//! a link appears, and it keeps it in a form that still yields most of
+//! its contents after part of the storage has gone bad.
 //!
 //! Tcslog supports three languages: **Rust**, **C/C++**, and
 //! **Python 3**. This crate is the Rust interface. The code producing

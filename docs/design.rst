@@ -13,11 +13,11 @@ behaviour the library is required to have. It states what the code must
 do, and a change in behaviour belongs here as well as in the user
 manual, ``docs/manual.rst``.
 
-Tcslog is a library for onboard logging of telemetry data, for
-systems such as spacecraft and autonomous underwater vehicles that must
-store telemetry onboard until opportunities arise for transmission. It
-is written in Rust and supports three languages, all of which are
-required: Rust, C/C++, and Python 3. Each must offer the same
+Tcslog is flight software: a library for onboard logging of telemetry
+data, for systems such as spacecraft and autonomous underwater vehicles
+that must store telemetry onboard until opportunities arise for
+transmission. It is written in Rust and supports three languages, all of
+which are required: Rust, C/C++, and Python 3. Each must offer the same
 operations under the same names, and a log written from any one must
 read in the other two. Wherever C is supported, C++ must be supported
 too.
