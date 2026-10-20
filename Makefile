@@ -26,11 +26,15 @@ LIBDIR  := $(DESTDIR)$(PREFIX)/lib
 CAPI_HEADER := tcslog-c/include/tcslog.h
 CAPI_LIBS   := libtcslog_c.a libtcslog_c.so
 
-# The C compiler for the binding's smoke test, and the warnings it is
-# held to. -Werror because a warning in a 180-line test is a mistake in
-# the test, not noise to scroll past.
-CC          := cc
-CAPI_CFLAGS := -Wall -Wextra -Werror -std=c11
+# The C and C++ compilers for the binding's smoke test, and the warnings
+# it is held to. -Werror because a warning in a 180-line test is a
+# mistake in the test, not noise to scroll past. The test is one file in
+# the common subset of the two languages; -x c++ is what makes a C++
+# driver compile a file named .c as C++.
+CC            := cc
+CXX           := c++
+CAPI_CFLAGS   := -Wall -Wextra -Werror -std=c11
+CAPI_CXXFLAGS := -x c++ -Wall -Wextra -Werror -std=c++11
 # What `make capi-memcheck` adds. -g so a report names lines rather
 # than addresses, and no optimization so the frames are the real ones.
 CAPI_SAN_FLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer -g -O0
@@ -76,28 +80,36 @@ test:				## Run all tests
 
 # Build and run the C binding's smoke test: tcslog-c/examples/smoke.c
 # compiled against the generated header and linked against the
-# staticlib, which is what a C consumer does. The Rust unit tests in
-# tcslog-c call the same functions as Rust, so they would pass a header
-# that described the wrong argument order; only this catches that.
+# staticlib, which is what a C or C++ consumer does. The Rust unit tests
+# in tcslog-c call the same functions as Rust, so they would pass a
+# header that described the wrong argument order; only this catches
+# that.
 #
-# The log is written into a temporary directory that is removed
+# It is compiled and run twice, as C and as C++: a header whose
+# `extern "C"` block or enum declarations a C++ compiler mishandles is
+# as broken for a C++ caller as a wrong one is for everyone.
+#
+# Each log is written into a temporary directory that is removed
 # afterwards whether the test passed or not.
 .PHONY: capi-test
-capi-test:			## Compile and run the C binding's smoke test
+capi-test:			## Compile and run the C binding's smoke test as C and C++
 	@echo "Running the C binding smoke test..."
 	cargo build $(RELEASE) -p tcslog-c
 	tmp=$$(mktemp -d -t tcslog-capi.XXXXXXXXXX); \
-	bin=$$tmp/smoke; \
 	trap 'rm -rf "$$tmp"' EXIT; \
-	$(CC) $(CAPI_CFLAGS) -o $$bin tcslog-c/examples/smoke.c \
+	mkdir $$tmp/c $$tmp/cxx; \
+	$(CC) $(CAPI_CFLAGS) -o $$tmp/smoke-c tcslog-c/examples/smoke.c \
 		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
-	$$bin $$tmp
-	@echo "[OK] C binding smoke test passed"
+	$(CXX) $(CAPI_CXXFLAGS) -o $$tmp/smoke-cxx tcslog-c/examples/smoke.c \
+		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+	echo "-- as C"; $$tmp/smoke-c $$tmp/c; \
+	echo "-- as C++"; $$tmp/smoke-cxx $$tmp/cxx
+	@echo "[OK] C/C++ binding smoke test passed"
 
-# Run the smoke test under the address and undefined-behaviour
-# sanitizers, which is what checks the handles for leaks and double
-# frees: they are boxed on the Rust side and released from C, and
-# nothing else here would notice if a close leaked one.
+# Run the smoke test, as C and as C++, under the address and
+# undefined-behaviour sanitizers, which is what checks the handles for
+# leaks and double frees: they are boxed on the Rust side and released
+# from C, and nothing else here would notice if a close leaked one.
 #
 # The Rust staticlib is built without sanitizers, which is enough:
 # LeakSanitizer intercepts the process's allocator, and Rust's default
@@ -108,16 +120,21 @@ capi-test:			## Compile and run the C binding's smoke test
 # Not part of `make test`: it needs a compiler with the sanitizers,
 # which not every toolchain this builds on has.
 .PHONY: capi-memcheck
-capi-memcheck:			## Run the C smoke test under ASan and UBSan
+capi-memcheck:			## Run the C/C++ smoke test under ASan and UBSan
 	@echo "Running the C binding smoke test under sanitizers..."
 	cargo build $(RELEASE) -p tcslog-c
 	tmp=$$(mktemp -d -t tcslog-capi-san.XXXXXXXXXX); \
-	bin=$$tmp/smoke; \
 	trap 'rm -rf "$$tmp"' EXIT; \
-	$(CC) $(CAPI_CFLAGS) $(CAPI_SAN_FLAGS) -o $$bin \
+	mkdir $$tmp/c $$tmp/cxx; \
+	$(CC) $(CAPI_CFLAGS) $(CAPI_SAN_FLAGS) -o $$tmp/smoke-c \
 		tcslog-c/examples/smoke.c \
 		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
-	ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1 $$bin $$tmp
+	$(CXX) $(CAPI_CXXFLAGS) $(CAPI_SAN_FLAGS) -o $$tmp/smoke-cxx \
+		tcslog-c/examples/smoke.c \
+		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+	export ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1; \
+	echo "-- as C"; $$tmp/smoke-c $$tmp/c; \
+	echo "-- as C++"; $$tmp/smoke-cxx $$tmp/cxx
 	@echo "[OK] No leak or undefined behaviour reported"
 
 # Regenerate tcslog-c/include/tcslog.h from tcslog-c/src/lib.rs. Needs
@@ -148,7 +165,8 @@ install: header		## Install the C header and libraries under PREFIX
 	@echo "[OK] Installed $(CAPI_HEADER) to $(INCDIR)/"
 	@echo "[OK] Installed $(CAPI_LIBS) to $(LIBDIR)/"
 	@echo "     Compile against it with:"
-	@echo "       cc prog.c -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
+	@echo "       cc  prog.c   -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
+	@echo "       c++ prog.cpp -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
 
 # Removes what install put there, honouring the same two variables.
 # Nothing else in those directories is touched.

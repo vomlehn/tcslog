@@ -2,7 +2,7 @@
 #
 # Build and run the C binding's example against a throwaway directory.
 #
-# This is bin/run-sample's counterpart for C: it compiles
+# This is bin/run-sample's counterpart for C and C++: it compiles
 # tcslog-c/examples/downlink.c against the generated header, links it
 # against the staticlib cargo built, gives it a temporary directory, and
 # lists what is left before deleting it.
@@ -13,15 +13,33 @@
 # the log's namespace, and what remains in the log is the tail that has
 # not been sent.
 #
-#     ./bin/run-capi-example
+#     ./bin/run-capi-example          # compiled as C
+#     ./bin/run-capi-example --cxx    # compiled as C++
 #
-# Needs a C compiler. CC overrides which one, as in the Makefile.
+# The example is written in the common subset of the two, so the same
+# file serves both. Needs a C compiler, or a C++ one with --cxx. CC and
+# CXX override which, as in the Makefile, and CFLAGS and CXXFLAGS the
+# flags.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-CC=${CC:-cc}
-CFLAGS=${CFLAGS:--Wall -Wextra -Werror -std=c11}
+case "${1:-}" in
+"")
+    compiler=${CC:-cc}
+    flags=${CFLAGS:--Wall -Wextra -Werror -std=c11}
+    ;;
+--cxx)
+    compiler=${CXX:-c++}
+    # -x c++ because the file is named .c, which a C++ driver would
+    # otherwise hand to the C compiler.
+    flags="-x c++ ${CXXFLAGS:--Wall -Wextra -Werror -std=c++11}"
+    ;;
+*)
+    echo "usage: $0 [--cxx]" 1>&2
+    exit 2
+    ;;
+esac
 
 log_dir=$(mktemp -d -t tcslog-capi-XXXXXXXX)
 trap 'rm -rf "$log_dir"' EXIT
@@ -34,8 +52,8 @@ cargo build --quiet -p tcslog-c
 echo "Log directory: $log_dir"
 echo
 
-# shellcheck disable=SC2086  # CFLAGS is deliberately word-split.
-$CC $CFLAGS -o "$log_dir/downlink" tcslog-c/examples/downlink.c \
+# shellcheck disable=SC2086  # flags is deliberately word-split.
+$compiler $flags -o "$log_dir/downlink" tcslog-c/examples/downlink.c \
     -I tcslog-c/include -L target/debug -l:libtcslog_c.a
 
 "$log_dir/downlink" "$log_dir"

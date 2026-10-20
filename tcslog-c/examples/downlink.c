@@ -26,8 +26,12 @@
  * never told about. With `send` set, that leaves the log empty; with it
  * unset, everything stays.
  *
+ * The file is both C and C++, so it is the example for either; the one
+ * concession to C++ is the explicit cast from `void *`.
+ *
  * Build and run it with bin/run-capi-example, which compiles it
- * against the generated header and gives it a temporary directory.
+ * against the generated header and gives it a temporary directory;
+ * `bin/run-capi-example --cxx` compiles it as C++ instead.
  */
 
 #include <stdio.h>
@@ -62,7 +66,7 @@ static const char *log_dir;
  * given has stopped holding and the caller needs to know.
  */
 static int on_send(void *ctx, const char *path) {
-    Downlink *d = ctx;
+    Downlink *d = (Downlink *)ctx;
     const char *base = strrchr(path, '/');
     base = base ? base + 1 : path;
 

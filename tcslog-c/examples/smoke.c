@@ -1,11 +1,18 @@
 /* Drives the C binding through the ABI a consumer uses.
  *
+ * The file is both C and C++: `make capi-test` compiles it once as each
+ * and runs both, because a header a C++ compiler rejects, or one whose
+ * `extern "C"` block is wrong so that C++ names are mangled, is as much
+ * a broken binding as one a C compiler rejects. Keeping it the common
+ * subset of the two costs an explicit cast from `void *` and nothing
+ * else.
+ *
  * This is the only test that proves the generated header and the
  * compiled library agree: the Rust unit tests in src/lib.rs call the
  * same functions, but they call them as Rust, so a header that
  * described the wrong argument order or the wrong struct layout would
- * still pass them. Here a C compiler reads the header and the linker
- * resolves against the staticlib, which is what a consumer does.
+ * still pass them. Here a C or C++ compiler reads the header and the
+ * linker resolves against the staticlib, which is what a consumer does.
  *
  * Each scenario works in its own subdirectory of the directory given on
  * the command line, so one cannot leave state another depends on. The
@@ -125,7 +132,7 @@ typedef struct {
 } Counters;
 
 static int on_send(void *ctx, const char *path) {
-    Counters *c = ctx;
+    Counters *c = (Counters *)ctx;
     (void)path;
     if (c == NULL) {
         return 0;
@@ -135,7 +142,7 @@ static int on_send(void *ctx, const char *path) {
 }
 
 static int on_record_complete(void *ctx, int fd) {
-    Counters *c = ctx;
+    Counters *c = (Counters *)ctx;
     (void)fd;
     if (c != NULL) {
         c->completes++;
@@ -144,7 +151,7 @@ static int on_record_complete(void *ctx, int fd) {
 }
 
 static void on_timer_resolution_adjusted(void *ctx, uint64_t resolution_ns) {
-    Counters *c = ctx;
+    Counters *c = (Counters *)ctx;
     (void)resolution_ns;
     if (c != NULL) {
         c->adjustments++;
