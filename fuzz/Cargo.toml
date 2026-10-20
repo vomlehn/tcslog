@@ -1,0 +1,33 @@
+# Fuzz targets for the reader, run with cargo-fuzz on a nightly
+# toolchain; see `make fuzz` and docs/design.rst, "Fuzzing". A crate of
+# its own, outside the workspace, because libfuzzer-sys needs nightly
+# and the sanitizer flags cargo-fuzz passes, neither of which the
+# workspace's own builds want.
+[package]
+name = "tcslog-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+arbitrary = { version = "1", features = ["derive"] }
+libfuzzer-sys = "0.4"
+tempfile = "3"
+tcslog = { path = "../tcslog" }
+
+[[bin]]
+name = "damaged_log"
+path = "fuzz_targets/damaged_log.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "arbitrary_files"
+path = "fuzz_targets/arbitrary_files.rs"
+test = false
+doc = false
+bench = false

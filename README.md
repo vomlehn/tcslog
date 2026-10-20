@@ -80,6 +80,14 @@ until ENTER.
 ./bin/verify-helper combined_12-10 corrupt_12-10
 ```
 
+`make fuzz` goes past the scenarios anyone thought of: two cargo-fuzz
+targets under `fuzz/` damage real logs and build logs from arbitrary
+bytes, and require that the reader never panics, always reaches the end,
+and -- when the damage only removes bytes -- never returns a record that
+was not written. It needs a nightly toolchain and `cargo install
+cargo-fuzz`; `FUZZ_TIME` sets the seconds per target, 60 by default, and
+CI runs it on every push.
+
 C/C++ interface
 ---------------
 The code producing telemetry on a flight system is often C or C++, and a

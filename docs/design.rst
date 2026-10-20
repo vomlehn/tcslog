@@ -974,7 +974,7 @@ o   The segment being left held a full data section. Every segment
     written. The reader must reject the crossing as for the two failures
     above, reporting ``lost`` as zero since no segment file is missing,
     and must leave no recovery hint, the hint's arithmetic assuming the
-    file before the gap was full. (Fuzzing found this.)
+    file before the gap was full. (Fuzzing found this; see "Fuzzing".)
 
 The number of bytes still owed to the in-progress record cannot be
 computed until the current record's data header has been fully decoded,
@@ -2294,8 +2294,8 @@ segment files it wrote, and deletes the directory afterwards.
 
 Testing
 =======
-Testing has four layers and all four are required, with an allocation
-check beside them. Unit tests inside
+Testing has four layers and all four are required, with fuzzing and an
+allocation check beside them. Unit tests inside
 the crates reach the library through its API, where a fault can be
 injected directly. The error-recovery suite under ``test/`` reaches it
 the way a user does, through ``tcslog-gen`` and ``tcslog-dump``, with
@@ -2831,6 +2831,39 @@ directory by name; the driver and ``dump-before`` need no exclusion, as
 they are not in the directory being walked. Matching case names against
 a pattern instead leaves the target silently doing nothing the first
 time the cases are renamed.
+
+Fuzzing
+-------
+The error-recovery suite covers the damage someone thought of. ``fuzz/``
+holds two cargo-fuzz targets that cover the damage nobody did, run by
+``make fuzz`` for ``FUZZ_TIME`` seconds each on a nightly toolchain:
+
+o   ``damaged_log`` writes a real log -- format, segment size, records
+    and sessions all chosen by the fuzzer -- then deletes segment files,
+    cuts them short, spoils their headers, or overwrites bytes, and
+    reads it back with a buffer of the fuzzer's choosing. When the
+    damage only takes bytes away, every record returned whole must be
+    one that was written, in the order written, and every partial one
+    the front of one that was written: the reader invents nothing.
+    Overwritten bytes cannot be told from telemetry without a checksum,
+    which the format does not carry, so then only the next two
+    requirements are checked.
+
+o   ``arbitrary_files`` builds up to eight segment files from raw bytes
+    or from headers the reader accepts around fields and data sections
+    the fuzzer chooses, reaching parsing no writer's output would.
+
+In both, the reader must not panic and must reach the end of the log
+within a number of reads bounded by the size of the log. The first ran
+for minutes before finding a reader that spliced records across a
+segment file cut short; the third bullet under "Segment Boundary
+Validation" is the requirement that fixed it, and
+``a_segment_file_cut_short_mid_session_is_not_stitched_over`` in the API
+tests keeps it fixed.
+
+CI runs each target for a minute on every push. A failure leaves its
+input under ``fuzz/artifacts``; ``cargo +nightly fuzz run <target>
+<file>`` replays it, and it belongs in the API tests once understood.
 
 Allocation
 ----------

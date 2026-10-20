@@ -6,6 +6,8 @@ members = [
     "tcslog-c",
     "tcslog-gen",
 ]
+# Built by cargo-fuzz on nightly, with flags the workspace does not want.
+exclude = ["fuzz"]
 
 [workspace.package]
 version = "0.4.1"

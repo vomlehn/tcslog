@@ -268,7 +268,7 @@ distclean: clean		## Remove build artifacts and all generated files
 # stripped rather than resolved: resolving them wants a pinned nightly,
 # and `SegId` reads as well as a link to it in a README.
 .PHONY: check
-check:				## Run cargo check, clippy, fmt, ruff, mypy, and the generated-file checks
+check:				## Run cargo check, clippy, fmt (fuzz crate too), ruff, mypy, and generated-file checks
 	@echo "Running cargo check..."
 	cargo check --all-targets
 	# The read-only configuration, which nothing else here builds: the
@@ -277,6 +277,10 @@ check:				## Run cargo check, clippy, fmt, ruff, mypy, and the generated-file ch
 	cargo check -p tcslog --no-default-features
 	cargo clippy --all-targets -- -D warnings
 	cargo fmt -- --check
+	# The fuzz crate is outside the workspace, so the two lines above do
+	# not reach it. Checked on stable; only running it needs nightly.
+	cargo fmt --manifest-path fuzz/Cargo.toml -- --check
+	cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings
 	cargo rdme --check -w tcslog --intralinks-strip-links
 	@echo "Checking the C header is current..."
 	cd tcslog-c && cbindgen --config cbindgen.toml --crate tcslog-c \
@@ -292,6 +296,21 @@ check:				## Run cargo check, clippy, fmt, ruff, mypy, and the generated-file ch
 	[ "$$crate" = "$$py" ] \
 		|| { echo "tcslog-py/pyproject.toml is $$py, the crates $$crate" 1>&2; \
 		     exit 1; }
+
+# Fuzz the reader: each target in fuzz/ for FUZZ_TIME seconds, starting
+# from and adding to the corpus under fuzz/corpus. Needs a nightly
+# toolchain and `cargo install cargo-fuzz`. Not part of `make test`,
+# being open-ended: a failure leaves the input that caused it under
+# fuzz/artifacts, which `cargo +nightly fuzz run <target> <file>`
+# replays. See docs/design.rst, "Fuzzing".
+FUZZ_TIME    := 60
+FUZZ_TARGETS := damaged_log arbitrary_files
+.PHONY: fuzz
+fuzz:				## Fuzz the reader for FUZZ_TIME seconds a target (nightly, cargo-fuzz)
+	cd fuzz && for t in $(FUZZ_TARGETS); do \
+		cargo +nightly fuzz run $$t -- -max_total_time=$(FUZZ_TIME) -max_len=8192 || exit 1; \
+	done
+	@echo "[OK] No fuzz target failed in $(FUZZ_TIME)s each"
 
 # Type-check the whole workspace for a platform other than the one
 # building it, which is what keeps a Unix-only construct from creeping

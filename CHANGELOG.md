@@ -38,9 +38,16 @@ Stored format: unchanged, 0.1.0.
 
 ### Added
 
+- `fuzz/`, two cargo-fuzz targets for the reader, run by `make fuzz` and for
+  a minute each in CI. `damaged_log` writes real logs, damages them, and
+  requires that the reader invent nothing when the damage only removes
+  bytes; `arbitrary_files` builds logs from raw bytes and from accepted
+  headers around arbitrary fields. Both require that the reader never panic
+  and always reach the end.
 - `tcslog/tests/no_alloc.rs`, which holds writing and reading to their
   promise of no allocation with a counting allocator, across rolls, across
   segment files, and past a lost one.
+- `make check` checks the fuzz crate's formatting and clippy.
 
 ## [0.4.1] - 2026-10-19
 

@@ -1,7 +1,7 @@
 # Runs what `make check` and `make test` run locally, and what they
 # leave out for want of tools: the sanitizer run, the Windows
-# type-check, clang, the oldest Python the package supports, and the
-# Rust version the crate declares.
+# type-check, clang, the oldest Python the package supports, the Rust
+# version the crate declares, and a minute of fuzzing a target.
 #
 # The error-recovery suite drives the tools in tcslog-tools, which
 # depends on this repository by path, so both are checked out side by
@@ -98,3 +98,21 @@ jobs:
       # compiles, where the dev-dependencies and the binding's are not.
       - name: cargo check
         run: cargo check -p tcslog
+
+  fuzz:
+    name: Fuzz the reader for a minute a target
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-fuzz
+      - name: make fuzz
+        run: make fuzz FUZZ_TIME=60
+      # A failure's input is what reproduces it.
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts
+          path: fuzz/artifacts
