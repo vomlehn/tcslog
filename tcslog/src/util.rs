@@ -139,6 +139,9 @@ pub(crate) fn scan_segment_ids(
 /// so that the dependency set stays small enough to audit, which matters
 /// for software that flies.
 ///
+/// Allocates the string it returns. It is for tools that display a log,
+/// not for the path that writes or reads one.
+///
 /// * `ts` -- nanoseconds since the UNIX epoch.
 ///
 /// Returns the rendered string.
@@ -183,7 +186,8 @@ fn civil_from_days(days: u64) -> (u64, u64, u64) {
 /// parenthesised trailer the support binaries print after a payload.
 ///
 /// Both `tcslog-gen` and `tcslog-dump` print through this, so a record
-/// reads the same coming out of a log as it did going in.
+/// reads the same coming out of a log as it did going in. Like
+/// [`format_timestamp`], it allocates the string it returns.
 ///
 /// * `payload_len` -- number of payload bytes the record holds.
 /// * `meta` -- the metadata the record carried.

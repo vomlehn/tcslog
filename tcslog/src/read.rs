@@ -442,6 +442,25 @@ impl LogRead {
         self.segments_opened
     }
 
+    /// The metadata of the record most recently decoded.
+    ///
+    /// [`read`](Self::read) hands back a record's metadata in its
+    /// [`ReadResult`], but a read that ends in
+    /// [`LogError::ReadOverflow`], or in [`LogError::ReadTruncated`]
+    /// with bytes recovered, has placed the front of a record in the
+    /// caller's buffer and returned an error rather than a result. This
+    /// is that record's metadata. A record whose data header was lost
+    /// along with the segment file carrying it reports
+    /// [`Meta::VariableSimple`], there being no timestamp or count left
+    /// to report.
+    ///
+    /// Returns that metadata. Before the first read it reports
+    /// [`Meta::VariableSimple`].
+    #[must_use]
+    pub fn last_meta(&self) -> Meta {
+        self.last_meta
+    }
+
     /// Asks the reader to retain the header of every segment file it
     /// opens.
     ///

@@ -870,11 +870,12 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// session or by rolling, and both of those report their own
     /// failures. The error here is therefore for a state the writer
     /// cannot reach; it is returned rather than asserted so that no
-    /// path through this crate can panic.
+    /// path through this crate can panic. It is a bare error kind, with
+    /// no message, so that even this path allocates nothing.
     fn current_mut(&mut self) -> Result<&mut Current, LogError> {
         self.current
             .as_mut()
-            .ok_or_else(|| LogError::IoError(std::io::Error::other("no segment file is open")))
+            .ok_or_else(|| LogError::IoError(std::io::ErrorKind::NotFound.into()))
     }
 
     /// Bytes still available in the current segment file's data section.

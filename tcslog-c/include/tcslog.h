@@ -254,7 +254,11 @@ typedef struct TcslogReadResult {
      */
     uint32_t n;
     /**
-     * Which of the three metadata shapes the record had.
+     * Which of the three metadata shapes the record had. Filled
+     * whenever `n` is, so the front of a record that came with
+     * [`TcslogStatus::ReadTruncated`] or [`TcslogStatus::ReadOverflow`]
+     * is described as a whole one is. A record whose data header was
+     * lost reports [`TcslogMeta::VariableSimple`].
      */
     TcslogMeta meta;
     /**

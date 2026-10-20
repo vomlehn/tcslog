@@ -30,8 +30,27 @@
 //! The structure is copied, so it need not outlive the call. The `ctx`
 //! it holds is used until the writer is closed, and the library does
 //! not own it, so that must outlive the writer.
+//!
+//! # Allocation
+//!
+//! Writing, reading, flushing, and the queries allocate nothing, as in
+//! the library: a record is read into the caller's buffer, and the path
+//! handed to `send` is built in a buffer the writer reserved when it
+//! was opened. What allocates is confined to the calls a caller makes
+//! once, or asks for explicitly:
+//!
+//! * [`tcslog_write_open`] and [`tcslog_read_open`] allocate the handle
+//!   itself, and the library allocates the buffers it then reuses and
+//!   the directory listing it opens from. The handle is opaque, and
+//!   its size depends on the Rust standard library it was built with,
+//!   so a C/C++ caller could not reserve storage for it; it is boxed
+//!   here and freed by the matching close.
+//! * [`tcslog_write_clear`] enumerates the directory, which no platform
+//!   offers without allocating.
+//! * A writer's I/O error from the operating system may carry an
+//!   allocated description. A callback's failure does not.
 
-use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::ffi::{c_char, c_int, c_void, CStr};
 use std::fs::File;
 use std::io;
 use std::os::fd::AsRawFd;
@@ -39,8 +58,8 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use tcslog::{
-    Format, LogError, LogRead, LogWrite, Meta, RecSize, WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
-    VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH,
+    Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, WriteCallbacks,
+    SEGMENT_FILE_HEADER_LEN, VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH,
 };
 
 /// What a call reported.
@@ -181,7 +200,11 @@ pub struct TcslogReadResult {
     /// large for the buffer on [`TcslogStatus::ReadOverflow`].
     pub n: u32,
 
-    /// Which of the three metadata shapes the record had.
+    /// Which of the three metadata shapes the record had. Filled
+    /// whenever `n` is, so the front of a record that came with
+    /// [`TcslogStatus::ReadTruncated`] or [`TcslogStatus::ReadOverflow`]
+    /// is described as a whole one is. A record whose data header was
+    /// lost reports [`TcslogMeta::VariableSimple`].
     pub meta: TcslogMeta,
 
     /// Nanoseconds since the UNIX epoch, when `meta` is
@@ -288,6 +311,29 @@ impl TcslogCallbacks {
 /// not express.
 struct CHandler {
     cb: TcslogCallbacks,
+    /// The NUL-terminated path handed to `send`, rebuilt in place for
+    /// each segment file. Reserved at open for the longest path the log
+    /// can name, so handing a file over allocates nothing.
+    path_buf: Vec<u8>,
+}
+
+impl CHandler {
+    fn new(cb: TcslogCallbacks, dir: &str, prefix: &str, suffix: &str) -> Self {
+        // The directory, a separator, the prefix, a segment identifier,
+        // the suffix, and the NUL.
+        let longest = dir.len() + 1 + prefix.len() + SegId::STR_LEN + suffix.len() + 1;
+        Self {
+            cb,
+            path_buf: Vec::with_capacity(longest),
+        }
+    }
+}
+
+/// The error a callback's non-zero return becomes. A bare kind, rather
+/// than one carrying a message, so that it allocates nothing: the C
+/// caller sees only [`TcslogStatus::IoError`] either way.
+fn callback_failed() -> io::Error {
+    io::ErrorKind::Other.into()
 }
 
 impl WriteCallbacks for CHandler {
@@ -298,9 +344,7 @@ impl WriteCallbacks for CHandler {
         if f(self.cb.ctx, file.as_raw_fd()) == 0 {
             Ok(())
         } else {
-            Err(io::Error::other(
-                "record_complete callback reported failure",
-            ))
+            Err(callback_failed())
         }
     }
 
@@ -310,19 +354,28 @@ impl WriteCallbacks for CHandler {
     /// binding: a log's directory, prefix and suffix all arrived as C
     /// strings and were checked to be UTF-8, and the identifier between
     /// them is hexadecimal.
+    ///
+    /// The path is copied into a buffer reserved at open, so this
+    /// allocates only if the library ever hands over a longer path than
+    /// the log can name.
     fn send(&mut self, path: &Path) -> io::Result<()> {
         let Some(f) = self.cb.send else {
             return Ok(());
         };
-        let s = path
-            .to_str()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "path is not UTF-8"))?;
-        let c = CString::new(s)
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "path holds a NUL"))?;
-        if f(self.cb.ctx, c.as_ptr()) == 0 {
+        let Some(text) = path.to_str() else {
+            return Err(io::ErrorKind::InvalidData.into());
+        };
+        let bytes = text.as_bytes();
+        if bytes.contains(&0) {
+            return Err(io::ErrorKind::InvalidData.into());
+        }
+        self.path_buf.clear();
+        self.path_buf.extend_from_slice(bytes);
+        self.path_buf.push(0);
+        if f(self.cb.ctx, self.path_buf.as_ptr().cast::<c_char>()) == 0 {
             Ok(())
         } else {
-            Err(io::Error::other("send callback reported failure"))
+            Err(callback_failed())
         }
     }
 
@@ -359,6 +412,19 @@ fn status_of(e: &LogError, out: &mut TcslogReadResult) -> TcslogStatus {
         LogError::SessionEnd => TcslogStatus::SessionEnd,
         LogError::TimerResolutionZero => TcslogStatus::TimerResolutionZero,
         LogError::VersionMismatch => TcslogStatus::VersionMismatch,
+    }
+}
+
+/// Fills the metadata fields of a read result.
+fn set_meta(out: &mut TcslogReadResult, meta: Meta) {
+    match meta {
+        Meta::Fixed => out.meta = TcslogMeta::Fixed,
+        Meta::VariableSimple => out.meta = TcslogMeta::VariableSimple,
+        Meta::VariableTsRc(ts, rc) => {
+            out.meta = TcslogMeta::VariableTsRc;
+            out.timestamp = ts;
+            out.record_count = rc;
+        }
     }
 }
 
@@ -543,7 +609,14 @@ pub unsafe extern "C" fn tcslog_write_open(
             unsafe { *cb }
         };
 
-        match LogWrite::new(dir, prefix, suffix, seg_size_max, format, CHandler { cb }) {
+        match LogWrite::new(
+            dir,
+            prefix,
+            suffix,
+            seg_size_max,
+            format,
+            CHandler::new(cb, dir, prefix, suffix),
+        ) {
             Ok(inner) => {
                 let handle = Box::new(TcslogWrite { inner });
                 // SAFETY: `out` was checked non-null above.
@@ -787,18 +860,18 @@ pub unsafe extern "C" fn tcslog_read_record(
             match log.read(dst) {
                 Ok(r) => {
                     out.n = r.n;
-                    match r.meta {
-                        Meta::Fixed => out.meta = TcslogMeta::Fixed,
-                        Meta::VariableSimple => out.meta = TcslogMeta::VariableSimple,
-                        Meta::VariableTsRc(ts, rc) => {
-                            out.meta = TcslogMeta::VariableTsRc;
-                            out.timestamp = ts;
-                            out.record_count = rc;
-                        }
-                    }
+                    set_meta(&mut out, r.meta);
                     TcslogStatus::Ok
                 }
-                Err(e) => status_of(&e, &mut out),
+                Err(e) => {
+                    let status = status_of(&e, &mut out);
+                    // The front of a record reached the buffer, so the
+                    // caller is owed its metadata as on success.
+                    if out.n > 0 {
+                        set_meta(&mut out, log.last_meta());
+                    }
+                    status
+                }
             }
         };
         // SAFETY: `result` was checked non-null above.

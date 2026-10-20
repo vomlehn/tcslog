@@ -398,6 +398,8 @@ static void scenario_read_overflow(const char *base) {
     check(result.n == sizeof small, "the result holds the bytes that were captured");
     check(memcmp(small, payload, sizeof small) == 0,
           "the captured bytes are the front of the record");
+    check(result.meta == TCSLOG_META_VARIABLE_SIMPLE,
+          "the captured bytes come with the record's metadata");
 
     /* The rest of the record was skipped, so this is the next record
      * and not another attempt at the one that overflowed. */
