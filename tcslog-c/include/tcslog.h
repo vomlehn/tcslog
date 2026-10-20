@@ -238,8 +238,10 @@ typedef struct TcslogCallbacks {
     int (*send)(void *ctx, const char *path);
     /**
      * Called with the descriptor of the segment file a record ended
-     * in, which the library still owns: do not close it. Returning
-     * non-zero makes the write report [`TcslogStatus::IoError`].
+     * in, which the library still owns: do not close it. On a platform
+     * other than Unix, where a file is not a descriptor, it is -1.
+     * Returning non-zero makes the write report
+     * [`TcslogStatus::IoError`].
      */
     int (*record_complete)(void *ctx, int fd);
     /**

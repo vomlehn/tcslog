@@ -1365,7 +1365,10 @@ and anything else makes the write that triggered the callback report
 ``TCSLOG_STATUS_IO_ERROR``. That is the right answer for a ``send`` that
 could not take a file -- the storage bound the log was given has stopped
 holding, and the caller needs to know. ``record_complete`` is handed a
-descriptor the library still owns, so it must not close it.
+descriptor the library still owns, so it must not close it. That is on
+Unix; elsewhere a file is a handle rather than a descriptor and does not
+fit the ``int``, so ``record_complete`` is handed -1 and learns only that
+a record ended.
 
 What ``send`` has to do is what it has to do in Rust: when it returns
 there must be no file at the path it was given and none matching the

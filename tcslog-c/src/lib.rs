@@ -54,7 +54,6 @@ use std::ffi::{c_char, c_int, c_void, CStr};
 use std::fmt::{self, Write as _};
 use std::fs::File;
 use std::io;
-use std::os::fd::AsRawFd;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
@@ -370,8 +369,10 @@ pub struct TcslogCallbacks {
     pub send: Option<extern "C" fn(ctx: *mut c_void, path: *const c_char) -> c_int>,
 
     /// Called with the descriptor of the segment file a record ended
-    /// in, which the library still owns: do not close it. Returning
-    /// non-zero makes the write report [`TcslogStatus::IoError`].
+    /// in, which the library still owns: do not close it. On a platform
+    /// other than Unix, where a file is not a descriptor, it is -1.
+    /// Returning non-zero makes the write report
+    /// [`TcslogStatus::IoError`].
     pub record_complete: Option<extern "C" fn(ctx: *mut c_void, fd: c_int) -> c_int>,
 
     /// Called with the widened timer resolution, in nanoseconds, when
@@ -421,6 +422,25 @@ impl CHandler {
     }
 }
 
+/// The descriptor `record_complete` is handed for `file`.
+///
+/// On Unix that is the file's own descriptor, which is what C code there
+/// works with. Elsewhere a file is a handle that does not fit the `int`
+/// the ABI promises, so the callback is handed -1, and learns only that
+/// a record ended; widening the argument would break every caller built
+/// against the header.
+#[cfg(unix)]
+fn raw_fd(file: &File) -> c_int {
+    use std::os::fd::AsRawFd;
+    file.as_raw_fd()
+}
+
+/// See the Unix version above.
+#[cfg(not(unix))]
+fn raw_fd(_file: &File) -> c_int {
+    -1
+}
+
 /// The error a callback's non-zero return becomes. A bare kind, rather
 /// than one carrying a message, so that it allocates nothing: the C
 /// caller sees only [`TcslogStatus::IoError`] either way.
@@ -433,7 +453,7 @@ impl WriteCallbacks for CHandler {
         let Some(f) = self.cb.record_complete else {
             return Ok(());
         };
-        if f(self.cb.ctx, file.as_raw_fd()) == 0 {
+        if f(self.cb.ctx, raw_fd(file)) == 0 {
             Ok(())
         } else {
             Err(callback_failed())

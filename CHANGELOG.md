@@ -53,6 +53,11 @@ documentation says so throughout.
 
 ### Changed
 
+- `tcslog-c` builds on platforms other than Unix. `record_complete` is
+  handed the file's descriptor on Unix and -1 elsewhere, where a file is a
+  handle that does not fit the `int`. `make cross-check` type-checks the
+  workspace for Windows.
+
 - `make install` installs the Python 3 package too, without `pip`: into the
   user site directory under the default `PREFIX`, or that prefix's
   `site-packages` (`PYDIR` overrides), with a link to the installed library

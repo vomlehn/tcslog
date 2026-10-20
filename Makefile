@@ -273,6 +273,16 @@ check:				## Run cargo check, clippy, fmt, and the README check
 		|| { echo "tcslog-py/pyproject.toml is $$py, the crates $$crate" 1>&2; \
 		     exit 1; }
 
+# Type-check the whole workspace for a platform other than the one
+# building it, which is what keeps a Unix-only construct from creeping
+# back in: design.rst asks for code that works beyond Linux. Not part
+# of `make check`, needing `rustup target add $(CROSS_TARGET)` first.
+CROSS_TARGET := x86_64-pc-windows-gnu
+.PHONY: cross-check
+cross-check:			## Type-check the workspace for CROSS_TARGET (default Windows)
+	cargo check --workspace --all-targets --target $(CROSS_TARGET)
+	@echo "[OK] The workspace type-checks for $(CROSS_TARGET)"
+
 # Regenerate the library's README from tcslog/src/lib.rs. Needs
 # `cargo install cargo-rdme`, as `make check` does.
 .PHONY: readme

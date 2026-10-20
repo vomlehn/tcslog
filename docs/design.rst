@@ -2108,7 +2108,14 @@ objects at open; and ``iter``'s buffer and per-record ``bytes``.
 ``send`` and ``record_complete`` return an ``int``: zero for success,
 and anything else makes the write that triggered the callback report
 ``TCSLOG_STATUS_IO_ERROR``. ``record_complete`` is handed a file
-descriptor the library still owns and must not close it. What each is
+descriptor the library still owns and must not close it. Only Unix has
+descriptors; on any other platform a file is a handle that does not fit
+the ``int``, and the binding must hand -1 rather than widen the argument
+and break every caller built against the header.
+
+The binding must build wherever the library does. ``make cross-check``
+type-checks the workspace for Windows, which is what keeps a Unix-only
+construct from reaching code outside a ``cfg(unix)``. What each is
 obliged to do is what the corresponding method is obliged to do in
 Rust; see WriteCallbacks_.
 

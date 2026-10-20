@@ -742,7 +742,8 @@ class WriteCallbacks:
     def record_complete(self, fd: int) -> None:
         """A record ended in the segment file open on ``fd``.
 
-        The library owns ``fd``: do not close it.
+        The library owns ``fd``: do not close it. On a platform other
+        than Unix, where a file is not a descriptor, ``fd`` is -1.
         """
 
     def timer_resolution_adjusted(self, resolution_ns: int) -> None:
