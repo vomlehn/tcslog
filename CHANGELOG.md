@@ -30,6 +30,12 @@ documentation says so throughout.
   `LogError` subclass per variant. Tests under `tcslog-py/tests` run from
   `make python-test` and `make test`; `bin/run-python-example` runs
   `tcslog-py/examples/downlink.py`.
+- `tcslog.hpp`, a header-only C++11 interface over the C ABI: `tcslog::LogWrite`
+  and `tcslog::LogRead`, which close their handles themselves and move but do
+  not copy, and `tcslog::WriteCallbacks`, whose overridden methods alone are
+  installed. It needs no exceptions, RTTI, or heap, which
+  `tcslog-c/examples/wrapper.cpp` checks under `make capi-test`. `make install`
+  installs it beside `tcslog.h`.
 - C++ support for the C binding is now tested: `make capi-test` and
   `make capi-memcheck` compile and run `smoke.c` as C11 and as C++11, and
   `bin/run-capi-example --cxx` builds `downlink.c` as C++.

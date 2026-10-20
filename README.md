@@ -86,7 +86,11 @@ The code producing telemetry on a flight system is often C or C++, and a
 library that code cannot call is one that does not get used where the
 data is, so `tcslog-c` presents `LogWrite` and `LogRead` to a C or C++
 caller. The header wraps its declarations in `extern "C"` for C++, so
-the same header and libraries serve both. It is a
+the same header and libraries serve both. C++ has `tcslog.hpp` besides:
+`tcslog::LogWrite`, `tcslog::LogRead` and `tcslog::WriteCallbacks`,
+named as in Rust, closing their handles themselves, and needing no
+exceptions, RTTI, or heap. `make capi-test` runs its test,
+`tcslog-c/examples/wrapper.cpp`. It is a
 separate crate because a C interface has to be built as a `cdylib` and a
 `staticlib`, which a crate cannot be conditionally, and because the
 `unsafe` an ABI needs is then confined to it: the library crate itself

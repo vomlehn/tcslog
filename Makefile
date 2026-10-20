@@ -23,7 +23,8 @@ INCDIR  := $(DESTDIR)$(PREFIX)/include
 LIBDIR  := $(DESTDIR)$(PREFIX)/lib
 # What install puts there: the generated header, and both libraries, so
 # a consumer can link either statically or dynamically.
-CAPI_HEADER := tcslog-c/include/tcslog.h
+# The generated C header, and the C++ one written over it by hand.
+CAPI_HEADERS := tcslog-c/include/tcslog.h tcslog-c/include/tcslog.hpp
 CAPI_LIBS   := libtcslog_c.a libtcslog_c.so
 
 # The Python 3 interpreter, for the package's tests and its install,
@@ -53,6 +54,9 @@ CC            := cc
 CXX           := c++
 CAPI_CFLAGS   := -Wall -Wextra -Werror -std=c11
 CAPI_CXXFLAGS := -x c++ -Wall -Wextra -Werror -std=c++11
+# The C++ interface's own test, held to -pedantic and built without
+# exceptions or RTTI, which is what shows tcslog.hpp needs neither.
+WRAPPER_CXXFLAGS := -Wall -Wextra -Werror -pedantic -std=c++11 -fno-exceptions -fno-rtti
 # What `make capi-memcheck` adds. -g so a report names lines rather
 # than addresses, and no optimization so the frames are the real ones.
 CAPI_SAN_FLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer -g -O0
@@ -121,8 +125,12 @@ capi-test:			## Compile and run the C binding's smoke test as C and C++
 		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
 	$(CXX) $(CAPI_CXXFLAGS) -o $$tmp/smoke-cxx tcslog-c/examples/smoke.c \
 		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+	$(CXX) $(WRAPPER_CXXFLAGS) -o $$tmp/wrapper tcslog-c/examples/wrapper.cpp \
+		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+	mkdir $$tmp/wrap; \
 	echo "-- as C"; $$tmp/smoke-c $$tmp/c; \
-	echo "-- as C++"; $$tmp/smoke-cxx $$tmp/cxx
+	echo "-- as C++"; $$tmp/smoke-cxx $$tmp/cxx; \
+	echo "-- through tcslog.hpp"; $$tmp/wrapper $$tmp/wrap
 	@echo "[OK] C/C++ binding smoke test passed"
 
 # Run the Python 3 interface's tests, which drive tcslog-py through the
@@ -164,9 +172,14 @@ capi-memcheck:			## Run the C/C++ smoke test under ASan and UBSan
 	$(CXX) $(CAPI_CXXFLAGS) $(CAPI_SAN_FLAGS) -o $$tmp/smoke-cxx \
 		tcslog-c/examples/smoke.c \
 		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+	$(CXX) $(WRAPPER_CXXFLAGS) $(CAPI_SAN_FLAGS) -o $$tmp/wrapper \
+		tcslog-c/examples/wrapper.cpp \
+		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+	mkdir $$tmp/wrap; \
 	export ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1; \
 	echo "-- as C"; $$tmp/smoke-c $$tmp/c; \
-	echo "-- as C++"; $$tmp/smoke-cxx $$tmp/cxx
+	echo "-- as C++"; $$tmp/smoke-cxx $$tmp/cxx; \
+	echo "-- through tcslog.hpp"; $$tmp/wrapper $$tmp/wrap
 	@echo "[OK] No leak or undefined behaviour reported"
 
 # Regenerate tcslog-c/include/tcslog.h from tcslog-c/src/lib.rs. Needs
@@ -190,11 +203,11 @@ install: header		## Install the C/C++ header, the libraries, and the Python 3 pa
 	@echo "Installing the C binding to $(DESTDIR)$(PREFIX)..."
 	cargo build $(RELEASE) -p tcslog-c
 	install -d $(INCDIR) $(LIBDIR)
-	install -m 644 $(CAPI_HEADER) $(INCDIR)/
+	install -m 644 $(CAPI_HEADERS) $(INCDIR)/
 	for lib in $(CAPI_LIBS); do \
 		install -m 644 $(CARGO_TARGET_DIR)/$$lib $(LIBDIR)/; \
 	done
-	@echo "[OK] Installed $(CAPI_HEADER) to $(INCDIR)/"
+	@echo "[OK] Installed $(CAPI_HEADERS) to $(INCDIR)/"
 	@echo "[OK] Installed $(CAPI_LIBS) to $(LIBDIR)/"
 	# The package, and beside it a link to the shared library just
 	# installed, which is the first place the package looks after
@@ -220,7 +233,7 @@ install: header		## Install the C/C++ header, the libraries, and the Python 3 pa
 .PHONY: uninstall
 uninstall:			## Remove the installed header, libraries, and Python 3 package
 	@echo "Removing the C binding from $(DESTDIR)$(PREFIX)..."
-	$(RM) $(INCDIR)/tcslog.h
+	$(RM) $(INCDIR)/tcslog.h $(INCDIR)/tcslog.hpp
 	$(RM) $(addprefix $(LIBDIR)/,$(CAPI_LIBS))
 	$(RMDIR) $(DESTDIR)$(PYDIR)/tcslog
 	@echo "[OK] Uninstalled from $(DESTDIR)$(PREFIX)"

@@ -249,7 +249,8 @@ a C ABI: `tcslog_write_open` and `tcslog_write_record` for writing,
 `tcslog_read_open` and `tcslog_read_record` for reading, with every
 function returning a status and every result written through an
 out-parameter. Its header, `tcslog.h`, compiles as C and as C++, and
-is tested as both. `make install` puts the header and the libraries
+is tested as both; `tcslog.hpp` presents the same interface to C++
+as classes named as here, needing no exceptions, RTTI, or heap. `make install` puts the header and the libraries
 under a prefix of your choosing. A log written from C or C++ and one
 written from Rust are the same log; the stored format does not depend
 on which side wrote it.

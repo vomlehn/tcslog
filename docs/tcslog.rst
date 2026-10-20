@@ -34,8 +34,8 @@ Rust
 
 C/C++
     The ``tcslog-c`` binding: a C ABI and a header, ``tcslog.h``, that
-    compiles as C and as C++ and is tested as both. See
-    `Calling From C/C++`_.
+    compiles as C and as C++ and is tested as both, and ``tcslog.hpp``,
+    the same interface as C++ classes. See `Calling From C/C++`_.
 
 Python 3
     The ``tcslog`` package in ``tcslog-py``: pure Python over
@@ -1098,7 +1098,8 @@ Nothing about the log changes. A log written from C or C++ is read by
 a Rust or Python caller and the other way round, the stored format being
 the same one.
 
-Everything in this chapter applies to C and C++ alike. The header
+Everything in this chapter applies to C and C++ alike, and C++ has a
+header of its own besides; see `The C++ interface: tcslog.hpp`_. The header
 declares its functions inside ``extern "C"`` when compiled as C++, and
 gives its enums a fixed ``int32_t`` or ``uint32_t`` underlying type
 there, so a C++ program includes it, calls it, and links against it
@@ -1373,6 +1374,67 @@ a record ended.
 What ``send`` has to do is what it has to do in Rust: when it returns
 there must be no file at the path it was given and none matching the
 log's naming pattern. See `Callbacks: WriteCallbacks`_.
+
+The C++ interface: tcslog.hpp
+-----------------------------
+
+A C++ program may call the C functions above directly, and everything in
+this chapter applies to it. ``tcslog.hpp``, installed beside
+``tcslog.h``, is the alternative: the same interface in classes named
+as in Rust, which close their handles themselves.
+
+.. code-block:: c++
+
+    #include "tcslog.hpp"
+
+    struct Downlink : tcslog::WriteCallbacks {
+        int queued = 0;
+        int send(const char *path) {
+            /* must leave nothing at `path` */
+            queued++;
+            return 0;
+        }
+    };
+
+    Downlink handler;
+    tcslog::LogWrite w;
+    if (w.open(dir, "seg-", ".tcslog", seg_size_max,
+               tcslog::Format::variable_ts_rc(), &handler) == TCSLOG_STATUS_OK) {
+        w.write_str("attitude nominal");
+    }   /* w closes when it goes out of scope */
+
+    tcslog::LogRead r;
+    r.open(dir, "seg-", ".tcslog");
+    char buf[256];
+    tcslog::ReadResult res;
+    while (r.read(buf, sizeof buf, res) != TCSLOG_STATUS_EOF) {
+        /* as in C: carry on past SESSION_END, READ_TRUNCATED, READ_OVERFLOW */
+    }
+
+``LogWrite`` and ``LogRead`` are closed until ``open`` succeeds, are
+closed by ``close`` or when destroyed, and can be moved but not copied,
+so each handle is closed exactly once. Every method returns the C
+``Status``, as the functions do, and its name is the Rust method's:
+``write``, ``write_str``, ``flush``, ``clear``, ``timer_resolution``,
+``session_id``, ``current_segment_id``, ``last_meta``, ``read``,
+``read_str``, ``segments_opened``, ``current_header``,
+``collect_opened_headers`` and ``take_opened_headers_into``. Values come
+back through reference parameters. ``Format::fixed(n)``,
+``Format::variable_simple()`` and ``Format::variable_ts_rc()`` are the
+three formats.
+
+A writer's callbacks are the methods of a class derived from
+``tcslog::WriteCallbacks``, with the signatures shown there. They are
+not virtual: ``open`` sees the handler's own type and installs only the
+methods that type defines itself, so one left alone is a null pointer to
+the library and costs nothing per record. The handler is the context,
+and must outlive the writer.
+
+The header is C++11 and needs neither exceptions nor RTTI: nothing in it
+throws, and it builds with ``-fno-exceptions -fno-rtti``. It allocates
+nothing either. ``make capi-test`` runs ``tcslog-c/examples/wrapper.cpp``,
+which is built with those flags and replaces the global ``operator new``
+with one that counts, and checks that the count stays at zero.
 
 Allocation in the C/C++ binding
 -------------------------------

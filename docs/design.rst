@@ -2023,6 +2023,32 @@ the log can name, and builds each NUL-terminated path in it. A
 callback's non-zero return becomes a bare ``io::ErrorKind``, which does
 not allocate either.
 
+The C++ Interface
+-----------------
+``tcslog-c/include/tcslog.hpp`` is the C/C++ interface as C++ classes,
+written by hand over ``tcslog.h`` and installed beside it. It must be
+header-only C++11, must build with ``-fno-exceptions -fno-rtti``, and
+must allocate nothing.
+
+``tcslog::LogWrite`` and ``tcslog::LogRead`` own a handle each. They are
+closed until ``open`` succeeds, closed by ``close`` and by their
+destructors, and movable but not copyable, so a handle is closed exactly
+once. Every method returns the C status and is named for the Rust
+method it reaches; values come back through reference parameters.
+``tcslog::Format`` gives the three formats as ``fixed(n)``,
+``variable_simple()`` and ``variable_ts_rc()``.
+
+Callbacks are the methods of a class derived from
+``tcslog::WriteCallbacks``, whose own methods do nothing. They are not
+virtual. ``LogWrite::open`` is a template over the handler's type, and
+installs a method only when that type defines it rather than inheriting
+it, so an unset callback is null to the library as it is in C. The
+handler is the ``ctx``.
+
+``tcslog-c/examples/wrapper.cpp`` tests it, built with ``-pedantic
+-fno-exceptions -fno-rtti`` and with a global ``operator new`` that
+counts, which must read zero at the end.
+
 The Python 3 Interface
 ======================
 ``tcslog-py`` presents ``LogWrite`` and ``LogRead`` to Python 3 as the
