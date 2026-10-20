@@ -10,6 +10,29 @@ o   Piece by piece uploads
 
 o   Recovery from errors
 
+Languages
+---------
+Tcslog supports **Rust**, **C/C++**, and **Python 3**, with the same
+operations under the same names in all three:
+
+o   Rust: the `tcslog` crate.
+
+o   C/C++: `tcslog-c`, a C ABI whose header compiles, and is tested, as
+    both C and C++. See *C/C++ interface* below.
+
+o   Python 3: `tcslog-py`, a pure-Python package over `ctypes`. See
+    *Python 3 interface* below.
+
+A log written from any of them reads in the other two.
+
+Memory
+------
+Writing a record and reading a record allocate nothing, in any of the
+three languages; records are read into a buffer the caller owns. The
+few places that do allocate -- opening a log, clearing one, the Rust
+iterator, and, in Python, the objects Python makes for every value --
+are listed, with why each is unavoidable, in `docs/tcslog.rst`.
+
 Building
 --------
 From the repository root:
@@ -57,11 +80,13 @@ until ENTER.
 ./bin/verify-helper combined_12-10 corrupt_12-10
 ```
 
-C interface
------------
-The code producing telemetry on a flight system is often C, and a library
-that code cannot call is one that does not get used where the data is, so
-`tcslog-c` presents `LogWrite` and `LogRead` to a C caller. It is a
+C/C++ interface
+---------------
+The code producing telemetry on a flight system is often C or C++, and a
+library that code cannot call is one that does not get used where the
+data is, so `tcslog-c` presents `LogWrite` and `LogRead` to a C or C++
+caller. The header wraps its declarations in `extern "C"` for C++, so
+the same header and libraries serve both. It is a
 separate crate because a C interface has to be built as a `cdylib` and a
 `staticlib`, which a crate cannot be conditionally, and because the
 `unsafe` an ABI needs is then confined to it: the library crate itself
@@ -70,7 +95,8 @@ contains none.
 ```sh
 make install                       # header and libraries under $HOME
 make install PREFIX=/usr/local     # somewhere else; DESTDIR stages it
-cc prog.c -I$HOME/include -L$HOME/lib -ltcslog_c
+cc  prog.c   -I$HOME/include -L$HOME/lib -ltcslog_c
+c++ prog.cpp -I$HOME/include -L$HOME/lib -ltcslog_c
 ```
 
 `make uninstall` removes them again, honouring the same two variables.
@@ -97,7 +123,8 @@ different contexts. On the Rust side that is the `WriteCallbacks` trait,
 which a caller implements on whatever its callbacks need to reach.
 
 ```sh
-./bin/run-capi-example
+./bin/run-capi-example          # as C
+./bin/run-capi-example --cxx    # the same file as C++
 ```
 
 Builds `tcslog-c/examples/downlink.c` against the header, runs it
@@ -109,20 +136,47 @@ which is what a log looks like before a ground station comes into view.
 It then reads back what remains.
 
 `make capi-test` is the other half of that: it compiles
-`tcslog-c/examples/smoke.c` against the header, links the staticlib, and
-drives nine scenarios through the ABI -- a round trip, the fixed format,
-a refused format tag, a record too large for the buffer, a segment file
-deleted from the middle of the log, a `send` callback that refuses, a
-cleared log, the resolution callback, and null arguments. `make test`
+`tcslog-c/examples/smoke.c` against the header, once as C and once as
+C++, links the staticlib, and drives ten scenarios through the ABI -- a
+round trip, the fixed format, a refused format tag, a record too large
+for the buffer, a segment file deleted from the middle of the log, a
+`send` callback that refuses, a cleared log, the resolution callback,
+two writers with two contexts, and null arguments. `make test`
 runs it, because it is the only test that would catch a header
 describing the wrong argument order -- the Rust unit tests in `tcslog-c`
 call the same functions as Rust.
 
-`make capi-memcheck` runs the same program under the address and
+`make capi-memcheck` runs the same program, as C and as C++, under the address and
 undefined-behaviour sanitizers, which is what checks the handles for
 leaks and double frees: they are boxed in Rust and released from C, and
 nothing else here would notice a close that leaked one. It is not part
 of `make test`, needing a compiler that has the sanitizers.
+
+Python 3 interface
+------------------
+`tcslog-py` is the `tcslog` Python 3 package: `LogWrite`, `LogRead`,
+`WriteCallbacks` and the rest, named as in Rust, with each `LogError`
+variant an exception class. It is pure Python over `ctypes`, calling the
+C ABI's shared library, so it needs no compiler and nothing outside the
+standard library:
+
+```sh
+make install                       # the shared library it calls
+pip install ./tcslog-py
+```
+
+It finds the library through `TCSLOG_LIB`, if set, then beside the
+package, then on the loader's path (`LD_LIBRARY_PATH`), then in this
+repository's `target/` directory.
+
+```sh
+./bin/run-python-example
+```
+
+Runs `tcslog-py/examples/downlink.py`, the Python counterpart of
+`downlink.c`. `make python-test` runs the package's tests, which drive
+it through the scenarios `smoke.c` drives the C/C++ binding through;
+`make test` includes them.
 
 Documentation
 -------------

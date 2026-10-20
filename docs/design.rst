@@ -13,18 +13,27 @@ behaviour the library is required to have. It states what the code must
 do, and a change in behaviour belongs here as well as in the user
 manual, ``docs/tcslog.rst``.
 
-Tcslog is a Rust library for onboard logging of telemetry data, for
+Tcslog is a library for onboard logging of telemetry data, for
 systems such as spacecraft and autonomous underwater vehicles that must
-store telemetry onboard until opportunities arise for transmission.
+store telemetry onboard until opportunities arise for transmission. It
+is written in Rust and supports three languages, all of which are
+required: Rust, C/C++, and Python 3. Each must offer the same
+operations under the same names, and a log written from any one must
+read in the other two. Wherever C is supported, C++ must be supported
+too.
 
-The deliverable is a Cargo workspace of three crates: ``tcslog``, the
-library; ``tcslog-c``, the C ABI over it, specified under "The C
-Interface"; and ``tcslog-gen``, specified under "Support Binaries". The
-library also carries the ``sample`` example specified there, and
-``tcslog-c`` the two C programs named under "The C Binding". Only
-``tcslog`` is published to a registry: a C consumer links what
-``tcslog-c`` builds and includes the header beside it, neither of which
-cargo delivers, and ``tcslog-gen`` exists for the test suite. The
+The deliverable is a Cargo workspace of three crates and one Python
+package: ``tcslog``, the library and its Rust interface; ``tcslog-c``,
+the C/C++ ABI over it, specified under "The C/C++ Interface";
+``tcslog-gen``, specified under "Support Binaries"; and ``tcslog-py``,
+the Python 3 interface, specified under "The Python 3 Interface". The
+library also carries the ``sample`` example specified there,
+``tcslog-c`` the two C/C++ programs named under "The C/C++ Binding",
+and ``tcslog-py`` its tests and an example. Only ``tcslog`` is published
+to a registry: a C/C++ consumer links what ``tcslog-c`` builds and
+includes the header beside it, neither of which cargo delivers, a Python
+consumer installs ``tcslog-py`` with pip, and ``tcslog-gen`` exists for
+the test suite. The
 workspace shares one version, which is the crate version. The on-disk
 format described here carries its own version, in VERSION_MAJOR,
 VERSION_MINOR and VERSION_PATCH, and moves only when what is written
@@ -115,12 +124,15 @@ suited for embedded systems with limited memory. The buffers a segment
 file name and path need are reserved once and reused, so even rolling
 from one segment file to the next allocates nothing.
 
-Three operations are exceptions, and each is one a caller asks for
-explicitly rather than something the steady state does:
+The exceptions are each an operation a caller asks for explicitly
+rather than something the steady state does:
 
-o   Enumerating the log's directory, which LogWrite::new(),
-    LogRead::new() and LogWrite::clear() must all do. No platform this
-    library targets offers a directory scan without allocating.
+o   Opening, where LogWrite::new() and LogRead::new() reserve the
+    buffers above, copy the prefix and suffix, and enumerate the log's
+    directory. No platform this library targets offers a directory scan
+    without allocating.
+
+o   LogWrite::clear(), which enumerates the directory again.
 
 o   LogRead::iter(), whose Record values own their payloads. This is why
     the iterator is offered alongside read() rather than in place of it.
@@ -128,7 +140,24 @@ o   LogRead::iter(), whose Record values own their payloads. This is why
 o   LogRead::take_opened_headers(), which hands back a Vec of the
     headers retained since the last call.
 
-Each is documented as allocating where it is specified. A caller bound to
+o   format_timestamp() and record_trailer(), which render for display
+    and return a String. They are for tools that show a log, not for
+    the path that writes or reads one.
+
+o   An io::Error the operating system reports, which may carry an
+    allocated description. An error this library constructs itself must
+    be a bare error kind, which does not allocate.
+
+The C/C++ binding adds one: the opaque handle each open returns, which a
+C/C++ caller cannot reserve storage for because its size depends on the
+Rust standard library the binding was built with. The Python 3
+interface adds what Python allocates for every object, as "The Python 3
+Interface" lists; it must still read into a buffer the caller owns, and
+must not make a new ctypes object per call for a buffer passed again.
+
+Each is documented as allocating where it is specified, and in the user
+manual. Any allocation added later that cannot be avoided must be
+documented the same way, with why it cannot be avoided. A caller bound to
 a fixed memory budget can therefore write and read a log for as long as it
 likes without one, provided it uses read() rather than iter() and does not
 clear the log; what it cannot avoid is the allocation of opening the log
@@ -1375,6 +1404,16 @@ pub fn segments_opened(&self) -> u64
     not a count of headers seen by the caller, is what describes a log's
     extent.
 
+pub fn last_meta(&self) -> Meta
+
+    The metadata of the record most recently decoded. A read that ends
+    in ReadOverflow, or in ReadTruncated with bytes recovered, has put
+    the front of a record in the caller's buffer and returned an error
+    rather than a ReadResult; this is that record's metadata. A record
+    whose data header was lost with the segment file carrying it
+    reports Meta::VariableSimple. Before the first read it reports
+    Meta::VariableSimple.
+
 pub fn collect_opened_headers(&mut self, enable: bool)
 
     Ask the reader to retain the header of every segment file it opens.
@@ -1746,10 +1785,10 @@ Free Functions
         tcslog-gen and tcslog-dump use it, so a record reads the same
         coming out as it did going in.
 
-The C Interface
-===============
+The C/C++ Interface
+===================
 ``tcslog-c`` in this workspace presents ``LogWrite`` and ``LogRead``
-to a C caller. It is a separate crate because a C interface must be
+to a C or C++ caller. It is a separate crate because a C interface must be
 built as a ``cdylib`` and a ``staticlib``, which a crate cannot be
 conditionally, and because the ``unsafe`` an ABI needs is then confined
 to it: the library crate itself contains none.
@@ -1758,6 +1797,13 @@ The header, ``tcslog-c/include/tcslog.h``, is generated from the crate's
 source by ``cbindgen`` and is not written by hand. ``make header``
 regenerates it and ``make check`` fails if it is out of date, so a
 header that no longer describes the binding cannot reach a caller.
+
+The header must compile as C11 and as C++11 and mean the same in both:
+its functions are declared inside ``extern "C"`` when compiled as C++,
+and its enums are given a fixed underlying type there, so a C++ caller
+includes it, calls it, and links it exactly as a C caller does. Every C
+example and test program is written in the common subset of the two
+languages and is compiled as both.
 
 Calling Convention
 ------------------
@@ -1881,7 +1927,11 @@ o   ``n`` is the payload bytes placed in the caller's buffer, which are
 o   ``meta`` says which of the three metadata shapes the record had, and
     ``timestamp`` and ``record_count`` hold the timestamp and the
     position in the session when it is the variable-tsrc shape. They are
-    zero otherwise, rather than left as they were.
+    zero otherwise, rather than left as they were. All three are filled
+    whenever ``n`` is non-zero, from LogRead::last_meta() when the
+    status is ``TCSLOG_STATUS_READ_TRUNCATED`` or
+    ``TCSLOG_STATUS_READ_OVERFLOW``, so the front of a record is
+    described as a whole one would be.
 
 o   ``lost`` is the number of segment files found missing, on
     ``TCSLOG_STATUS_READ_TRUNCATED``. It is zero where a record was cut
@@ -1909,6 +1959,89 @@ Rust side this is ``WriteCallbacks``, which the binding implements once,
 holding the C function pointers and the context for the writer it
 belongs to.
 
+Handing a file to ``send`` must not allocate. The writer's handler
+reserves, when it is opened, a buffer long enough for the longest path
+the log can name, and builds each NUL-terminated path in it. A
+callback's non-zero return becomes a bare ``io::ErrorKind``, which does
+not allocate either.
+
+The Python 3 Interface
+======================
+``tcslog-py`` presents ``LogWrite`` and ``LogRead`` to Python 3 as the
+``tcslog`` package. It is pure Python over ``ctypes``, calling the
+functions of the C/C++ interface in the shared library ``tcslog-c``
+builds, so it requires nothing compiled beyond that library and nothing
+outside the standard library. It covers what the C/C++ interface
+covers.
+
+The library is found by looking, in order, at the ``TCSLOG_LIB``
+environment variable, which names the file; beside the package; on the
+system loader's search path; and in ``target/release`` then
+``target/debug`` of the repository the package sits in.
+
+Names
+-----
+Names follow the Rust crate: ``LogWrite``, ``LogRead``,
+``WriteCallbacks``, ``Format``, ``Meta``, ``ReadResult``, ``Record``,
+``LogError``, and methods ``write``, ``write_str``, ``flush``,
+``clear``, ``timer_resolution``, ``read``, ``read_str``, ``iter``, and
+``segments_opened``. ``LogWrite(...)`` and ``LogRead(...)`` take the
+arguments ``new`` takes, and both close on ``close()``, at the end of a
+``with`` block, or when collected. ``Format.fixed(n)``,
+``Format.VARIABLE_SIMPLE`` and ``Format.VARIABLE_TS_RC`` are the three
+formats. ``format_version()``, ``segment_file_header_len()`` and
+``status_str()`` are the functions taking no handle; ``Status`` holds
+the C status numbers.
+
+Errors
+------
+Every status but ``TCSLOG_STATUS_OK`` is raised as an exception: a
+subclass of ``tcslog.LogError`` named after the corresponding LogError
+variant, or after the status for the four only the binding reports
+(``NullArgument``, ``NotUtf8``, ``Panic``, ``InvalidFormat``), each with
+a ``status`` attribute holding its number. ``ReadTruncated`` carries
+``n`` and ``lost``, ``ReadOverflow`` carries ``n``, and both carry
+``result``, a ``ReadResult`` describing the bytes that reached the
+buffer.
+
+Reading and Writing
+-------------------
+``LogRead.read(buf)`` reads into ``buf``, which must be a writable
+buffer the caller owns, and returns a ``ReadResult`` of ``n``, ``meta``,
+``timestamp`` and ``record_count``. ``LogWrite.write(msg)`` takes any
+bytes-like object and returns the bytes the record occupied, its data
+header included. ``LogRead.iter()`` yields ``Record`` values of
+``meta``, ``payload``, ``truncated``, ``timestamp`` and
+``record_count``, behaving as LogRead::iter() does.
+
+Callbacks
+---------
+A writer's callbacks are the methods of a ``WriteCallbacks`` subclass:
+``send(path)``, ``record_complete(fd)`` and
+``timer_resolution_adjusted(resolution_ns)``. Only a method the
+subclass overrides is installed; any other is passed to the C/C++
+interface as null. The handler object is the context, so each writer
+has its own. A method reports failure by raising; the exception must not
+cross into C, so it is caught, the callback returns non-zero, and the
+call that triggered it raises ``IoError`` with the caught exception as
+its ``__cause__``.
+
+Allocation
+----------
+The package must keep allocation off the per-record path as far as
+Python allows. Each handle keeps the out-parameters it passes to C for
+its whole life. ``read`` and ``write`` keep the ctypes view of a
+writable buffer until a different one is passed or the handle is
+closed, so a buffer passed again needs no new view; holding the view
+pins the buffer, which is what keeps the address valid. ``bytes`` are
+passed to C in place.
+
+What Python cannot avoid must be documented in the package and in the
+user manual: the objects every return value and every exception is; a
+copy of a read-only buffer other than ``bytes`` before a write; the
+objects a callback's arguments need; the handle and its ctypes callback
+objects at open; and ``iter``'s buffer and per-record ``bytes``.
+
 ``send`` and ``record_complete`` return an ``int``: zero for success,
 and anything else makes the write that triggered the callback report
 ``TCSLOG_STATUS_IO_ERROR``. ``record_complete`` is handed a file
@@ -1926,10 +2059,11 @@ and that suite compares their output against stored files, so the output
 wording specified below is part of the requirement rather than an
 illustration of it.
 
-``tcslog-c`` carries two C programs of its own, ``smoke.c`` and
-``downlink.c``. They are specified under "The C Binding" rather than
-here, being what tests and illustrates the ABI rather than tools for
-working with a log.
+``tcslog-c`` carries two C/C++ programs of its own, ``smoke.c`` and
+``downlink.c``, and ``tcslog-py`` a test suite and ``downlink.py``. They
+are specified under "The C/C++ Binding" and "The Python 3 Interface"
+under Testing rather than here, being what tests and illustrates the
+interfaces rather than tools for working with a log.
 
 tcslog-gen
 ----------
@@ -2050,12 +2184,14 @@ segment files it wrote, and deletes the directory afterwards.
 
 Testing
 =======
-Testing has three layers and all three are required. Unit tests inside
+Testing has four layers and all four are required. Unit tests inside
 the crates reach the library through its API, where a fault can be
 injected directly. The error-recovery suite under ``test/`` reaches it
 the way a user does, through ``tcslog-gen`` and ``tcslog-dump``, with
-the faults applied to the bytes on disk. The C layer reaches it the way
-a C program does, across the ABI, which neither of the others crosses.
+the faults applied to the bytes on disk. The C/C++ layer reaches it the
+way a C or C++ program does, across the ABI, which neither of the others
+crosses. The Python 3 layer reaches it the way a Python program does,
+through ``ctypes`` and across that same ABI.
 
 Unit Tests
 ----------
@@ -2585,11 +2721,11 @@ they are not in the directory being walked. Matching case names against
 a pattern instead leaves the target silently doing nothing the first
 time the cases are renamed.
 
-The C Binding
--------------
-Nothing in the two Rust layers compiles a C program, so nothing in them
-would catch a header that no longer matches the binding or a signature
-that is wrong in C but fine in Rust. Three checks cover that, and each
+The C/C++ Binding
+-----------------
+Nothing in the two Rust layers compiles a C or C++ program, so nothing
+in them would catch a header that no longer matches the binding or a
+signature that is wrong in C or C++ but fine in Rust. Three checks cover that, and each
 is a ``make`` target:
 
 o   ``make check`` regenerates the header with cbindgen and fails if it
@@ -2599,23 +2735,39 @@ o   ``make check`` regenerates the header with cbindgen and fails if it
     binding is worse than no header.
 
 o   ``make capi-test`` compiles ``tcslog-c/examples/smoke.c`` against
-    the header in the tree, links the staticlib cargo built, and runs
-    it. Compiling is half the test: a signature a C compiler rejects is
-    a signature no caller can use, whatever the Rust side thinks of it,
-    and the compiler is held to ``-Wall -Wextra -Werror -std=c11`` so
-    that a warning counts. The staticlib rather than the shared object,
+    the header in the tree, once as C and once as C++, links each
+    against the staticlib cargo built, and runs both. Compiling is half
+    the test: a signature a C or C++ compiler rejects is a signature no
+    caller can use, whatever the Rust side thinks of it, and the
+    compilers are held to ``-Wall -Wextra -Werror`` with ``-std=c11``
+    and ``-std=c++11`` so that a warning counts. The staticlib rather than the shared object,
     there being no install step here to put one where a loader would
     find it.
 
-o   ``make capi-memcheck`` runs that same program under the address and
-    undefined-behaviour sanitizers. This is the layer where a pointer
+o   ``make capi-memcheck`` runs that same program, as C and as C++,
+    under the address and undefined-behaviour sanitizers. This is the layer where a pointer
     the binding mishandles can be caught at all: the Rust crates contain
     no ``unsafe``, and all of the binding's is reached only from C.
 
 ``tcslog-c/examples/downlink.c``, run by ``bin/run-capi-example``
-against a temporary directory, is the C counterpart of ``sample``: a
+against a temporary directory, is the C/C++ counterpart of ``sample``: a
 complete program a newcomer can read, exercising the callbacks rather
-than only the read and write calls.
+than only the read and write calls. ``bin/run-capi-example --cxx``
+compiles it as C++.
+
+The Python 3 Interface
+----------------------
+``make python-test`` builds the shared library and runs the package's
+tests under ``tcslog-py/tests``, with ``TCSLOG_LIB`` naming the library
+just built so that an installed copy cannot stand in for it. They drive
+the package through the scenarios ``smoke.c`` drives the C/C++ binding
+through, and also check that a buffer passed again is not given a new
+ctypes view and that a closed handle releases its buffer. ``make test``
+runs them. ``make check`` fails if the version in
+``tcslog-py/pyproject.toml`` differs from the workspace's.
+
+``tcslog-py/examples/downlink.py``, run by ``bin/run-python-example``,
+is the Python counterpart of ``downlink.c``.
 
 Restrictions
 ============
@@ -2629,8 +2781,10 @@ bytes in the file used for the segment header and the number of bytes
 used for one data header.
 
 No dynamic memory allocation may be done by writing a record or reading
-a record, save by the three operations named under "Dynamic Memory
-Allocation", which a caller reaches only by asking for them.
+a record, in any of the three languages, save by the operations named
+under "Dynamic Memory Allocation", which a caller reaches only by asking
+for them. Every allocation that cannot be avoided must be documented,
+with why.
 
 o   Prefix and suffix values must not contain the path delimiters. If they
     do, the return value must be LogError::PathDelimiterNotAllowed

@@ -15,6 +15,42 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged, 0.1.0.
+
+Tcslog now supports three languages -- Rust, C/C++, and Python 3 -- and the
+documentation says so throughout.
+
+### Added
+
+- `tcslog-py`, a Python 3 package (`import tcslog`) over the C ABI through
+  `ctypes`, with the Rust crate's names: `LogWrite`, `LogRead`,
+  `WriteCallbacks`, `Format`, `Meta`, `ReadResult`, `Record`, and a
+  `LogError` subclass per variant. Tests under `tcslog-py/tests` run from
+  `make python-test` and `make test`; `bin/run-python-example` runs
+  `tcslog-py/examples/downlink.py`.
+- C++ support for the C binding is now tested: `make capi-test` and
+  `make capi-memcheck` compile and run `smoke.c` as C11 and as C++11, and
+  `bin/run-capi-example --cxx` builds `downlink.c` as C++.
+- `LogRead::last_meta`, the metadata of the record most recently decoded,
+  which is what describes the bytes a `ReadOverflow` or `ReadTruncated` left
+  in the buffer.
+
+### Changed
+
+- `tcslog_read_record` fills `meta`, `timestamp` and `record_count` whenever
+  `n` is non-zero, including on `TCSLOG_STATUS_READ_OVERFLOW` and
+  `TCSLOG_STATUS_READ_TRUNCATED`, where they were zero before.
+- Handing a segment file to a C `send` callback no longer allocates: the
+  path is built in a buffer reserved when the writer is opened. A callback's
+  failure, and the writer's internal "no segment file open" error, no longer
+  allocate a message.
+- The examples and documented C programs are written in the common subset of
+  C and C++.
+- Every place that still allocates is documented, with why, in the crate
+  documentation, `docs/tcslog.rst` and `docs/design.rst`.
+
 ## [0.4.0] - 2026-10-06
 
 Stored format: unchanged, 0.1.0. Nothing about what is written moves here, so

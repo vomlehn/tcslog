@@ -23,6 +23,28 @@ suffix wrapped around an identifier. Records are appended to the file
 being written; when it is full, Tcslog hands it to a function the caller
 supplied and opens the next one.
 
+Supported languages
+-------------------
+
+Tcslog supports **Rust**, **C/C++**, and **Python 3**, and all three
+offer the same operations under the same names:
+
+Rust
+    The ``tcslog`` crate, which the rest of this manual describes first.
+
+C/C++
+    The ``tcslog-c`` binding: a C ABI and a header, ``tcslog.h``, that
+    compiles as C and as C++ and is tested as both. See
+    `Calling From C/C++`_.
+
+Python 3
+    The ``tcslog`` package in ``tcslog-py``: pure Python over
+    ``ctypes``, calling the C ABI's shared library. See
+    `Calling From Python 3`_.
+
+A log written from any one of them reads in the other two: the stored
+format does not depend on which language wrote it.
+
 Advantages in normal operation
 ------------------------------
 
@@ -49,11 +71,24 @@ buffer the caller owns, and the internal buffers a segment file name and
 path need are reserved once and reused, so even rolling from one segment
 file to the next allocates nothing.
 
-The three exceptions are all operations a caller asks for explicitly, and
-each says so where it is described: enumerating the directory, which
-``LogRead::new``, ``LogWrite::new``, and ``LogWrite::clear`` must do and
-which no platform offers without allocating; ``LogRead::iter``, whose
-records own their payloads; and ``LogRead::take_opened_headers``.
+The exceptions are all operations a caller asks for explicitly, and
+each says so where it is described:
+
+- opening, where ``LogRead::new`` and ``LogWrite::new`` reserve those
+  buffers and enumerate the directory, which no platform offers without
+  allocating;
+- ``LogWrite::clear``, which enumerates the directory again;
+- ``LogRead::iter``, whose records own their payloads;
+- ``LogRead::take_opened_headers``;
+- ``format_timestamp`` and ``record_trailer``, which render for display
+  and return a ``String``;
+- an I/O error the operating system reports, which may carry an
+  allocated description.
+
+The C/C++ binding adds only the handle each open returns -- see
+`Allocation in the C/C++ binding`_ -- and the Python 3 interface what
+Python itself allocates for every object -- see `Allocation in
+Python`_.
 
 **Metadata only where it is wanted.** Three record layouts are offered,
 from one that stores payload bytes and nothing else to one that stamps
@@ -1047,20 +1082,29 @@ Results and errors
         The segment file was written by a version of the stored format
         this build cannot read.
 
-Calling From C
-==============
+Calling From C/C++
+==================
 
-The code producing telemetry on a flight system is often C, and a
-library that code cannot call is one that does not get used where the
-data is. So a C program reaches the same two interfaces through
+The code producing telemetry on a flight system is often C or C++, and
+a library that code cannot call is one that does not get used where the
+data is. So a C or C++ program reaches the same two interfaces through
 ``tcslog-c``, a crate in this workspace that presents ``LogWrite`` and
 ``LogRead`` as a C ABI. It is a separate crate because a C interface has
 to be built as a shared and a static library, which a crate cannot be
 only when asked, and because the unsafe code an ABI needs is then
 confined to it: the library itself contains none.
 
-Nothing about the log changes. A log written from C is read by a Rust
-caller and the other way round, the stored format being the same one.
+Nothing about the log changes. A log written from C or C++ is read by
+a Rust or Python caller and the other way round, the stored format being
+the same one.
+
+Everything in this chapter applies to C and C++ alike. The header
+declares its functions inside ``extern "C"`` when compiled as C++, and
+gives its enums a fixed ``int32_t`` or ``uint32_t`` underlying type
+there, so a C++ program includes it, calls it, and links against it
+exactly as a C program does. ``make capi-test`` compiles the binding's
+smoke test once as C11 and once as C++11 and runs both, so a header
+that only one of the two compilers accepted would fail the tests.
 
 Installing
 ----------
@@ -1073,9 +1117,10 @@ The header goes to ``$HOME/include/tcslog.h`` and both libraries to
 ``$HOME/lib``. ``make install PREFIX=/usr/local`` chooses somewhere
 else, ``DESTDIR`` stages the install for packaging, and ``make
 uninstall`` removes them again, honouring both variables. Then compile
-against it::
+against it, from C or from C++::
 
-    cc prog.c -I$HOME/include -L$HOME/lib -ltcslog_c
+    cc  prog.c   -I$HOME/include -L$HOME/lib -ltcslog_c
+    c++ prog.cpp -I$HOME/include -L$HOME/lib -ltcslog_c
 
 Both a static and a shared library are installed, so either kind of
 link works. Neither a pkg-config file nor the Rust library is
@@ -1144,7 +1189,7 @@ Writing
     outside the three is refused with
     ``TCSLOG_STATUS_INVALID_FORMAT``. ``cb`` is this writer's callbacks
     and the context to hand them, and may be null for none; see
-    `Callbacks from C`_.
+    `Callbacks from C/C++`_.
 
 ``tcslog_write_record(h, data, len, written)``
     Writes one record of ``len`` bytes. ``written``, when it is not
@@ -1196,7 +1241,11 @@ Reading
         Which of the three metadata shapes the record had, and, for
         ``TCSLOG_META_VARIABLE_TS_RC``, the time it was written and its
         position in the session. The latter two are zero for the other
-        shapes.
+        shapes. They are filled whenever ``n`` is, so the front of a
+        record that came with ``TCSLOG_STATUS_READ_TRUNCATED`` or
+        ``TCSLOG_STATUS_READ_OVERFLOW`` is described as a whole one
+        would be; a record whose data header was lost reports
+        ``TCSLOG_META_VARIABLE_SIMPLE``.
 
     ``lost``
         Segment files found missing, on
@@ -1220,8 +1269,8 @@ kept; reading again returns the record after it, not another attempt at
 this one. A buffer that overflowed once is too small for the log, and
 the remedy is a bigger buffer next time rather than a retry now.
 
-Callbacks from C
-----------------
+Callbacks from C/C++
+--------------------
 
 A writer is given its callbacks when it is opened, in a
 ``TcslogCallbacks`` that also carries the context they are handed back::
@@ -1236,7 +1285,7 @@ A writer is given its callbacks when it is opened, in a
     struct downlink { const char *dir; int queued; };
 
     static int on_send(void *ctx, const char *path) {
-        struct downlink *d = ctx;
+        struct downlink *d = (struct downlink *)ctx;  /* cast for C++ */
         /* must leave nothing at `path` */
         d->queued++;
         return 0;
@@ -1258,8 +1307,11 @@ outlive the writer.
 
 Each writer has its own, so two logs in one process can have different
 callbacks and different contexts. This is ``WriteCallbacks`` on the Rust
-side, which the binding implements once and aims at whichever C
-functions a writer was opened with.
+side, which the binding implements once and aims at whichever C or C++
+functions a writer was opened with. A C++ callback is an ordinary
+function, or a lambda with no captures, since the pointer must be a
+plain function pointer; state a C++ caller would capture goes in
+``ctx`` instead.
 
 ``send`` and ``record_complete`` return an ``int``: zero for success,
 and anything else makes the write that triggered the callback report
@@ -1272,10 +1324,34 @@ What ``send`` has to do is what it has to do in Rust: when it returns
 there must be no file at the path it was given and none matching the
 log's naming pattern. See `Callbacks: WriteCallbacks`_.
 
+Allocation in the C/C++ binding
+-------------------------------
+
+Writing, reading, flushing, and the queries allocate nothing, as in the
+library: a record is read into the caller's buffer, and the path handed
+to ``send`` is built in a buffer the writer reserved when it was opened.
+What allocates is confined to calls a caller makes once, or asks for
+explicitly:
+
+- ``tcslog_write_open`` and ``tcslog_read_open`` allocate the handle,
+  and the library allocates the buffers it then reuses and the
+  directory listing it opens from. This is unavoidable: the handle is
+  opaque, and its size depends on the Rust standard library the binding
+  was built with, so a C/C++ caller could not reserve storage for it.
+  The matching close frees it.
+- ``tcslog_write_clear`` enumerates the directory, which no platform
+  offers without allocating.
+- An I/O error the operating system reports may carry an allocated
+  description, which is freed before the call returns. A callback's
+  failure does not allocate.
+
+``make capi-memcheck`` runs the smoke test, as C and as C++, under the
+address sanitizer, which checks that every handle opened is freed.
+
 Panics do not cross the boundary
 --------------------------------
 
-Letting a panic unwind out of a C function is undefined behaviour, so
+Letting a panic unwind out of a C or C++ function is undefined behaviour, so
 every function catches one and reports ``TCSLOG_STATUS_PANIC`` instead.
 A caller that sees it should treat the handle as unusable: the panic
 happened part way through an operation and the binding cannot say how
@@ -1378,8 +1454,200 @@ Writing a log and reading it back:
 A longer one, with a ``send`` callback that takes each filled segment
 file out of the log the way a vehicle would, is
 ``tcslog-c/examples/downlink.c`` in the repository.
-``bin/run-capi-example`` builds it and runs it against a temporary
-directory.
+``bin/run-capi-example`` builds it as C and runs it against a temporary
+directory, and ``bin/run-capi-example --cxx`` builds the same file as
+C++. Both it and the program above are written in the common subset of
+C and C++, which costs only an explicit cast from ``void *``.
+
+Calling From Python 3
+=====================
+
+A Python 3 program reaches the same two interfaces through the
+``tcslog`` package in ``tcslog-py``. It is pure Python over ``ctypes``,
+calling the very functions of the C ABI a C or C++ program calls, so it
+needs nothing compiled beyond that library and has no dependencies
+outside the standard library. A log written from Python is read from
+Rust or C/C++, and the other way round.
+
+Installing the package
+----------------------
+
+Install the C/C++ binding's library first, as `Installing`_ under `Calling From C/C++`_
+describes, then the package::
+
+    make install
+    pip install ./tcslog-py
+
+The package finds the library by looking, in order, at the
+``TCSLOG_LIB`` environment variable, which names the file; beside the
+package; on the system loader's search path, which
+``LD_LIBRARY_PATH`` extends; and in ``target/release`` then
+``target/debug`` of the repository the package sits in. A library under
+``$HOME/lib`` is on none of those by default, so either add that to
+``LD_LIBRARY_PATH`` or name the file in ``TCSLOG_LIB``.
+
+How the Python interface is shaped
+----------------------------------
+
+The names are the Rust crate's, with Python's conventions where the two
+differ:
+
+==============================  ======================================  ==================================
+Rust                            C/C++                                   Python 3
+==============================  ======================================  ==================================
+``LogWrite::new(...)``          ``tcslog_write_open``                   ``LogWrite(...)``
+``LogWrite::write``             ``tcslog_write_record``                 ``LogWrite.write``
+``LogWrite::write_str``         ``tcslog_write_record``                 ``LogWrite.write_str``
+``LogWrite::flush``             ``tcslog_write_flush``                  ``LogWrite.flush``
+``LogWrite::clear``             ``tcslog_write_clear``                  ``LogWrite.clear``
+``LogWrite::timer_resolution``  ``tcslog_write_timer_resolution``       ``LogWrite.timer_resolution``
+dropping a ``LogWrite``         ``tcslog_write_close``                  ``LogWrite.close``, or ``with``
+``LogRead::new(...)``           ``tcslog_read_open``                    ``LogRead(...)``
+``LogRead::read``               ``tcslog_read_record``                  ``LogRead.read``
+``LogRead::read_str``           ``tcslog_read_record``                  ``LogRead.read_str``
+``LogRead::iter``               --                                      ``LogRead.iter``, or ``for``
+``LogRead::segments_opened``    ``tcslog_read_segments_opened``         ``LogRead.segments_opened``
+dropping a ``LogRead``          ``tcslog_read_close``                   ``LogRead.close``, or ``with``
+``WriteCallbacks``              ``TcslogCallbacks``                     ``WriteCallbacks``
+``Format::Fixed(n)``            ``TCSLOG_FORMAT_FIXED``, ``n``          ``Format.fixed(n)``
+``Format::VariableSimple``      ``TCSLOG_FORMAT_VARIABLE_SIMPLE``       ``Format.VARIABLE_SIMPLE``
+``Format::VariableTsRc``        ``TCSLOG_FORMAT_VARIABLE_TS_RC``        ``Format.VARIABLE_TS_RC``
+``Meta``                        ``TcslogMeta``                          ``Meta``
+``ReadResult``                  ``TcslogReadResult``                    ``ReadResult``
+``Record``                      --                                      ``Record``
+``LogError::Eof`` and the rest  ``TCSLOG_STATUS_EOF`` and the rest      ``Eof`` and the rest
+``SEGMENT_FILE_HEADER_LEN``     ``tcslog_segment_file_header_len``      ``segment_file_header_len()``
+``VERSION_*``                   ``tcslog_format_version``               ``format_version()``
+==============================  ======================================  ==================================
+
+The package covers what the C ABI covers, since that is what it calls.
+The Rust-only queries on a writer -- its session and segment
+identifiers and the metadata of its last record -- and a reader's
+header retention are not offered from C/C++ or Python.
+
+Failures are exceptions, one class for each ``LogError`` variant and
+each ``TcslogStatus``, all subclasses of ``tcslog.LogError`` and named
+after the Rust variant: ``Eof``, ``SessionEnd``, ``ReadTruncated``,
+``ReadOverflow``, ``IoError``, and so on, each with a ``status``
+attribute giving its C value. As in Rust, ``Eof`` ends a read loop, and
+``SessionEnd``, ``ReadTruncated`` and ``ReadOverflow`` are news about
+the telemetry that a caller reads past; `What a caller should do with
+each outcome`_ applies unchanged. ``ReadTruncated`` carries ``n`` and
+``lost``, and ``ReadOverflow`` carries ``n``, the bytes that reached the
+buffer; both carry ``result``, a ``ReadResult`` describing them.
+
+``LogRead.read`` takes a writable buffer the caller owns, such as a
+``bytearray``, and returns a ``ReadResult`` -- ``n``, ``meta``,
+``timestamp``, and ``record_count`` -- whose ``n`` bytes at the front
+of the buffer are the record. ``LogWrite.write`` takes any bytes-like
+object and returns the bytes the record occupied, its data header
+included.
+
+Callbacks from Python
+---------------------
+
+A writer's callbacks are the methods of a ``tcslog.WriteCallbacks``
+subclass, passed as the last argument when it is opened::
+
+    class Downlink(tcslog.WriteCallbacks):
+        def __init__(self, dest):
+            self.dest, self.queued = dest, 0
+
+        def send(self, path):
+            # must leave nothing at `path`
+            os.rename(path, os.path.join(self.dest, os.path.basename(path)))
+            self.queued += 1
+
+    w = tcslog.LogWrite(dir, "seg-", ".tcslog", seg_size_max,
+                        tcslog.Format.VARIABLE_SIMPLE, Downlink("/var/downlinked"))
+
+The object itself is the context, so two writers with two handler
+objects keep their state apart, as ``ctx`` does in C/C++. Only the
+methods a subclass overrides are installed; one left alone is a null
+pointer to the library and costs nothing per record.
+
+``send`` and ``record_complete`` report failure by raising. The write
+that triggered the callback then raises ``tcslog.IoError``, with the
+callback's exception as its ``__cause__``. ``record_complete`` is
+handed the descriptor of a file the library still owns, as in C/C++,
+and must not close it.
+
+Allocation in Python
+--------------------
+
+The library underneath allocates nothing to write or read a record,
+and the package keeps to that as far as Python allows. ``LogRead.read``
+places the record in the caller's buffer rather than returning a new
+``bytes``. Each handle keeps the out-parameters it hands to C for its
+whole life. The ``ctypes`` view of a caller's buffer is made the first
+time that buffer is passed and kept until a different one is, so
+reading into, or writing from, the same buffer again makes no new view;
+while a handle holds the view the buffer cannot be resized, which is
+what keeps the address C was given valid, and closing the handle
+releases it. ``bytes`` passed to ``LogWrite.write`` go to C in place.
+
+What remains cannot be avoided in Python:
+
+- Every value a call returns is a Python object: the ``ReadResult`` a
+  read returns, the integers in it, and the integer a write returns.
+- Every exception is an object, so each ``Eof``, ``SessionEnd``,
+  ``ReadTruncated`` or ``ReadOverflow`` allocates one. These arrive once
+  per session, loss, or log, not once per record.
+- A read-only buffer other than ``bytes``, such as a ``memoryview`` of
+  one, is copied before a write, since C must be given a stable address
+  and ``ctypes`` can take one only from ``bytes`` or a writable buffer.
+- Calling a ``WriteCallbacks`` method makes the Python objects its
+  arguments need; the path ``send`` is given is a ``str``.
+- Opening a handle allocates it, as in C/C++ and Rust, together with a
+  ``ctypes`` callback object for each method the handler overrides.
+- ``LogRead.iter`` allocates a ``bytes`` per record and a 64 KiB buffer
+  per iterator, as ``LogRead::iter`` does in Rust.
+
+A complete Python program
+-------------------------
+
+Writing a log and reading it back:
+
+.. code-block:: python
+
+    import tempfile
+    import tcslog
+
+    class Counting(tcslog.WriteCallbacks):
+        # A real send must leave no file at the path it is given; this
+        # program reads the log back below, so it only counts.
+        def __init__(self):
+            self.sent = 0
+
+        def send(self, path):
+            self.sent += 1
+
+    log_dir = tempfile.mkdtemp()
+    seg_size_max = tcslog.segment_file_header_len() + 4096
+
+    with tcslog.LogWrite(log_dir, "seg-", ".tcslog", seg_size_max,
+                         tcslog.Format.VARIABLE_TS_RC, Counting()) as w:
+        for msg in ("attitude nominal", "battery 71 percent"):
+            w.write_str(msg)
+        w.flush()
+
+    buf = bytearray(256)        # allocated once, reused for every read
+    with tcslog.LogRead(log_dir, "seg-", ".tcslog") as r:
+        while True:
+            try:
+                res = r.read(buf)
+            except tcslog.Eof:
+                break
+            except (tcslog.SessionEnd, tcslog.ReadTruncated,
+                    tcslog.ReadOverflow):
+                continue
+            print(res.record_count, buf[:res.n].decode())
+
+A longer one, the counterpart of ``downlink.c``, is
+``tcslog-py/examples/downlink.py``; ``bin/run-python-example`` runs it
+against a temporary directory. ``make python-test`` runs the package's
+tests, which drive it through the scenarios the C/C++ smoke test
+drives the binding through.
 
 Theory of Operation
 ===================

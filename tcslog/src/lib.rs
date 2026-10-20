@@ -5,9 +5,16 @@
 //! that situation: it keeps telemetry in a form that can be handed down
 //! in small pieces whenever a link appears, and it keeps it in a form
 //! that still yields most of its contents after part of the storage has
-//! gone bad. Rust and C can both use it: the code producing telemetry on
-//! such a vehicle is often C, so `tcslog-c`, in the same repository,
-//! presents the library as a C ABI -- see *Calling from C* below.
+//! gone bad.
+//!
+//! Tcslog supports three languages: **Rust**, **C/C++**, and
+//! **Python 3**. This crate is the Rust interface. The code producing
+//! telemetry on such a vehicle is often C or C++, so `tcslog-c`, in the
+//! same repository, presents the library as a C ABI with a header that
+//! compiles as either -- see *Calling from C/C++* below -- and
+//! `tcslog-py` presents that same ABI to Python 3 -- see *Calling from
+//! Python 3*. All three offer the same operations under the same names,
+//! and a log written from any one reads in the other two.
 //!
 //! A Tcslog log is a directory of *segment files*. Each one is at most a
 //! size the caller chooses, and its name is a caller-chosen prefix and
@@ -42,12 +49,18 @@
 //! and path need are reserved once and reused, so even rolling from one
 //! segment file to the next allocates nothing.
 //!
-//! The three exceptions are all operations a caller asks for explicitly,
-//! and each says so where it is described: enumerating the directory,
-//! which [`LogRead::new`], [`LogWrite::new`], and [`LogWrite::clear`]
-//! must do and which no platform offers without allocating;
-//! [`LogRead::iter`], whose records own their payloads; and
-//! [`LogRead::take_opened_headers`].
+//! The exceptions are all operations a caller asks for explicitly, and
+//! each says so where it is described: opening, where
+//! [`LogRead::new`] and [`LogWrite::new`] reserve those buffers and
+//! enumerate the directory, which no platform offers without
+//! allocating; [`LogWrite::clear`], which enumerates it again;
+//! [`LogRead::iter`], whose records own their payloads;
+//! [`LogRead::take_opened_headers`]; [`format_timestamp`] and
+//! [`record_trailer`], which render for display and return a `String`;
+//! and an I/O error the operating system reports, which may carry an
+//! allocated description. The C/C++ binding adds only the handle each
+//! open returns, and the Python 3 interface what Python itself
+//! allocates for every object; both document theirs.
 //!
 //! **Metadata only where it is wanted.** Three record layouts are
 //! offered, from one that stores payload bytes and nothing else to one
@@ -233,16 +246,27 @@
 //! header without consulting its name -- for files renamed or copied out of their
 //! directory.
 //!
-//! # Calling from C
+//! # Calling from C/C++
 //!
 //! `tcslog-c`, in the same repository, presents these two interfaces as
 //! a C ABI: `tcslog_write_open` and `tcslog_write_record` for writing,
 //! `tcslog_read_open` and `tcslog_read_record` for reading, with every
 //! function returning a status and every result written through an
-//! out-parameter. `make install` puts the header and the libraries under
-//! a prefix of your choosing. A log written from C and one written from
-//! Rust are the same log; the stored format does not depend on which
-//! side wrote it.
+//! out-parameter. Its header, `tcslog.h`, compiles as C and as C++, and
+//! is tested as both. `make install` puts the header and the libraries
+//! under a prefix of your choosing. A log written from C or C++ and one
+//! written from Rust are the same log; the stored format does not depend
+//! on which side wrote it.
+//!
+//! # Calling from Python 3
+//!
+//! `tcslog-py`, in the same repository, is a Python 3 package, `tcslog`,
+//! with the classes and methods named here -- `LogWrite`, `LogRead`,
+//! `WriteCallbacks`, `Format`, `Meta`, `ReadResult`, `Record`, and a
+//! `LogError` subclass for each variant of [`LogError`]. It is pure
+//! Python over `ctypes`, calling the C ABI's shared library, so it needs
+//! nothing compiled beyond that library. `pip install ./tcslog-py`
+//! installs it.
 //!
 //! # Documentation
 //!
