@@ -12,7 +12,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tcslog"
-version = "0.4.2"
+version = "0.4.3"
 description = "Python 3 interface to tcslog, segmented telemetry log flight software for storage-bounded systems, being integrated with NASA's cFS and JPL's F Prime"
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.8"
