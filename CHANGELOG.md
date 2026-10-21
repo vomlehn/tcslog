@@ -15,6 +15,28 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [0.4.3] - 2026-10-21
+
+Stored format: unchanged, 0.1.0.
+
+### Changed
+
+- The crate's description, the READMEs, the crate documentation the library
+  README is generated from, and the introductions to the manual and the
+  design say that tcslog is flight software, and that work is under way on
+  integrating it with NASA's core Flight System (cFS) and JPL's F´ (F Prime).
+
+- The library documentation, and so the crate's page on crates.io, ends with
+  a See also linking the manual and the design as HTML, and tcslog-tools.
+  The HTML that `make -C docs` renders is now committed beside its sources
+  rather than ignored, and GitHub Pages serves it, at
+  <https://vomlehn.github.io/tcslog/docs/manual.html> and
+  <https://vomlehn.github.io/tcslog/docs/design.html>.
+
+  Nothing in the crate changed. crates.io carries the README of the
+  published version, so a release is what puts these on that page -- which
+  is the whole of what this one is for.
+
 ## [0.4.2] - 2026-10-20
 
 Stored format: unchanged, 0.1.0.
@@ -895,6 +917,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[0.4.3]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.3
 [0.4.2]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.2
 [0.4.1]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.1
 [0.4.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.0
