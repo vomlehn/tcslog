@@ -240,9 +240,9 @@
 //!
 //! | `Format` | Per-record overhead | What it stores |
 //! | --- | --- | --- |
-//! | `Fixed(n)` | none | payloads of exactly `n` bytes |
-//! | `VariableSimple` | 4 bytes | a length |
-//! | `VariableTsRc` | 20 bytes | a length, a timestamp, a record number |
+//! | `Fixed(n)` | none | the payload, of exactly `n` bytes |
+//! | `VariableSimple` | 4 bytes | a length, then the payload, of that many bytes |
+//! | `VariableTsRc` | 20 bytes | a length, a timestamp and a record number, then the payload, of that many bytes |
 //!
 //! # Tools
 //!
