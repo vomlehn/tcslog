@@ -277,7 +277,19 @@
 //! # Documentation
 //!
 //! The full manual, including the theory of operation, is `docs/manual.rst` in
-//! [the repository](https://github.com/vomlehn/tcslog).
+//! [the repository](https://github.com/vomlehn/tcslog), and the specification
+//! is `docs/design.rst`. Each is rendered to HTML beside it, and published:
+//! see below.
+//!
+//! # See also
+//!
+//! - [The tcslog manual](https://vomlehn.github.io/tcslog/docs/manual.html):
+//!   what the library does, how to call it, and how it behaves, with the
+//!   theory of operation.
+//! - [The tcslog design](https://vomlehn.github.io/tcslog/docs/design.html):
+//!   the specification the library is held to.
+//! - [tcslog-tools](https://crates.io/crates/tcslog-tools): command-line tools
+//!   for inspecting segment files.
 //!
 //! # License
 //!
