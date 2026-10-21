@@ -276,10 +276,13 @@
 //!
 //! # Documentation
 //!
-//! The full manual, including the theory of operation, is `docs/manual.rst` in
-//! [the repository](https://github.com/vomlehn/tcslog), and the specification
-//! is `docs/design.rst`. Each is rendered to HTML beside it, and published:
-//! see below.
+//! - [The tcslog manual](https://vomlehn.github.io/tcslog/docs/manual.html) is
+//!   the full user guide, including the theory of operation.
+//! - [The tcslog design](https://vomlehn.github.io/tcslog/docs/design.html) is
+//!   the specification the library is held to.
+//!
+//! Their sources are `docs/manual.rst` and `docs/design.rst` in
+//! [the repository](https://github.com/vomlehn/tcslog).
 //!
 //! # See also
 //!
