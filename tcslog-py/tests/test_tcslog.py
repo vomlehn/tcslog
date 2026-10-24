@@ -22,7 +22,9 @@ def seg_size(data_bytes: int) -> int:
 
 
 def segment_files(d: str) -> List[str]:
-    return sorted(n for n in os.listdir(d) if n.startswith(PREFIX) and n.endswith(SUFFIX))
+    return sorted(
+        n for n in os.listdir(d) if n.startswith(PREFIX) and n.endswith(SUFFIX)
+    )
 
 
 class Counters(tcslog.WriteCallbacks):
@@ -58,15 +60,26 @@ class Scenarios(unittest.TestCase):
         major, minor, patch = tcslog.format_version()
         self.assertEqual((major, minor), (0, 1))
         self.assertEqual(tcslog.segment_file_header_len(), 53)
-        self.assertEqual(tcslog.status_str(tcslog.Status.EOF), tcslog.Eof().args[0])
+        self.assertEqual(
+            tcslog.status_str(tcslog.Status.EOF), tcslog.Eof().args[0]
+        )
 
     def test_round_trip(self) -> None:
         # send counts but does not move the file, so the reader still
         # finds it, as in the C smoke test.
         c = Counters()
-        msgs = [b"attitude nominal", b"battery 71 percent", b"downlink window in 420s"]
+        msgs = [
+            b"attitude nominal",
+            b"battery 71 percent",
+            b"downlink window in 420s",
+        ]
         with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_TS_RC, c
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(4096),
+            tcslog.Format.VARIABLE_TS_RC,
+            c,
         ) as w:
             for m in msgs:
                 # A VariableTsRc record carries a twenty-byte data header.
@@ -97,7 +110,11 @@ class Scenarios(unittest.TestCase):
 
     def test_write_accepts_any_bytes_like(self) -> None:
         with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(4096),
+            tcslog.Format.VARIABLE_SIMPLE,
         ) as w:
             w.write(b"bytes")
             w.write(bytearray(b"bytearray"))
@@ -106,10 +123,14 @@ class Scenarios(unittest.TestCase):
             w.write(b"")
         with tcslog.LogRead(self.dir, PREFIX, SUFFIX) as r:
             got = [rec.payload for rec in r]
-        self.assertEqual(got, [b"bytes", b"bytearray", b"read-only view", b"text", b""])
+        self.assertEqual(
+            got, [b"bytes", b"bytearray", b"read-only view", b"text", b""]
+        )
 
     def test_fixed_format(self) -> None:
-        with tcslog.LogWrite(self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.fixed(8)) as w:
+        with tcslog.LogWrite(
+            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.fixed(8)
+        ) as w:
             self.assertEqual(w.write(b"01234567"), 8)
             with self.assertRaises(tcslog.FixedLenMismatch):
                 w.write(b"0123456")
@@ -124,11 +145,21 @@ class Scenarios(unittest.TestCase):
 
     def test_invalid_format(self) -> None:
         with self.assertRaises(tcslog.InvalidFormat):
-            tcslog.LogWrite(self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format(3))
+            tcslog.LogWrite(
+                self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format(3)
+            )
         with self.assertRaises(tcslog.SegSizeTooSmall):
-            tcslog.LogWrite(self.dir, PREFIX, SUFFIX, 1, tcslog.Format.VARIABLE_SIMPLE)
+            tcslog.LogWrite(
+                self.dir, PREFIX, SUFFIX, 1, tcslog.Format.VARIABLE_SIMPLE
+            )
         with self.assertRaises(tcslog.PathDelimiterNotAllowed):
-            tcslog.LogWrite(self.dir, "a/b", SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE)
+            tcslog.LogWrite(
+                self.dir,
+                "a/b",
+                SUFFIX,
+                seg_size(4096),
+                tcslog.Format.VARIABLE_SIMPLE,
+            )
 
     def test_no_log_to_read(self) -> None:
         with self.assertRaises(tcslog.NoSegmentFiles):
@@ -138,7 +169,11 @@ class Scenarios(unittest.TestCase):
         payload = bytes(ord("a") + i % 26 for i in range(200))
         nxt = b"the record after it"
         with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(4096),
+            tcslog.Format.VARIABLE_SIMPLE,
         ) as w:
             w.write(payload)
             w.write(nxt)
@@ -147,7 +182,9 @@ class Scenarios(unittest.TestCase):
             with self.assertRaises(tcslog.ReadOverflow) as cm:
                 r.read(small)
             self.assertEqual(cm.exception.n, 16)
-            self.assertEqual(cm.exception.result.meta, tcslog.Meta.VARIABLE_SIMPLE)
+            self.assertEqual(
+                cm.exception.result.meta, tcslog.Meta.VARIABLE_SIMPLE
+            )
             self.assertEqual(bytes(small), payload[:16])
             # The rest was skipped, so this is the next record.
             big = bytearray(256)
@@ -158,15 +195,25 @@ class Scenarios(unittest.TestCase):
 
     def test_read_needs_writable_buffer(self) -> None:
         with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(4096),
+            tcslog.Format.VARIABLE_SIMPLE,
         ) as w:
             w.write(b"x")
-        with tcslog.LogRead(self.dir, PREFIX, SUFFIX) as r, self.assertRaises(TypeError):
+        with tcslog.LogRead(self.dir, PREFIX, SUFFIX) as r, self.assertRaises(
+            TypeError
+        ):
             r.read(bytes(16))
 
     def _write_many(self, count: int) -> None:
         with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(32), tcslog.Format.VARIABLE_SIMPLE
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(32),
+            tcslog.Format.VARIABLE_SIMPLE,
         ) as w:
             for i in range(count):
                 w.write(b"record%02d" % i)
@@ -201,7 +248,11 @@ class Scenarios(unittest.TestCase):
     def test_iter(self) -> None:
         payload = b"z" * 100
         with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_TS_RC
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(4096),
+            tcslog.Format.VARIABLE_TS_RC,
         ) as w:
             w.write(b"whole")
             w.write(payload)
@@ -214,7 +265,12 @@ class Scenarios(unittest.TestCase):
     def test_send_failure(self) -> None:
         c = Counters(refuse_send=True)
         w = tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(32), tcslog.Format.VARIABLE_SIMPLE, c
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(32),
+            tcslog.Format.VARIABLE_SIMPLE,
+            c,
         )
         with self.assertRaises(tcslog.IoError) as cm:
             for i in range(32):
@@ -227,7 +283,11 @@ class Scenarios(unittest.TestCase):
         self._write_many(12)
         self.assertTrue(segment_files(self.dir))
         with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(32), tcslog.Format.VARIABLE_SIMPLE
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(32),
+            tcslog.Format.VARIABLE_SIMPLE,
         ) as w:
             w.clear()
             self.assertEqual(segment_files(self.dir), [])
@@ -235,7 +295,12 @@ class Scenarios(unittest.TestCase):
     def test_timer_resolution_callback(self) -> None:
         c = Counters()
         with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE, c
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(4096),
+            tcslog.Format.VARIABLE_SIMPLE,
+            c,
         ) as w:
             w.write(b"telemetry")
         self.assertEqual(c.adjustments, 0)
@@ -246,8 +311,12 @@ class Scenarios(unittest.TestCase):
         os.mkdir(da)
         os.mkdir(db)
         a, b = Counters(), Counters()
-        wa = tcslog.LogWrite(da, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE, a)
-        wb = tcslog.LogWrite(db, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE, b)
+        wa = tcslog.LogWrite(
+            da, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE, a
+        )
+        wb = tcslog.LogWrite(
+            db, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE, b
+        )
         wa.write(b"one")
         wb.write(b"one")
         wb.write(b"two")
@@ -258,13 +327,19 @@ class Scenarios(unittest.TestCase):
 
     def test_buffer_is_pinned_and_reused(self) -> None:
         with tcslog.LogWrite(
-            self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(4096),
+            tcslog.Format.VARIABLE_SIMPLE,
         ) as w:
             src = bytearray(b"pinned")
             w.write(src)
             pin = w._pin
             w.write(src)
-            self.assertIs(w._pin, pin, "writing the same buffer again makes no new view")
+            self.assertIs(
+                w._pin, pin, "writing the same buffer again makes no new view"
+            )
             del pin  # the test's own reference would keep the buffer pinned
             with self.assertRaises(BufferError):
                 src.extend(b"!")
@@ -275,7 +350,9 @@ class Scenarios(unittest.TestCase):
         r.read(buf)
         pin = r._pin
         r.read(buf)
-        self.assertIs(r._pin, pin, "reading into the same buffer again makes no new view")
+        self.assertIs(
+            r._pin, pin, "reading into the same buffer again makes no new view"
+        )
         del pin
         with self.assertRaises(BufferError):
             buf.extend(b"x")
@@ -306,7 +383,9 @@ class Scenarios(unittest.TestCase):
         self.assertEqual(tcslog.SegId.parse(str(session)), session)
         with self.assertRaises(tcslog.InvalidPathname):
             tcslog.SegId.parse("not-an-identifier")
-        self.assertEqual(tcslog.format_timestamp(0), "1970-01-01T00:00:00.000000000Z")
+        self.assertEqual(
+            tcslog.format_timestamp(0), "1970-01-01T00:00:00.000000000Z"
+        )
 
         buf = bytearray(256)
         with tcslog.LogRead(self.dir, PREFIX, SUFFIX) as r:
@@ -325,11 +404,19 @@ class Scenarios(unittest.TestCase):
             self.assertEqual(len(headers), r.segments_opened())
             self.assertEqual(len(headers), len(names))
             self.assertGreater(len(headers), 16)
-            self.assertEqual([h.sequence for h in headers], list(range(len(headers))))
+            self.assertEqual(
+                [h.sequence for h in headers], list(range(len(headers)))
+            )
             self.assertEqual(r.take_opened_headers(), [])
 
     def test_closed_handles(self) -> None:
-        w = tcslog.LogWrite(self.dir, PREFIX, SUFFIX, seg_size(4096), tcslog.Format.VARIABLE_SIMPLE)
+        w = tcslog.LogWrite(
+            self.dir,
+            PREFIX,
+            SUFFIX,
+            seg_size(4096),
+            tcslog.Format.VARIABLE_SIMPLE,
+        )
         w.write(b"x")
         w.close()
         w.close()

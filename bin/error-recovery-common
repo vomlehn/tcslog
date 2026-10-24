@@ -84,7 +84,9 @@ data_size=17
 sessions=1
 usage() {
 cat <<-EOF
-Usage: $0 -e <expected-file> [-g] [-k] [-q] [-r] [-x] [-H] [-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] [-n <count>] [-s <bytes>] [-S <count>] [-h]
+Usage: $0 -e <expected-file> [-g] [-k] [-q] [-r] [-x] [-H] \
+[-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] \
+[-n <count>] [-s <bytes>] [-S <count>] [-h]
 -c idx1 idx2 ...  Indices of files whose header magic to overwrite, so
                   the segment cannot be opened at all. Unlike -d the
                   file is still present, which is what a corrupted
@@ -195,7 +197,8 @@ check_indices() {
     local idx
     for idx in "$@"; do
         if ! [[ "$idx" =~ ^([0-9]+|last)$ ]]; then
-            echo "Invalid index in -$flag list: '$idx' (must be an unsigned integer or 'last')" 1>&2
+            echo "Invalid index in -$flag list: '$idx'" \
+                "(must be an unsigned integer or 'last')" 1>&2
             exit 1
         fi
     done
@@ -223,7 +226,8 @@ resolve_index() {
         return
     fi
     if [ "$idx" -lt 1 ] || [ "$idx" -gt "$count" ]; then
-        echo "Index $idx in -$flag list is out of range: only $count segment file(s) exist" 1>&2
+        echo "Index $idx in -$flag list is out of range:" \
+            "only $count segment file(s) exist" 1>&2
         exit 1
     fi
     echo "$idx"
@@ -265,7 +269,8 @@ trunc_seg() {
     # kind, silently substituted for the one the test asked for.
     data_len=$((before - hdr_len))
     if [ "$data_len" -lt 2 ]; then
-        echo "Segment file #$idx holds $data_len data byte(s); -t has nothing to cut" 1>&2
+        echo "Segment file #$idx holds $data_len data byte(s);" \
+            "-t has nothing to cut" 1>&2
         exit 1
     fi
     target=$((hdr_len + data_len / 2))
@@ -302,7 +307,8 @@ oversize_seg() {
     local max_size before
     max_size=$(od -An -tu4 -j28 -N4 "$f" | tr -d ' ')
     before=$(stat -c%s "$f")
-    echo "Pad segment file #$idx from $before past its max_size of $max_size: $f"
+    echo "Pad segment file #$idx from $before past its max_size" \
+        "of $max_size: $f"
     truncate -s $((max_size + 1)) "$f"
 }
 
@@ -317,7 +323,8 @@ apply_to_indices() {
         num=$(resolve_index "$flag" "$num" "${#files[@]}")
         idx=$((num - 1))
         if [ ! -f "${files[$idx]}" ]; then
-            echo "Segment file #$num is already gone; -$flag cannot act on it" 1>&2
+            echo "Segment file #$num is already gone;" \
+                "-$flag cannot act on it" 1>&2
             exit 1
         fi
         "$action" "$num" "${files[$idx]}"
@@ -477,11 +484,14 @@ normalize() {
 # the stored file can show that, since the stored file is the verbose
 # form, so assert it directly rather than leave the quiet mode uncovered.
 check_quiet_mode() {
-    local quiet
+    local quiet quiet_re
+    quiet_re='^(=== segment file:'
+    quiet_re+='|    (segment_id|session_id|max_size|remaining|format|sequence):'
+    quiet_re+='|    -- |    \(payload larger than|--- End of Session'
+    quiet_re+='|read [0-9]+ message)'
     quiet=$("$(dirname "$0")/tcslog-tool" tcslog-dump \
         "$TMP_DIR" "$PFX" "$SFX" ${text_flag:+"$text_flag"})
-    if printf '%s\n' "$quiet" | grep -qE \
-        '^(=== segment file:|    (segment_id|session_id|max_size|remaining|format|sequence):|    -- |    \(payload larger than|--- End of Session|read [0-9]+ message)'
+    if printf '%s\n' "$quiet" | grep -qE "$quiet_re"
     then
         echo "FAIL: output without --verbose is not records alone" 1>&2
         printf '%s\n' "$quiet" 1>&2

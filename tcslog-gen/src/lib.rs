@@ -7,7 +7,8 @@ use std::path::Path;
 use std::str::FromStr;
 
 use tcslog::{
-    record_trailer, Format, LogError, LogWrite, RecSize, WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
+    record_trailer, Format, LogError, LogWrite, RecSize, WriteCallbacks,
+    SEGMENT_FILE_HEADER_LEN,
 };
 
 /// User-facing record-format specification parsed from the `--format`
@@ -41,7 +42,8 @@ impl RecordFormatSpec {
     pub fn min_size(self) -> RecSize {
         match self {
             Self::Fixed(n) => n,
-            Self::VariableSimple { min, .. } | Self::VariableTsRc { min, .. } => min,
+            Self::VariableSimple { min, .. }
+            | Self::VariableTsRc { min, .. } => min,
         }
     }
 
@@ -50,7 +52,8 @@ impl RecordFormatSpec {
     pub fn max_size(self) -> RecSize {
         match self {
             Self::Fixed(n) => n,
-            Self::VariableSimple { max, .. } | Self::VariableTsRc { max, .. } => max,
+            Self::VariableSimple { max, .. }
+            | Self::VariableTsRc { max, .. } => max,
         }
     }
 }
@@ -140,7 +143,10 @@ impl FromStr for RecordFormatSpec {
     }
 }
 
-fn parse_range(spec: &str, kind: &str) -> Result<(RecSize, RecSize), RecordFormatSpecError> {
+fn parse_range(
+    spec: &str,
+    kind: &str,
+) -> Result<(RecSize, RecSize), RecordFormatSpecError> {
     if let Some((min_s, max_s)) = spec.split_once("..") {
         let min = parse_len(min_s, kind)?;
         let max = parse_len(max_s, kind)?;
@@ -233,7 +239,14 @@ pub fn create_log(
         println!();
     }
 
-    let mut log = LogWrite::new(dir_name, prefix, suffix, seg_size_max, format, Announce)?;
+    let mut log = LogWrite::new(
+        dir_name,
+        prefix,
+        suffix,
+        seg_size_max,
+        format,
+        Announce,
+    )?;
 
     let session_id = log.session_id();
     let root_file = format!("{prefix}{session_id}{suffix}");
@@ -260,7 +273,11 @@ pub fn create_log(
     })
 }
 
-fn build_payload(spec: RecordFormatSpec, index: u64, rng: &mut SplitMix64) -> Vec<u8> {
+fn build_payload(
+    spec: RecordFormatSpec,
+    index: u64,
+    rng: &mut SplitMix64,
+) -> Vec<u8> {
     let min = spec.min_size();
     let max = spec.max_size();
     let target = if min == max {

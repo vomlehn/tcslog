@@ -8,7 +8,11 @@ repository.workspace = true
 # crates.io full-text search covers the name, the description and the
 # keywords, but not the readme, so the platforms are named here as well
 # as in the readme's opening line.
-description = "Flight software for onboard telemetry logging into segment files, with recovery from lost or damaged segments: for spacecraft, autonomous underwater vehicles, buoys, balloons, and other vehicles whose contact is intermittent; being integrated with NASA's cFS and JPL's F Prime"
+description = """\
+Flight software for onboard telemetry logging into segment files, with \
+recovery from lost or damaged segments: for spacecraft, autonomous \
+underwater vehicles, buoys, balloons, and other vehicles whose contact is \
+intermittent; being integrated with NASA's cFS and JPL's F Prime"""
 readme = "README.md"
 # crates.io allows five. "embedded" is already a category below, and
 # "recovery" means little without context. These five name what the
@@ -20,7 +24,13 @@ keywords = ["telemetry", "logging", "intermittent", "spacecraft", "robotics"]
 # the research instruments that carry them, and a store that is a
 # directory of files. science and science::robotics are parent and child,
 # which lists the crate under both.
-categories = ["embedded", "aerospace", "science", "science::robotics", "filesystem"]
+categories = [
+    "embedded",
+    "aerospace",
+    "science",
+    "science::robotics",
+    "filesystem",
+]
 build = "build.rs"
 
 [features]

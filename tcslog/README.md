@@ -22,7 +22,9 @@ and a log written from any one reads in the other two.
 
 Work is under way on using Tcslog with NASA's core Flight System
 (cFS) and JPL's F´ (F Prime): the plan is in tcspecial's
-[`docs/third-party.rst`](https://github.com/vomlehn/tcspecial/blob/main/docs/third-party.rst).
+[`docs/third-party.rst`][third-party].
+
+[third-party]: https://github.com/vomlehn/tcspecial/blob/main/docs/third-party.rst
 That work is in progress: none of it is built yet.
 
 A Tcslog log is a directory of *segment files*. Each one is at most a
@@ -234,18 +236,19 @@ is news about the telemetry, not a failure of the reader.
 
 ## Record formats
 
-| `Format` | Per-record overhead | What it stores |
-| --- | --- | --- |
-| `Fixed(n)` | none | the payload, of exactly `n` bytes |
-| `VariableSimple` | 4 bytes | a length, then the payload, of that many bytes |
-| `VariableTsRc` | 20 bytes | a length, a timestamp and a record number, then the payload, of that many bytes |
+- `Fixed(n)`: no per-record overhead. Stores the payload, of exactly
+  `n` bytes.
+- `VariableSimple`: 4 bytes per record. Stores a length, then the
+  payload, of that many bytes.
+- `VariableTsRc`: 20 bytes per record. Stores a length, a timestamp
+  and a record number, then the payload, of that many bytes.
 
 ## Tools
 
-[`tcslog-tools`](https://github.com/vomlehn/tcslog-tools) provides `tcslog-dump`,
-which prints a log, and `tcslog-dumphdr`, which prints one segment file's
-header without consulting its name -- for files renamed or copied out of their
-directory.
+[`tcslog-tools`](https://github.com/vomlehn/tcslog-tools) provides
+`tcslog-dump`, which prints a log, and `tcslog-dumphdr`, which prints
+one segment file's header without consulting its name -- for files
+renamed or copied out of their directory.
 
 ## Calling from C/C++
 
@@ -255,8 +258,9 @@ a C ABI: `tcslog_write_open` and `tcslog_write_record` for writing,
 function returning a status and every result written through an
 out-parameter. Its header, `tcslog.h`, compiles as C and as C++, and
 is tested as both; `tcslog.hpp` presents the same interface to C++
-as classes named as here, needing no exceptions, RTTI, or heap. `make install` puts the header and the libraries
-under a prefix of your choosing. A log written from C or C++ and one
+as classes named as here, needing no exceptions, RTTI, or heap.
+`make install` puts the header and the libraries under a prefix of
+your choosing. A log written from C or C++ and one
 written from Rust are the same log; the stored format does not depend
 on which side wrote it.
 

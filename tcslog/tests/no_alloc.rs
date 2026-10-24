@@ -42,7 +42,12 @@ unsafe impl GlobalAlloc for Counting {
         // SAFETY: as above.
         unsafe { System.alloc_zeroed(layout) }
     }
-    unsafe fn realloc(&self, ptr: *mut u8, layout: Layout, new_size: usize) -> *mut u8 {
+    unsafe fn realloc(
+        &self,
+        ptr: *mut u8,
+        layout: Layout,
+        new_size: usize,
+    ) -> *mut u8 {
         note();
         // SAFETY: as above.
         unsafe { System.realloc(ptr, layout, new_size) }
@@ -120,7 +125,8 @@ fn writing_and_reading_allocate_nothing_in_any_format() {
         );
         assert_eq!(
             reading, 0,
-            "{format:?}: reading 40 records across files allocated {reading} times"
+            "{format:?}: reading 40 records across files allocated \
+             {reading} times"
         );
     }
 }

@@ -24,12 +24,12 @@
 static int news = 0;
 
 void *operator new(std::size_t n) {
-    news++;
-    void *p = std::malloc(n == 0 ? 1 : n);
-    if (p == nullptr) {
-        std::abort();
-    }
-    return p;
+	news++;
+	void *p = std::malloc(n == 0 ? 1 : n);
+	if (p == nullptr) {
+		std::abort();
+	}
+	return p;
 }
 
 void operator delete(void *p) noexcept { std::free(p); }
@@ -38,221 +38,236 @@ void operator delete(void *p, std::size_t) noexcept { std::free(p); }
 static int failures = 0;
 
 static void check(bool ok, const char *what) {
-    std::printf("%s %s\n", ok ? "ok      " : "not ok  ", what);
-    if (!ok) {
-        failures++;
-    }
+	std::printf("%s %s\n", ok ? "ok      " : "not ok  ", what);
+	if (!ok) {
+		failures++;
+	}
 }
 
 static const char *PREFIX = "seg-";
 static const char *SUFFIX = ".log";
 
 static bool subdir(const char *base, const char *name, char (&out)[4096]) {
-    int n = std::snprintf(out, sizeof out, "%s/%s", base, name);
-    return n > 0 && static_cast<size_t>(n) < sizeof out && mkdir(out, 0755) == 0;
+	int n = std::snprintf(out, sizeof out, "%s/%s", base, name);
+	return n > 0 && static_cast<size_t>(n) < sizeof out &&
+	       mkdir(out, 0755) == 0;
 }
 
 // Counts every callback, and refuses send when asked to.
 struct Counting : tcslog::WriteCallbacks {
-    int sends = 0;
-    int completes = 0;
-    bool refuse = false;
+	int sends = 0;
+	int completes = 0;
+	bool refuse = false;
 
-    int send(const char *path) {
-        (void)path;
-        sends++;
-        return refuse ? 1 : 0;
-    }
-    int record_complete(int fd) {
-        (void)fd;
-        completes++;
-        return 0;
-    }
+	int send(const char *path) {
+		(void)path;
+		sends++;
+		return refuse ? 1 : 0;
+	}
+	int record_complete(int fd) {
+		(void)fd;
+		completes++;
+		return 0;
+	}
 };
 
 // Overrides send alone, so record_complete must not be installed.
 struct SendOnly : tcslog::WriteCallbacks {
-    int sends = 0;
-    int send(const char *path) {
-        (void)path;
-        sends++;
-        return 0;
-    }
+	int sends = 0;
+	int send(const char *path) {
+		(void)path;
+		sends++;
+		return 0;
+	}
 };
 
-static_assert(tcslog::detail::Overrides<SendOnly>::send, "send is SendOnly's own");
+static_assert(tcslog::detail::Overrides<SendOnly>::send,
+              "send is SendOnly's own");
 static_assert(!tcslog::detail::Overrides<SendOnly>::record_complete,
               "record_complete is inherited, and so not installed");
 
 static void round_trip(const char *base) {
-    std::printf("-- round trip through the C++ interface\n");
-    char dir[4096];
-    if (!subdir(base, "round-trip", dir)) {
-        failures++;
-        return;
-    }
-    const uint32_t seg = tcslog::segment_file_header_len() + 4096;
-    static const char *msgs[] = {"attitude nominal", "battery 71 percent"};
+	std::printf("-- round trip through the C++ interface\n");
+	char dir[4096];
+	if (!subdir(base, "round-trip", dir)) {
+		failures++;
+		return;
+	}
+	const uint32_t seg = tcslog::segment_file_header_len() + 4096;
+	static const char *msgs[] = {"attitude nominal", "battery 71 percent"};
 
-    Counting handler;
-    {
-        tcslog::LogWrite w;
-        check(!w.is_open(), "a writer is closed until opened");
-        check(w.open(dir, PREFIX, SUFFIX, seg, tcslog::Format::variable_ts_rc(), &handler) ==
-                  TCSLOG_STATUS_OK,
-              "a writer opens with a handler");
-        for (const char *m : msgs) {
-            uint32_t written = 0;
-            check(w.write_str(m, &written) == TCSLOG_STATUS_OK &&
-                      written == std::strlen(m) + 20,
-                  "a record is written");
-        }
-        tcslog::RecordMeta meta;
-        check(w.last_meta(meta) == TCSLOG_STATUS_OK && meta.record_count == 2,
-              "the last record's metadata is reported");
-        uint64_t session = 0;
-        check(w.session_id(session) == TCSLOG_STATUS_OK && session != 0,
-              "the session identifier is reported");
+	Counting handler;
+	{
+		tcslog::LogWrite w;
+		check(!w.is_open(), "a writer is closed until opened");
+		check(w.open(dir, PREFIX, SUFFIX, seg,
+		             tcslog::Format::variable_ts_rc(), &handler) ==
+		          TCSLOG_STATUS_OK,
+		      "a writer opens with a handler");
+		for (const char *m : msgs) {
+			uint32_t written = 0;
+			check(w.write_str(m, &written) == TCSLOG_STATUS_OK &&
+			          written == std::strlen(m) + 20,
+			      "a record is written");
+		}
+		tcslog::RecordMeta meta;
+		check(w.last_meta(meta) == TCSLOG_STATUS_OK &&
+		          meta.record_count == 2,
+		      "the last record's metadata is reported");
+		uint64_t session = 0;
+		check(w.session_id(session) == TCSLOG_STATUS_OK && session != 0,
+		      "the session identifier is reported");
 
-        // Moving hands the log over; only the destination closes it.
-        tcslog::LogWrite moved(static_cast<tcslog::LogWrite &&>(w));
-        check(!w.is_open() && moved.is_open(), "a move transfers the handle");
-    }
-    check(handler.completes == 2, "record_complete ran once per record");
-    check(handler.sends == 1, "destroying the writer handed the open file over");
+		// Moving hands the log over; only the destination closes it.
+		tcslog::LogWrite moved(static_cast<tcslog::LogWrite &&>(w));
+		check(!w.is_open() && moved.is_open(),
+		      "a move transfers the handle");
+	}
+	check(handler.completes == 2, "record_complete ran once per record");
+	check(handler.sends == 1,
+	      "destroying the writer handed the open file over");
 
-    tcslog::LogRead r;
-    check(r.open(dir, PREFIX, SUFFIX) == TCSLOG_STATUS_OK, "a reader opens");
-    char buf[256];
-    tcslog::ReadResult res;
-    int count = 0;
-    for (;;) {
-        tcslog::Status s = r.read(buf, sizeof buf, res);
-        if (s == TCSLOG_STATUS_EOF) {
-            break;
-        }
-        if (s != TCSLOG_STATUS_OK) {
-            check(false, "a record is read");
-            break;
-        }
-        check(count < 2 && res.n == std::strlen(msgs[count]) &&
-                  std::memcmp(buf, msgs[count], res.n) == 0,
-              "the record read back is the record written");
-        count++;
-    }
-    check(count == 2, "every record written was read back");
+	tcslog::LogRead r;
+	check(r.open(dir, PREFIX, SUFFIX) == TCSLOG_STATUS_OK,
+	      "a reader opens");
+	char buf[256];
+	tcslog::ReadResult res;
+	int count = 0;
+	for (;;) {
+		tcslog::Status s = r.read(buf, sizeof buf, res);
+		if (s == TCSLOG_STATUS_EOF) {
+			break;
+		}
+		if (s != TCSLOG_STATUS_OK) {
+			check(false, "a record is read");
+			break;
+		}
+		check(count < 2 && res.n == std::strlen(msgs[count]) &&
+		          std::memcmp(buf, msgs[count], res.n) == 0,
+		      "the record read back is the record written");
+		count++;
+	}
+	check(count == 2, "every record written was read back");
 }
 
 static void partial_handler(const char *base) {
-    std::printf("-- a handler overriding send alone\n");
-    char dir[4096];
-    if (!subdir(base, "send-only", dir)) {
-        failures++;
-        return;
-    }
-    SendOnly handler;
-    tcslog::LogWrite w;
-    check(w.open(dir, PREFIX, SUFFIX, tcslog::segment_file_header_len() + 32,
-                 tcslog::Format::variable_simple(), &handler) == TCSLOG_STATUS_OK,
-          "a writer opens");
-    for (int i = 0; i < 12; i++) {
-        w.write("record", 6);
-    }
-    w.close();
-    check(handler.sends >= 2, "send ran for each filled file and at close");
+	std::printf("-- a handler overriding send alone\n");
+	char dir[4096];
+	if (!subdir(base, "send-only", dir)) {
+		failures++;
+		return;
+	}
+	SendOnly handler;
+	tcslog::LogWrite w;
+	check(w.open(dir, PREFIX, SUFFIX,
+	             tcslog::segment_file_header_len() + 32,
+	             tcslog::Format::variable_simple(), &handler) ==
+	          TCSLOG_STATUS_OK,
+	      "a writer opens");
+	for (int i = 0; i < 12; i++) {
+		w.write("record", 6);
+	}
+	w.close();
+	check(handler.sends >= 2, "send ran for each filled file and at close");
 }
 
 static void refusing_send(const char *base) {
-    std::printf("-- a send that refuses\n");
-    char dir[4096];
-    if (!subdir(base, "refuse", dir)) {
-        failures++;
-        return;
-    }
-    Counting handler;
-    handler.refuse = true;
-    tcslog::LogWrite w;
-    w.open(dir, PREFIX, SUFFIX, tcslog::segment_file_header_len() + 32,
-           tcslog::Format::variable_simple(), &handler);
-    tcslog::Status s = TCSLOG_STATUS_OK;
-    for (int i = 0; i < 32 && s == TCSLOG_STATUS_OK; i++) {
-        s = w.write("record", 6);
-    }
-    check(s == TCSLOG_STATUS_IO_ERROR, "the write that triggered it reports an I/O error");
+	std::printf("-- a send that refuses\n");
+	char dir[4096];
+	if (!subdir(base, "refuse", dir)) {
+		failures++;
+		return;
+	}
+	Counting handler;
+	handler.refuse = true;
+	tcslog::LogWrite w;
+	w.open(dir, PREFIX, SUFFIX, tcslog::segment_file_header_len() + 32,
+	       tcslog::Format::variable_simple(), &handler);
+	tcslog::Status s = TCSLOG_STATUS_OK;
+	for (int i = 0; i < 32 && s == TCSLOG_STATUS_OK; i++) {
+		s = w.write("record", 6);
+	}
+	check(s == TCSLOG_STATUS_IO_ERROR,
+	      "the write that triggered it reports an I/O error");
 }
 
 static void headers_and_text(const char *base) {
-    std::printf("-- headers and text forms\n");
-    char dir[4096];
-    if (!subdir(base, "headers", dir)) {
-        failures++;
-        return;
-    }
-    uint64_t session = 0;
-    {
-        tcslog::LogWrite w;
-        w.open(dir, PREFIX, SUFFIX, tcslog::segment_file_header_len() + 32,
-               tcslog::Format::fixed(8));
-        for (int i = 0; i < 20; i++) {
-            w.write("01234567", 8);
-        }
-        w.session_id(session);
-    }
-    char text[TCSLOG_SEG_ID_STR_LEN + 1];
-    uint64_t parsed = 0;
-    check(tcslog::seg_id_format(session, text) == TCSLOG_STATUS_OK &&
-              tcslog::seg_id_parse(text, parsed) == TCSLOG_STATUS_OK && parsed == session,
-          "an identifier renders and parses back");
-    char too_small[4];
-    check(tcslog::seg_id_format(session, too_small) == TCSLOG_STATUS_BUFFER_TOO_SMALL,
-          "too small a buffer is refused");
-    char when[TCSLOG_TIMESTAMP_STR_LEN + 1];
-    check(tcslog::format_timestamp(0, when) == TCSLOG_STATUS_OK &&
-              std::strcmp(when, "1970-01-01T00:00:00.000000000Z") == 0,
-          "the epoch renders");
+	std::printf("-- headers and text forms\n");
+	char dir[4096];
+	if (!subdir(base, "headers", dir)) {
+		failures++;
+		return;
+	}
+	uint64_t session = 0;
+	{
+		tcslog::LogWrite w;
+		w.open(dir, PREFIX, SUFFIX,
+		       tcslog::segment_file_header_len() + 32,
+		       tcslog::Format::fixed(8));
+		for (int i = 0; i < 20; i++) {
+			w.write("01234567", 8);
+		}
+		w.session_id(session);
+	}
+	char text[TCSLOG_SEG_ID_STR_LEN + 1];
+	uint64_t parsed = 0;
+	check(tcslog::seg_id_format(session, text) == TCSLOG_STATUS_OK &&
+	          tcslog::seg_id_parse(text, parsed) == TCSLOG_STATUS_OK &&
+	          parsed == session,
+	      "an identifier renders and parses back");
+	char too_small[4];
+	check(tcslog::seg_id_format(session, too_small) ==
+	          TCSLOG_STATUS_BUFFER_TOO_SMALL,
+	      "too small a buffer is refused");
+	char when[TCSLOG_TIMESTAMP_STR_LEN + 1];
+	check(tcslog::format_timestamp(0, when) == TCSLOG_STATUS_OK &&
+	          std::strcmp(when, "1970-01-01T00:00:00.000000000Z") == 0,
+	      "the epoch renders");
 
-    tcslog::LogRead r;
-    r.open(dir, PREFIX, SUFFIX);
-    tcslog::SegmentHeader header;
-    bool present = true;
-    r.current_header(header, present);
-    check(!present, "no header before the first read");
-    r.collect_opened_headers(true);
-    char buf[16];
-    tcslog::ReadResult res;
-    while (r.read(buf, sizeof buf, res) != TCSLOG_STATUS_EOF) {
-    }
-    tcslog::SegmentHeader headers[3];
-    size_t n = 0, taken = 0;
-    do {
-        r.take_opened_headers_into(headers, 3, n);
-        for (size_t i = 0; i < n; i++) {
-            check(headers[i].session_id == session && headers[i].fixed_len == 8,
-                  "a retained header is this log's");
-        }
-        taken += n;
-    } while (n == 3);
-    uint64_t opened = 0;
-    r.segments_opened(opened);
-    check(taken == opened && taken > 3, "every header was taken, a few at a time");
+	tcslog::LogRead r;
+	r.open(dir, PREFIX, SUFFIX);
+	tcslog::SegmentHeader header;
+	bool present = true;
+	r.current_header(header, present);
+	check(!present, "no header before the first read");
+	r.collect_opened_headers(true);
+	char buf[16];
+	tcslog::ReadResult res;
+	while (r.read(buf, sizeof buf, res) != TCSLOG_STATUS_EOF) {
+	}
+	tcslog::SegmentHeader headers[3];
+	size_t n = 0, taken = 0;
+	do {
+		r.take_opened_headers_into(headers, 3, n);
+		for (size_t i = 0; i < n; i++) {
+			check(headers[i].session_id == session &&
+			          headers[i].fixed_len == 8,
+			      "a retained header is this log's");
+		}
+		taken += n;
+	} while (n == 3);
+	uint64_t opened = 0;
+	r.segments_opened(opened);
+	check(taken == opened && taken > 3,
+	      "every header was taken, a few at a time");
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::fprintf(stderr, "usage: %s <directory>\n", argv[0]);
-        return 2;
-    }
-    const int before = news;
-    round_trip(argv[1]);
-    partial_handler(argv[1]);
-    refusing_send(argv[1]);
-    headers_and_text(argv[1]);
-    check(news == before, "the C++ interface allocated nothing");
+	if (argc != 2) {
+		std::fprintf(stderr, "usage: %s <directory>\n", argv[0]);
+		return 2;
+	}
+	const int before = news;
+	round_trip(argv[1]);
+	partial_handler(argv[1]);
+	refusing_send(argv[1]);
+	headers_and_text(argv[1]);
+	check(news == before, "the C++ interface allocated nothing");
 
-    if (failures == 0) {
-        std::printf("OK: the C++ interface passed every check\n");
-        return 0;
-    }
-    std::printf("FAIL: %d check(s) failed\n", failures);
-    return 1;
+	if (failures == 0) {
+		std::printf("OK: the C++ interface passed every check\n");
+		return 0;
+	}
+	std::printf("FAIL: %d check(s) failed\n", failures);
+	return 1;
 }

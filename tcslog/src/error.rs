@@ -25,7 +25,10 @@ pub enum LogError {
     /// minted from such a clock, and a writer reads it only once, so a
     /// correction arriving later would not mend the times already
     /// minted.
-    #[error("the real-time clock is not set: it does not read later than the UNIX epoch")]
+    #[error(
+        "the real-time clock is not set: it does not read later than \
+         the UNIX epoch"
+    )]
     ClockError,
 
     /// No more data records are available: the reader has exhausted its
@@ -85,7 +88,10 @@ pub enum LogError {
     /// `remaining` field disagreeing with the bytes still owed to the
     /// record in progress. The record is lost and the next read
     /// resynchronizes.
-    #[error("read truncated: {lost} segment file(s) lost, {n} payload byte(s) recovered")]
+    #[error(
+        "read truncated: {lost} segment file(s) lost, {n} payload \
+         byte(s) recovered"
+    )]
     ReadTruncated {
         /// How many segment files the sequence numbers show are missing
         /// at the crossing. Zero when the sequence is intact and the

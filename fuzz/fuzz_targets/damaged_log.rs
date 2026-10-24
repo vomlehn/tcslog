@@ -86,9 +86,9 @@ fn segment_files(dir: &std::path::Path) -> Vec<PathBuf> {
                 .filter_map(Result::ok)
                 .map(|e| e.path())
                 .filter(|p| {
-                    p.file_name()
-                        .and_then(|n| n.to_str())
-                        .is_some_and(|n| n.starts_with(PREFIX) && n.ends_with(SUFFIX))
+                    p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                        n.starts_with(PREFIX) && n.ends_with(SUFFIX)
+                    })
                 })
                 .collect()
         })
@@ -103,7 +103,8 @@ fuzz_target!(|input: Input| {
         FormatChoice::VariableSimple => Format::VariableSimple,
         FormatChoice::VariableTsRc => Format::VariableTsRc,
     };
-    let data_bytes = u32::from(input.data_bytes % 64) + format.data_header_len() + 1;
+    let data_bytes =
+        u32::from(input.data_bytes % 64) + format.data_header_len() + 1;
     let seg_size_max = SEGMENT_FILE_HEADER_LEN + data_bytes;
 
     let dir = tempfile::tempdir().expect("a temporary directory");
@@ -113,7 +114,9 @@ fuzz_target!(|input: Input| {
     // that the order they come back in can be checked across sessions.
     let mut written: Vec<Vec<u8>> = Vec::new();
     for session in input.sessions.iter().take(4) {
-        let Ok(mut log) = LogWrite::new(path, PREFIX, SUFFIX, seg_size_max, format, ()) else {
+        let Ok(mut log) =
+            LogWrite::new(path, PREFIX, SUFFIX, seg_size_max, format, ())
+        else {
             return;
         };
         for &len in session.iter().take(24) {
@@ -142,7 +145,8 @@ fuzz_target!(|input: Input| {
                 let file = pick(i);
                 let len = fs::metadata(file).map(|m| m.len()).unwrap_or(0);
                 if len > 0 {
-                    let f = fs::OpenOptions::new().write(true).open(file).unwrap();
+                    let f =
+                        fs::OpenOptions::new().write(true).open(file).unwrap();
                     f.set_len(u64::from(at) % len).unwrap();
                 }
             }
@@ -196,7 +200,9 @@ fuzz_target!(|input: Input| {
                 );
                 last = found;
             }
-            Err(LogError::ReadOverflow(n) | LogError::ReadTruncated { n, .. }) => {
+            Err(
+                LogError::ReadOverflow(n) | LogError::ReadTruncated { n, .. },
+            ) => {
                 if overwrote || n == 0 {
                     continue;
                 }

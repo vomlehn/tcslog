@@ -70,7 +70,12 @@ pub(crate) fn check_log_location(
 /// * `prefix` -- first part of the name.
 /// * `id` -- segment ID, rendered between the prefix and the suffix.
 /// * `suffix` -- last part of the name.
-pub(crate) fn build_name(buf: &mut String, prefix: &str, id: SegId, suffix: &str) {
+pub(crate) fn build_name(
+    buf: &mut String,
+    prefix: &str,
+    id: SegId,
+    suffix: &str,
+) {
     use std::fmt::Write as _;
 
     buf.clear();
@@ -89,7 +94,11 @@ pub(crate) fn build_name(buf: &mut String, prefix: &str, id: SegId, suffix: &str
 /// Returns the identifier, or `None` if the name does not belong to this
 /// log. A name that does not match is not an error: a directory may hold
 /// anything at all beside a log's segment files.
-pub(crate) fn id_from_name(name: &str, prefix: &str, suffix: &str) -> Option<SegId> {
+pub(crate) fn id_from_name(
+    name: &str,
+    prefix: &str,
+    suffix: &str,
+) -> Option<SegId> {
     if name.len() != prefix.len() + SegId::STR_LEN + suffix.len() {
         return None;
     }
@@ -169,7 +178,10 @@ pub const TIMESTAMP_STR_LEN: usize = 30;
 /// # Errors
 ///
 /// Returns what `w` returns, which for a `String` is never an error.
-pub fn write_timestamp<W: fmt::Write + ?Sized>(w: &mut W, ts: Timestamp) -> fmt::Result {
+pub fn write_timestamp<W: fmt::Write + ?Sized>(
+    w: &mut W,
+    ts: Timestamp,
+) -> fmt::Result {
     let secs = ts / NANOS_PER_SEC;
     let nanos = ts % NANOS_PER_SEC;
     let days = secs / SECS_PER_DAY;
@@ -180,7 +192,8 @@ pub fn write_timestamp<W: fmt::Write + ?Sized>(w: &mut W, ts: Timestamp) -> fmt:
     let second = secs_of_day % 60;
     write!(
         w,
-        "{year:04}-{month:02}-{day:02}T{hour:02}:{minute:02}:{second:02}.{nanos:09}Z"
+        "{year:04}-{month:02}-{day:02}T\
+         {hour:02}:{minute:02}:{second:02}.{nanos:09}Z"
     )
 }
 
@@ -282,7 +295,10 @@ mod tests {
     #[test]
     fn trailer_reports_timestamp_and_record_count() {
         assert_eq!(
-            record_trailer(10, Meta::VariableTsRc(1_234_567_890_000_000_000, 5)),
+            record_trailer(
+                10,
+                Meta::VariableTsRc(1_234_567_890_000_000_000, 5)
+            ),
             "(10 bytes, ts=2009-02-13T23:31:30.000000000Z, rc=5)"
         );
     }
@@ -313,7 +329,11 @@ mod tests {
             "pfx-1234-abcd-5678-efabX.log",
             "README",
         ] {
-            assert_eq!(id_from_name(name, "pfx-", ".log"), None, "accepted {name}");
+            assert_eq!(
+                id_from_name(name, "pfx-", ".log"),
+                None,
+                "accepted {name}"
+            );
         }
     }
 

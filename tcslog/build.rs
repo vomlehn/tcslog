@@ -67,12 +67,14 @@ fn main() {
         }),
     };
 
-    let out_dir = env::var("OUT_DIR").expect("cargo sets OUT_DIR for build scripts");
+    let out_dir =
+        env::var("OUT_DIR").expect("cargo sets OUT_DIR for build scripts");
     let dest = Path::new(&out_dir).join("timer_resolution.rs");
     let text = format!(
         "/// System timer resolution in nanoseconds, from the \
          build-time `TIMER_RESOLUTION`, or zero if it was not set.\n\
          pub const TIMER_RESOLUTION_NS: u64 = {ns};\n"
     );
-    fs::write(&dest, text).unwrap_or_else(|e| panic!("cannot write {}: {e}", dest.display()));
+    fs::write(&dest, text)
+        .unwrap_or_else(|e| panic!("cannot write {}: {e}", dest.display()));
 }

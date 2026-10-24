@@ -203,7 +203,11 @@ impl LogRead {
     /// [`LogError::NoSegmentFiles`] when no file in it matches the
     /// pattern, and [`LogError::IoError`] if the directory cannot be
     /// enumerated.
-    pub fn new(dir: &str, prefix: &str, suffix: &str) -> Result<Self, LogError> {
+    pub fn new(
+        dir: &str,
+        prefix: &str,
+        suffix: &str,
+    ) -> Result<Self, LogError> {
         let dir = check_log_location(dir, prefix, suffix)?;
         let ids = scan_segment_ids(&dir, prefix, suffix)?;
         if ids.is_empty() {
@@ -312,7 +316,9 @@ impl LogRead {
         // Both paths above leave a segment file open: the branch that
         // resynchronized succeeded, and the branch that did not was
         // entered only because one was already open.
-        let Some(format) = self.current.as_ref().map(|segment| segment.header.format) else {
+        let Some(format) =
+            self.current.as_ref().map(|segment| segment.header.format)
+        else {
             return Err(self.lose_position(LogError::Eof));
         };
 
@@ -502,7 +508,10 @@ impl LogRead {
     /// * `out` -- where to put the headers.
     ///
     /// Returns how many were placed at the front of `out`.
-    pub fn take_opened_headers_into(&mut self, out: &mut [SegmentHeader]) -> usize {
+    pub fn take_opened_headers_into(
+        &mut self,
+        out: &mut [SegmentHeader],
+    ) -> usize {
         let n = out.len().min(self.opened_headers.len());
         for (dst, src) in out.iter_mut().zip(self.opened_headers.drain(..n)) {
             *dst = src;
@@ -528,8 +537,10 @@ impl LogRead {
             Format::VariableSimple => {
                 let mut head = [0u8; 4];
                 self.fill(cursor, &mut head)?;
-                let n = self.settle_payload_len(cursor, RecSize::from_le_bytes(head))?;
-                cursor.total = Some(u64::from(format.data_header_len()) + u64::from(n));
+                let n = self
+                    .settle_payload_len(cursor, RecSize::from_le_bytes(head))?;
+                cursor.total =
+                    Some(u64::from(format.data_header_len()) + u64::from(n));
                 Ok((n, Meta::VariableSimple))
             }
             Format::VariableTsRc => {
@@ -538,12 +549,14 @@ impl LogRead {
                 let mut four = [0u8; 4];
                 let mut eight = [0u8; 8];
                 four.copy_from_slice(&head[0..4]);
-                let n = self.settle_payload_len(cursor, RecSize::from_le_bytes(four))?;
+                let n = self
+                    .settle_payload_len(cursor, RecSize::from_le_bytes(four))?;
                 eight.copy_from_slice(&head[4..12]);
                 let ts = Timestamp::from_le_bytes(eight);
                 eight.copy_from_slice(&head[12..20]);
                 let rc = RecordCount::from_le_bytes(eight);
-                cursor.total = Some(u64::from(format.data_header_len()) + u64::from(n));
+                cursor.total =
+                    Some(u64::from(format.data_header_len()) + u64::from(n));
                 Ok((n, Meta::VariableTsRc(ts, rc)))
             }
         }
@@ -617,7 +630,9 @@ impl LogRead {
             let nominal = u64::from(segment.header.data_len());
 
             if let Some(recovery) = recovery {
-                if let Some(n) = recovered_payload_len(&recovery, id, format, remaining, nominal) {
+                if let Some(n) = recovered_payload_len(
+                    &recovery, id, format, remaining, nominal,
+                ) {
                     return Ok(Start::Recovered(n));
                 }
             }
@@ -768,10 +783,9 @@ impl LogRead {
         // by one, and the next file's `remaining` can equal what this
         // record still owes by coincidence, which would stitch another
         // record's bytes onto this one.
-        let prev_short = self
-            .current
-            .as_ref()
-            .is_some_and(|segment| segment.data_len < u64::from(segment.header.data_len()));
+        let prev_short = self.current.as_ref().is_some_and(|segment| {
+            segment.data_len < u64::from(segment.header.data_len())
+        });
         self.current = None;
 
         let opened = match self.open_next() {
@@ -799,14 +813,16 @@ impl LogRead {
             });
         }
 
-        let Some((id, remaining, sequence, header_len)) = self.current.as_ref().map(|segment| {
-            (
-                segment.id,
-                segment.header.remaining,
-                segment.header.sequence,
-                u64::from(segment.header.format.data_header_len()),
-            )
-        }) else {
+        let Some((id, remaining, sequence, header_len)) =
+            self.current.as_ref().map(|segment| {
+                (
+                    segment.id,
+                    segment.header.remaining,
+                    segment.header.sequence,
+                    u64::from(segment.header.format.data_header_len()),
+                )
+            })
+        else {
             return Err(LogError::ReadTruncated {
                 lost: 0,
                 n: cursor.payload_in_buf,
@@ -847,7 +863,8 @@ impl LogRead {
         // The sequence check is what sees a segment file lost on a
         // record boundary, where `remaining` is zero on both sides of
         // the gap and the check above is satisfied.
-        let lost = match prev_seq.map(|prev| (prev.as_u64(), sequence.as_u64())) {
+        let lost = match prev_seq.map(|prev| (prev.as_u64(), sequence.as_u64()))
+        {
             Some((prev, seq)) => match seq.cmp(&(prev + 1)) {
                 std::cmp::Ordering::Equal => 0,
                 std::cmp::Ordering::Greater => {
@@ -903,7 +920,11 @@ impl LogRead {
     ///
     /// Returns whatever [`cross`](Self::cross) reports at a boundary,
     /// and [`LogError::IoError`] if a read fails.
-    fn fill(&mut self, cursor: &mut Cursor, dst: &mut [u8]) -> Result<(), LogError> {
+    fn fill(
+        &mut self,
+        cursor: &mut Cursor,
+        dst: &mut [u8],
+    ) -> Result<(), LogError> {
         let mut off = 0usize;
         while off < dst.len() {
             if self.exhausted() {
@@ -915,15 +936,16 @@ impl LogRead {
                     n: cursor.payload_in_buf,
                 });
             };
-            let avail = usize::try_from(segment.data_len - segment.pos).unwrap_or(usize::MAX);
+            let avail = usize::try_from(segment.data_len - segment.pos)
+                .unwrap_or(usize::MAX);
             let take = avail.min(dst.len() - off);
             segment.file.read_exact(&mut dst[off..off + take])?;
             segment.pos += take as u64;
             cursor.consumed += take as u64;
             if cursor.in_payload {
-                cursor.payload_in_buf = cursor
-                    .payload_in_buf
-                    .saturating_add(RecSize::try_from(take).unwrap_or(RecSize::MAX));
+                cursor.payload_in_buf = cursor.payload_in_buf.saturating_add(
+                    RecSize::try_from(take).unwrap_or(RecSize::MAX),
+                );
             }
             off += take;
         }
@@ -940,7 +962,11 @@ impl LogRead {
     ///
     /// Returns whatever [`cross`](Self::cross) reports at a boundary,
     /// and [`LogError::IoError`] if a seek fails.
-    fn skip(&mut self, cursor: &mut Cursor, mut count: u64) -> Result<(), LogError> {
+    fn skip(
+        &mut self,
+        cursor: &mut Cursor,
+        mut count: u64,
+    ) -> Result<(), LogError> {
         while count > 0 {
             if self.exhausted() {
                 self.cross(cursor)?;
@@ -1063,14 +1089,17 @@ impl Iterator for LogReadIter<'_> {
                 // telemetry, so they are handed over rather than
                 // dropped -- marked, because they are the front of a
                 // record and not the whole of one.
-                Err(LogError::ReadOverflow(n) | LogError::ReadTruncated { n, .. }) if n > 0 => {
+                Err(
+                    LogError::ReadOverflow(n)
+                    | LogError::ReadTruncated { n, .. },
+                ) if n > 0 => {
                     return Some(Record {
                         meta: self.log.last_meta,
                         payload: self.buf[..n as usize].to_vec(),
                         truncated: true,
                     })
                 }
-                Err(LogError::SessionEnd | LogError::ReadTruncated { .. }) => (),
+                Err(LogError::SessionEnd | LogError::ReadTruncated { .. }) => {}
                 Err(_) => return None,
             }
         }

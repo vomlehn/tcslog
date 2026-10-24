@@ -75,12 +75,15 @@ def write_telemetry(log_dir: str, handler: Quiet) -> None:
             # A write that fails is worth stopping for: unlike a read,
             # there is no later call that recovers the record, so the
             # exception is left to propagate.
-            w.write_str(f"batt={24 - i // 20}.{(i * 7) % 100:02d}V temp={-40 + i}C")
+            w.write_str(
+                f"batt={24 - i // 20}.{(i * 7) % 100:02d}V temp={-40 + i}C"
+            )
         w.flush()
         # Closing, at the end of the with, flushes the segment file being
         # written and hands it to `send` too if it holds any records.
     print(
-        f"wrote {RECORD_COUNT} records; {handler.downlinked} segment file(s) handed to send so far"
+        f"wrote {RECORD_COUNT} records; {handler.downlinked} segment "
+        "file(s) handed to send so far"
     )
 
 
@@ -109,19 +112,25 @@ def read_remaining(log_dir: str) -> None:
             except tcslog.ReadTruncated as e:
                 # The bytes that did arrive are real measurements.
                 lost_files += e.lost
-                print(f"  -- {e.n} byte(s) of a record recovered; {e.lost} file(s) lost")
+                print(
+                    f"  -- {e.n} byte(s) of a record recovered; "
+                    f"{e.lost} file(s) lost"
+                )
                 continue
             except tcslog.ReadOverflow as e:
                 # The rest of the record was skipped, so reading on
                 # returns the record after it.
                 print(
-                    f"  -- {e.n} byte(s) of a record too large for a {BUF_LEN}-byte "
-                    "buffer; the rest was skipped"
+                    f"  -- {e.n} byte(s) of a record too large for a "
+                    f"{BUF_LEN}-byte buffer; the rest was skipped"
                 )
                 continue
             records += 1
             text = buf[: res.n].decode()
-            print(f"  #{res.record_count} {text} ({res.n} bytes, ts={res.timestamp})")
+            print(
+                f"  #{res.record_count} {text} "
+                f"({res.n} bytes, ts={res.timestamp})"
+            )
         opened = r.segments_opened()
 
     line = f"read {records} record(s) from {opened} segment file(s)"
@@ -146,7 +155,10 @@ def main(argv: List[str]) -> int:
     print("\n-- with a send callback: filled files leave the log")
     downlink = Downlink(sent)
     write_telemetry(log_dir, downlink)
-    print(f"{downlink.downlinked} segment file(s) are in {sent}, out of the log's namespace")
+    print(
+        f"{downlink.downlinked} segment file(s) are in {sent}, "
+        "out of the log's namespace"
+    )
 
     print("\n-- with no send callback: filled files stay in the log")
     write_telemetry(log_dir, Quiet())

@@ -20,7 +20,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use clap::Parser;
 
-use tcslog::{Format, LogError, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN};
+use tcslog::{
+    Format, LogError, LogWrite, WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
+};
 
 /// Maximum size in bytes of any single segment file. Sized to force
 /// rollover after a small handful of `VariableTsRc` records so the
@@ -125,7 +127,8 @@ fn create_sample_logs(
         let secs = dur.as_secs(); // u64, whole seconds
         let nanos = dur.subsec_nanos(); // u32, 0..1_000_000_000
 
-        let content = format!("time={secs}.{nanos:09}s message={}", message_count + 1);
+        let content =
+            format!("time={secs}.{nanos:09}s message={}", message_count + 1);
         println!("{content}");
         log.write(content.as_bytes())?;
         message_count += 1;
@@ -169,7 +172,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     fs::create_dir_all(&dir)?;
     let dir_name = dir.to_str().expect("temp dir path is valid UTF-8");
 
-    let result = create_sample_logs(dir_name, &args.prefix, &args.suffix, args.verbose)?;
+    let result =
+        create_sample_logs(dir_name, &args.prefix, &args.suffix, args.verbose)?;
 
     if args.verbose {
         println!(

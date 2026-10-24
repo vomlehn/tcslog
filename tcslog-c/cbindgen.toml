@@ -6,7 +6,8 @@ language = "C"
 header = """/* Generated from tcslog-c/src/lib.rs by cbindgen. Do not edit.
    Run `make header` from the repository root to regenerate. */"""
 include_guard = "TCSLOG_H"
-tab_width = 4
+tab_width = 8
+line_length = 80
 documentation = true
 documentation_style = "doxy"
 cpp_compat = true

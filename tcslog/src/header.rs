@@ -113,14 +113,19 @@ impl SegmentHeader {
         let mut out = [0u8; HEADER_LEN];
         out[OFF_TYPE..OFF_TYPE + 8].copy_from_slice(TYPE_MAGIC);
         out[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(&version_bytes());
-        out[OFF_SEGMENT_ID..OFF_SEGMENT_ID + 8].copy_from_slice(&self.segment_id.to_le_bytes());
-        out[OFF_SESSION_ID..OFF_SESSION_ID + 8].copy_from_slice(&self.session_id.to_le_bytes());
-        out[OFF_MAX_SIZE..OFF_MAX_SIZE + 4].copy_from_slice(&self.max_size.to_le_bytes());
-        out[OFF_REMAINING..OFF_REMAINING + 8].copy_from_slice(&self.remaining.to_le_bytes());
+        out[OFF_SEGMENT_ID..OFF_SEGMENT_ID + 8]
+            .copy_from_slice(&self.segment_id.to_le_bytes());
+        out[OFF_SESSION_ID..OFF_SESSION_ID + 8]
+            .copy_from_slice(&self.session_id.to_le_bytes());
+        out[OFF_MAX_SIZE..OFF_MAX_SIZE + 4]
+            .copy_from_slice(&self.max_size.to_le_bytes());
+        out[OFF_REMAINING..OFF_REMAINING + 8]
+            .copy_from_slice(&self.remaining.to_le_bytes());
         out[OFF_FORMAT_TAG] = self.format.tag();
         out[OFF_FORMAT_ARG..OFF_FORMAT_ARG + 4]
             .copy_from_slice(&self.format.fixed_len().to_le_bytes());
-        out[OFF_SEQUENCE..OFF_SEQUENCE + 8].copy_from_slice(&self.sequence.to_le_bytes());
+        out[OFF_SEQUENCE..OFF_SEQUENCE + 8]
+            .copy_from_slice(&self.sequence.to_le_bytes());
         out
     }
 
@@ -194,7 +199,10 @@ impl SegmentHeader {
     /// # Errors
     ///
     /// Returns [`LogError::IoError`] if the write fails.
-    pub fn write_to<W: Write + ?Sized>(&self, dst: &mut W) -> Result<(), LogError> {
+    pub fn write_to<W: Write + ?Sized>(
+        &self,
+        dst: &mut W,
+    ) -> Result<(), LogError> {
         dst.write_all(&self.to_bytes())?;
         Ok(())
     }
@@ -343,7 +351,8 @@ mod tests {
     fn rejects_fixed_with_zero_length() {
         let mut b = sample().to_bytes();
         b[OFF_FORMAT_TAG] = 0;
-        b[OFF_FORMAT_ARG..OFF_FORMAT_ARG + 4].copy_from_slice(&0u32.to_le_bytes());
+        b[OFF_FORMAT_ARG..OFF_FORMAT_ARG + 4]
+            .copy_from_slice(&0u32.to_le_bytes());
         assert!(matches!(
             SegmentHeader::from_bytes(&b),
             Err(LogError::InvalidHeader)

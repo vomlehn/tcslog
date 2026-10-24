@@ -111,7 +111,8 @@ jobs:
       # The prebuilt cargo-fuzz is a musl binary, and builds for musl
       # unless told otherwise; the sanitizer needs glibc.
       - name: make fuzz
-        run: make fuzz FUZZ_TIME=60 FUZZ_FLAGS="--target x86_64-unknown-linux-gnu"
+        run: make fuzz FUZZ_TIME=60
+          FUZZ_FLAGS="--target x86_64-unknown-linux-gnu"
       # A failure's input is what reproduces it.
       - if: failure()
         uses: actions/upload-artifact@v4

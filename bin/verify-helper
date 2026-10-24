@@ -145,7 +145,8 @@ for name in "$@"; do
         # A failed read is end of input -- Ctrl-D -- which is someone
         # asking to stop. Recorded, so the summary does not claim the
         # whole list was walked.
-        if ! read -r -p "ENTER for $((index + 1))/$total, Ctrl-C to stop: " _ <&3
+        if ! read -r -p "ENTER for $((index + 1))/$total, Ctrl-C to stop: " \
+            _ <&3
         then
             echo
             stopped=1

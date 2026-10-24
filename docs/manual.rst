@@ -1332,19 +1332,20 @@ A writer is given its callbacks when it is opened, in a
 ``TcslogCallbacks`` that also carries the context they are handed back::
 
     typedef struct {
-        int (*send)(void *ctx, const char *path);
-        int (*record_complete)(void *ctx, int fd);
-        void (*timer_resolution_adjusted)(void *ctx, uint64_t resolution_ns);
-        void *ctx;
+            int (*send)(void *ctx, const char *path);
+            int (*record_complete)(void *ctx, int fd);
+            void (*timer_resolution_adjusted)(void *ctx,
+                                              uint64_t resolution_ns);
+            void *ctx;
     } TcslogCallbacks;
 
     struct downlink { const char *dir; int queued; };
 
     static int on_send(void *ctx, const char *path) {
-        struct downlink *d = (struct downlink *)ctx;  /* cast for C++ */
-        /* must leave nothing at `path` */
-        d->queued++;
-        return 0;
+            struct downlink *d = (struct downlink *)ctx;  /* cast for C++ */
+            /* must leave nothing at `path` */
+            d->queued++;
+            return 0;
     }
 
     struct downlink d = { "/var/downlinked", 0 };
@@ -1396,19 +1397,20 @@ as in Rust, which close their handles themselves.
     #include "tcslog.hpp"
 
     struct Downlink : tcslog::WriteCallbacks {
-        int queued = 0;
-        int send(const char *path) {
-            /* must leave nothing at `path` */
-            queued++;
-            return 0;
-        }
+            int queued = 0;
+            int send(const char *path) {
+                    /* must leave nothing at `path` */
+                    queued++;
+                    return 0;
+            }
     };
 
     Downlink handler;
     tcslog::LogWrite w;
     if (w.open(dir, "seg-", ".tcslog", seg_size_max,
-               tcslog::Format::variable_ts_rc(), &handler) == TCSLOG_STATUS_OK) {
-        w.write_str("attitude nominal");
+               tcslog::Format::variable_ts_rc(),
+               &handler) == TCSLOG_STATUS_OK) {
+            w.write_str("attitude nominal");
     }   /* w closes when it goes out of scope */
 
     tcslog::LogRead r;
@@ -1416,7 +1418,8 @@ as in Rust, which close their handles themselves.
     char buf[256];
     tcslog::ReadResult res;
     while (r.read(buf, sizeof buf, res) != TCSLOG_STATUS_EOF) {
-        /* as in C: carry on past SESSION_END, READ_TRUNCATED, READ_OVERFLOW */
+            /* as in C: carry on past SESSION_END, READ_TRUNCATED,
+             * READ_OVERFLOW */
     }
 
 ``LogWrite`` and ``LogRead`` are closed until ``open`` succeeds, are
@@ -1494,81 +1497,83 @@ Writing a log and reading it back:
      * reads the log back below, so it reports what it was handed and
      * leaves the file where it is. */
     static int on_send(void *ctx, const char *path) {
-        (void)ctx;
-        printf("send: handed %s\n", path);
-        return 0;
+            (void)ctx;
+            printf("send: handed %s\n", path);
+            return 0;
     }
 
     /* Nothing to do: not flushing trades a window in which a reset
      * loses the last record for the throughput of not flushing. */
     static int on_record_complete(void *ctx, int fd) {
-        (void)ctx;
-        (void)fd;
-        return 0;
+            (void)ctx;
+            (void)fd;
+            return 0;
     }
 
     static void on_timer_resolution_adjusted(void *ctx, uint64_t ns) {
-        (void)ctx;
-        (void)ns;
+            (void)ctx;
+            (void)ns;
     }
 
     int main(void) {
-        /* Copied by the open below, so it may live on this stack. The
-         * `ctx` is null here because none of the three needs one. */
-        TcslogCallbacks cb = {
-            on_send,
-            on_record_complete,
-            on_timer_resolution_adjusted,
-            NULL,
-        };
+            /* Copied by the open below, so it may live on this stack. The
+             * `ctx` is null here because none of the three needs one. */
+            TcslogCallbacks cb = {
+                    on_send,
+                    on_record_complete,
+                    on_timer_resolution_adjusted,
+                    NULL,
+            };
 
-        TcslogWrite *w = NULL;
-        TcslogStatus s = tcslog_write_open(
-            "/var/telemetry", "seg-", ".tcslog",
-            tcslog_segment_file_header_len() + 1024,
-            TCSLOG_FORMAT_VARIABLE_TS_RC, 0, &cb, &w);
-        if (s != TCSLOG_STATUS_OK) {
-            fprintf(stderr, "open: %s\n", tcslog_status_str(s));
-            return 1;
-        }
+            TcslogWrite *w = NULL;
+            TcslogStatus s = tcslog_write_open(
+                    "/var/telemetry", "seg-", ".tcslog",
+                    tcslog_segment_file_header_len() + 1024,
+                    TCSLOG_FORMAT_VARIABLE_TS_RC, 0, &cb, &w);
+            if (s != TCSLOG_STATUS_OK) {
+                    fprintf(stderr, "open: %s\n", tcslog_status_str(s));
+                    return 1;
+            }
 
-        const char *msg = "attitude nominal";
-        s = tcslog_write_record(w, (const uint8_t *)msg, strlen(msg), NULL);
-        if (s != TCSLOG_STATUS_OK) {
-            fprintf(stderr, "write: %s\n", tcslog_status_str(s));
+            const char *msg = "attitude nominal";
+            s = tcslog_write_record(w, (const uint8_t *)msg, strlen(msg), NULL);
+            if (s != TCSLOG_STATUS_OK) {
+                    fprintf(stderr, "write: %s\n", tcslog_status_str(s));
+                    tcslog_write_close(w);
+                    return 1;
+            }
             tcslog_write_close(w);
-            return 1;
-        }
-        tcslog_write_close(w);
 
-        TcslogRead *r = NULL;
-        s = tcslog_read_open("/var/telemetry", "seg-", ".tcslog", &r);
-        if (s != TCSLOG_STATUS_OK) {
-            fprintf(stderr, "open for reading: %s\n", tcslog_status_str(s));
-            return 1;
-        }
+            TcslogRead *r = NULL;
+            s = tcslog_read_open("/var/telemetry", "seg-", ".tcslog", &r);
+            if (s != TCSLOG_STATUS_OK) {
+                    fprintf(stderr, "open for reading: %s\n",
+                            tcslog_status_str(s));
+                    return 1;
+            }
 
-        for (;;) {
-            unsigned char buf[4096];
-            TcslogReadResult result;
-            s = tcslog_read_record(r, buf, sizeof buf, &result);
-            if (s == TCSLOG_STATUS_EOF) {
-                break;
+            for (;;) {
+                    unsigned char buf[4096];
+                    TcslogReadResult result;
+                    s = tcslog_read_record(r, buf, sizeof buf, &result);
+                    if (s == TCSLOG_STATUS_EOF) {
+                            break;
+                    }
+                    if (s == TCSLOG_STATUS_OK) {
+                            printf("#%lu %.*s\n",
+                                   (unsigned long)result.record_count,
+                                   (int)result.n, buf);
+                    } else if (s == TCSLOG_STATUS_READ_TRUNCATED) {
+                            printf("lost %lu file(s); %u byte(s) recovered\n",
+                                   (unsigned long)result.lost, result.n);
+                    } else if (s != TCSLOG_STATUS_SESSION_END) {
+                            fprintf(stderr, "read: %s\n", tcslog_status_str(s));
+                            tcslog_read_close(r);
+                            return 1;
+                    }
             }
-            if (s == TCSLOG_STATUS_OK) {
-                printf("#%lu %.*s\n", (unsigned long)result.record_count,
-                       (int)result.n, buf);
-            } else if (s == TCSLOG_STATUS_READ_TRUNCATED) {
-                printf("lost %lu file(s); %u byte(s) recovered\n",
-                       (unsigned long)result.lost, result.n);
-            } else if (s != TCSLOG_STATUS_SESSION_END) {
-                fprintf(stderr, "read: %s\n", tcslog_status_str(s));
-                tcslog_read_close(r);
-                return 1;
-            }
-        }
-        tcslog_read_close(r);
-        return 0;
+            tcslog_read_close(r);
+            return 0;
     }
 
 A longer one, with a ``send`` callback that takes each filled segment
@@ -1704,8 +1709,14 @@ subclass, passed as the last argument when it is opened::
             os.rename(path, os.path.join(self.dest, os.path.basename(path)))
             self.queued += 1
 
-    w = tcslog.LogWrite(dir, "seg-", ".tcslog", seg_size_max,
-                        tcslog.Format.VARIABLE_SIMPLE, Downlink("/var/downlinked"))
+    w = tcslog.LogWrite(
+        dir,
+        "seg-",
+        ".tcslog",
+        seg_size_max,
+        tcslog.Format.VARIABLE_SIMPLE,
+        Downlink("/var/downlinked"),
+    )
 
 The object itself is the context, so two writers with two handler
 objects keep their state apart, as ``ctx`` does in C/C++. Only the

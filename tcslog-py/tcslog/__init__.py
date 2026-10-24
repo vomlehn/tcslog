@@ -72,7 +72,18 @@ import os
 import sys
 from pathlib import Path
 from types import TracebackType
-from typing import Any, ClassVar, Dict, Iterator, List, NamedTuple, Optional, Tuple, Type, Union
+from typing import (
+    Any,
+    ClassVar,
+    Dict,
+    Iterator,
+    List,
+    NamedTuple,
+    Optional,
+    Tuple,
+    Type,
+    Union,
+)
 
 __all__ = [
     "BufferTooSmall",
@@ -505,8 +516,12 @@ class _CallbacksStruct(ctypes.Structure):
 
 
 _SendFn = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_char_p)
-_RecordCompleteFn = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p, ctypes.c_int)
-_TimerResolutionAdjustedFn = ctypes.CFUNCTYPE(None, ctypes.c_void_p, ctypes.c_uint64)
+_RecordCompleteFn = ctypes.CFUNCTYPE(
+    ctypes.c_int, ctypes.c_void_p, ctypes.c_int
+)
+_TimerResolutionAdjustedFn = ctypes.CFUNCTYPE(
+    None, ctypes.c_void_p, ctypes.c_uint64
+)
 
 _CallbacksStruct._fields_ = [
     ("send", _SendFn),
@@ -526,7 +541,9 @@ class _ReadResultStruct(ctypes.Structure):
     ]
 
     def value(self) -> ReadResult:
-        return ReadResult(self.n, Meta(self.meta), self.timestamp, self.record_count)
+        return ReadResult(
+            self.n, Meta(self.meta), self.timestamp, self.record_count
+        )
 
 
 class _RecordMetaStruct(ctypes.Structure):
@@ -583,7 +600,9 @@ _format_version = _declare(
     ctypes.POINTER(ctypes.c_uint32),
     ctypes.POINTER(ctypes.c_uint32),
 )
-_segment_file_header_len = _declare("tcslog_segment_file_header_len", ctypes.c_uint32)
+_segment_file_header_len = _declare(
+    "tcslog_segment_file_header_len", ctypes.c_uint32
+)
 _status_str = _declare("tcslog_status_str", ctypes.c_char_p, _Status)
 _write_open = _declare(
     "tcslog_write_open",
@@ -598,12 +617,20 @@ _write_open = _declare(
     ctypes.POINTER(_P),
 )
 _write_record = _declare(
-    "tcslog_write_record", _Status, _P, _P, ctypes.c_size_t, ctypes.POINTER(ctypes.c_uint32)
+    "tcslog_write_record",
+    _Status,
+    _P,
+    _P,
+    ctypes.c_size_t,
+    ctypes.POINTER(ctypes.c_uint32),
 )
 _write_flush = _declare("tcslog_write_flush", _Status, _P)
 _write_clear = _declare("tcslog_write_clear", _Status, _P)
 _write_timer_resolution = _declare(
-    "tcslog_write_timer_resolution", _Status, _P, ctypes.POINTER(ctypes.c_uint64)
+    "tcslog_write_timer_resolution",
+    _Status,
+    _P,
+    ctypes.POINTER(ctypes.c_uint64),
 )
 _write_close = _declare("tcslog_write_close", None, _P)
 _read_open = _declare(
@@ -630,12 +657,17 @@ _write_session_id = _declare(
     "tcslog_write_session_id", _Status, _P, ctypes.POINTER(ctypes.c_uint64)
 )
 _write_current_segment_id = _declare(
-    "tcslog_write_current_segment_id", _Status, _P, ctypes.POINTER(ctypes.c_uint64)
+    "tcslog_write_current_segment_id",
+    _Status,
+    _P,
+    ctypes.POINTER(ctypes.c_uint64),
 )
 _write_last_meta = _declare(
     "tcslog_write_last_meta", _Status, _P, ctypes.POINTER(_RecordMetaStruct)
 )
-_read_last_meta = _declare("tcslog_read_last_meta", _Status, _P, ctypes.POINTER(_RecordMetaStruct))
+_read_last_meta = _declare(
+    "tcslog_read_last_meta", _Status, _P, ctypes.POINTER(_RecordMetaStruct)
+)
 _read_current_header = _declare(
     "tcslog_read_current_header",
     _Status,
@@ -655,21 +687,38 @@ _read_take_opened_headers = _declare(
     ctypes.POINTER(ctypes.c_size_t),
 )
 _seg_id_format = _declare(
-    "tcslog_seg_id_format", _Status, ctypes.c_uint64, ctypes.c_char_p, ctypes.c_size_t
+    "tcslog_seg_id_format",
+    _Status,
+    ctypes.c_uint64,
+    ctypes.c_char_p,
+    ctypes.c_size_t,
 )
 _seg_id_parse = _declare(
-    "tcslog_seg_id_parse", _Status, ctypes.c_char_p, ctypes.POINTER(ctypes.c_uint64)
+    "tcslog_seg_id_parse",
+    _Status,
+    ctypes.c_char_p,
+    ctypes.POINTER(ctypes.c_uint64),
 )
 _format_timestamp = _declare(
-    "tcslog_format_timestamp", _Status, ctypes.c_uint64, ctypes.c_char_p, ctypes.c_size_t
+    "tcslog_format_timestamp",
+    _Status,
+    ctypes.c_uint64,
+    ctypes.c_char_p,
+    ctypes.c_size_t,
 )
 
 
 def format_version() -> Tuple[int, int, int]:
     """The stored format version this build reads and writes, as
     ``(major, minor, patch)``."""
-    major, minor, patch = ctypes.c_uint32(), ctypes.c_uint32(), ctypes.c_uint32()
-    _format_version(ctypes.byref(major), ctypes.byref(minor), ctypes.byref(patch))
+    major, minor, patch = (
+        ctypes.c_uint32(),
+        ctypes.c_uint32(),
+        ctypes.c_uint32(),
+    )
+    _format_version(
+        ctypes.byref(major), ctypes.byref(minor), ctypes.byref(patch)
+    )
     return (major.value, minor.value, patch.value)
 
 
@@ -858,7 +907,9 @@ class LogWrite:
             self._pending = e
             return 1
 
-    def _on_timer_resolution_adjusted(self, _ctx: Optional[int], resolution_ns: int) -> None:
+    def _on_timer_resolution_adjusted(
+        self, _ctx: Optional[int], resolution_ns: int
+    ) -> None:
         try:
             assert self._handler is not None
             self._handler.timer_resolution_adjusted(resolution_ns)
@@ -928,7 +979,9 @@ class LogWrite:
 
     def timer_resolution(self) -> int:
         """The timer resolution this writer is working with, in nanoseconds."""
-        self._check(_write_timer_resolution(self._handle(), ctypes.byref(self._u64)))
+        self._check(
+            _write_timer_resolution(self._handle(), ctypes.byref(self._u64))
+        )
         return self._u64.value
 
     def session_id(self) -> SegId:
@@ -939,7 +992,9 @@ class LogWrite:
 
     def current_segment_id(self) -> SegId:
         """The identifier of the segment file being written."""
-        self._check(_write_current_segment_id(self._handle(), ctypes.byref(self._u64)))
+        self._check(
+            _write_current_segment_id(self._handle(), ctypes.byref(self._u64))
+        )
         return SegId(self._u64.value)
 
     def last_meta(self) -> RecordMeta:
@@ -996,7 +1051,12 @@ class LogRead:
         self._n = ctypes.c_size_t()
         self._pin: Optional[_Pin] = None
         _raise(
-            _read_open(_path_arg(dir), _path_arg(prefix), _path_arg(suffix), ctypes.byref(self._h))
+            _read_open(
+                _path_arg(dir),
+                _path_arg(prefix),
+                _path_arg(suffix),
+                ctypes.byref(self._h),
+            )
         )
 
     def _handle(self) -> ctypes.c_void_p:
@@ -1060,7 +1120,9 @@ class LogRead:
             except LogError:
                 return
             payload = bytes(memoryview(buf)[: r.n])
-            yield Record(r.meta, payload, truncated, r.timestamp, r.record_count)
+            yield Record(
+                r.meta, payload, truncated, r.timestamp, r.record_count
+            )
 
     def __iter__(self) -> Iterator[Record]:
         return self.iter()
@@ -1083,7 +1145,9 @@ class LogRead:
         :class:`SessionEnd` or :class:`ReadTruncated`."""
         _raise(
             _read_current_header(
-                self._handle(), ctypes.byref(self._header), ctypes.byref(self._present)
+                self._handle(),
+                ctypes.byref(self._header),
+                ctypes.byref(self._present),
             )
         )
         return self._header.value() if self._present.value else None
@@ -1101,7 +1165,9 @@ class LogRead:
         out: List[SegmentHeader] = []
         while True:
             _raise(
-                _read_take_opened_headers(h, self._headers, _HEADER_CHUNK, ctypes.byref(self._n))
+                _read_take_opened_headers(
+                    h, self._headers, _HEADER_CHUNK, ctypes.byref(self._n)
+                )
             )
             n = self._n.value
             out.extend(self._headers[i].value() for i in range(n))

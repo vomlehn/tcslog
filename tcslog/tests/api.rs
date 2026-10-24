@@ -17,8 +17,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tempfile::TempDir;
 
 use tcslog::{
-    Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, SegmentHeader, WriteCallbacks,
-    SEGMENT_FILE_HEADER_LEN,
+    Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, SegmentHeader,
+    WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
 };
 
 const PREFIX: &str = "seg-";
@@ -48,8 +48,15 @@ impl Log {
     /// Opens a writer on this log with callbacks that do nothing, so
     /// that the segment files stay put for a reader to find.
     fn writer(&self, format: Format) -> LogWrite {
-        LogWrite::new(self.path(), PREFIX, SUFFIX, self.seg_size_max, format, ())
-            .expect("a writer on a fresh directory")
+        LogWrite::new(
+            self.path(),
+            PREFIX,
+            SUFFIX,
+            self.seg_size_max,
+            format,
+            (),
+        )
+        .expect("a writer on a fresh directory")
     }
 
     /// Writes one session of `payloads` and closes it, so that every
@@ -70,9 +77,9 @@ impl Log {
             .expect("a readable directory")
             .map(|e| e.expect("a readable entry").path())
             .filter(|p| {
-                p.file_name()
-                    .and_then(|n| n.to_str())
-                    .is_some_and(|n| n.starts_with(PREFIX) && n.ends_with(SUFFIX))
+                p.file_name().and_then(|n| n.to_str()).is_some_and(|n| {
+                    n.starts_with(PREFIX) && n.ends_with(SUFFIX)
+                })
             })
             .collect();
         files.sort();
@@ -85,7 +92,8 @@ impl Log {
             .iter()
             .map(|p| {
                 let mut f = File::open(p).expect("an openable segment file");
-                SegmentHeader::read_from(&mut f).expect("a valid segment header")
+                SegmentHeader::read_from(&mut f)
+                    .expect("a valid segment header")
             })
             .collect()
     }
@@ -262,7 +270,8 @@ fn a_log_may_not_use_fixed_zero() {
 
 /// The two variable formats, which every variable-length case runs
 /// against both of.
-const VARIABLE_FORMATS: [Format; 2] = [Format::VariableSimple, Format::VariableTsRc];
+const VARIABLE_FORMATS: [Format; 2] =
+    [Format::VariableSimple, Format::VariableTsRc];
 
 #[test]
 fn zero_length_records_round_trip_in_both_variable_formats() {
@@ -366,7 +375,8 @@ fn every_segment_file_but_a_sessions_last_is_exactly_seg_size_max() {
 
         let files = log.segment_files();
         assert!(files.len() > 3, "format {format:?}: too few segment files");
-        let (last, full) = files.split_last().expect("at least one segment file");
+        let (last, full) =
+            files.split_last().expect("at least one segment file");
         for path in full {
             let len = fs::metadata(path).expect("a segment file").len();
             assert_eq!(
@@ -422,7 +432,8 @@ fn sequence_numbers_start_at_zero_and_step_by_one() {
     let log = Log::new(10);
     log.write_session(Format::VariableSimple, &payloads(10, 9));
 
-    let sequences: Vec<u64> = log.headers().iter().map(|h| h.sequence.as_u64()).collect();
+    let sequences: Vec<u64> =
+        log.headers().iter().map(|h| h.sequence.as_u64()).collect();
     let expected: Vec<u64> = (0..sequences.len() as u64).collect();
     assert_eq!(sequences, expected);
 
@@ -633,7 +644,10 @@ fn a_handler_carries_its_own_context() {
             log.segment_files().len() - 1,
             "a filled segment file went unsent"
         );
-        assert_eq!(seen.widenings, 0, "the timer resolution needed no widening");
+        assert_eq!(
+            seen.widenings, 0,
+            "the timer resolution needed no widening"
+        );
 
         // And it is reachable mutably, which is what lets a handler be
         // reset or re-aimed between records.
@@ -717,7 +731,8 @@ fn the_unit_handler_is_no_callbacks_at_all() {
     );
 
     // And they are readable, so nothing about the log itself differs.
-    let mut r = LogRead::new(log.path(), PREFIX, SUFFIX).expect("a readable log");
+    let mut r =
+        LogRead::new(log.path(), PREFIX, SUFFIX).expect("a readable log");
     let mut buf = [0u8; 64];
     assert!(r.read(&mut buf).is_ok(), "the log did not read back");
 }
@@ -1290,7 +1305,8 @@ fn losing_the_last_segment_file_is_not_mistaken_for_the_end_of_the_log() {
     log.write_session(Format::VariableSimple, &written);
 
     let files = log.segment_files();
-    fs::remove_file(files.last().expect("a segment file")).expect("a removable segment file");
+    fs::remove_file(files.last().expect("a segment file"))
+        .expect("a removable segment file");
 
     let out = log.read_all();
     assert!(
@@ -1316,7 +1332,11 @@ fn losing_the_last_segment_file_is_not_mistaken_for_the_end_of_the_log() {
 /// four and leaves twenty. In both the next record's data header fills
 /// the rest of the second segment file and its payload begins at the
 /// third.
-fn lost_header_log(format: Format, data_size: u32, first_len: usize) -> (Log, Vec<Vec<u8>>) {
+fn lost_header_log(
+    format: Format,
+    data_size: u32,
+    first_len: usize,
+) -> (Log, Vec<Vec<u8>>) {
     let log = Log::new(data_size);
     let written = vec![
         b"#1 123456789".to_vec()[..first_len].to_vec(),
@@ -1539,7 +1559,8 @@ fn a_file_written_by_an_unreadable_version_is_refused() {
 #[test]
 fn a_prefix_or_suffix_holding_a_path_separator_is_refused() {
     let log = Log::new(64);
-    for (prefix, suffix) in [("a/b", ".log"), ("seg-", "x/y"), ("a\\b", ".log")] {
+    for (prefix, suffix) in [("a/b", ".log"), ("seg-", "x/y"), ("a\\b", ".log")]
+    {
         assert!(
             matches!(
                 LogWrite::new(
@@ -1636,7 +1657,8 @@ fn the_iterator_marks_a_record_it_could_only_partly_recover() {
     let files = log.segment_files();
     let per_record = files.len() / written.len();
     assert!(per_record >= 3, "expected a record to span several files");
-    fs::remove_file(&files[2 * per_record + per_record / 2]).expect("a removable segment file");
+    fs::remove_file(&files[2 * per_record + per_record / 2])
+        .expect("a removable segment file");
 
     let mut reader = log.reader().expect("a readable log");
     let records: Vec<_> = reader.iter().collect();
@@ -1649,19 +1671,21 @@ fn the_iterator_marks_a_record_it_could_only_partly_recover() {
     // carrying the flag would have a caller discarding good telemetry.
     for record in &records {
         let whole = written.iter().any(|w| w == &record.payload);
-        let front = written
-            .iter()
-            .any(|w| w.starts_with(&record.payload) && w.len() > record.payload.len());
+        let front = written.iter().any(|w| {
+            w.starts_with(&record.payload) && w.len() > record.payload.len()
+        });
         if record.truncated {
             assert!(
                 front,
-                "a record marked truncated is not the front of anything written: {:?}",
+                "a record marked truncated is not the front of anything \
+                 written: {:?}",
                 String::from_utf8_lossy(&record.payload)
             );
         } else {
             assert!(
                 whole,
-                "a record not marked truncated is not one that was written: {:?}",
+                "a record not marked truncated is not one that was \
+                 written: {:?}",
                 String::from_utf8_lossy(&record.payload)
             );
         }
@@ -1696,7 +1720,8 @@ fn the_iterator_marks_a_record_too_long_for_its_own_buffer() {
 }
 
 #[test]
-fn current_header_names_the_open_segment_file_and_nothing_before_the_first_read() {
+fn current_header_names_the_open_segment_file_and_nothing_before_the_first_read(
+) {
     let log = Log::new(400);
     log.write_session(Format::VariableSimple, &payloads(2, 8));
 
@@ -2029,7 +2054,9 @@ fn a_segment_file_cut_short_mid_session_is_not_stitched_over() {
         let out = log.read_with(buf_len);
         for p in out.payloads.iter().chain(&out.partials) {
             assert!(
-                first.starts_with(p) || second.starts_with(p) || second.ends_with(p),
+                first.starts_with(p)
+                    || second.starts_with(p)
+                    || second.ends_with(p),
                 "buffer of {buf_len}: bytes stitched from two records: {p:?}"
             );
         }

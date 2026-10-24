@@ -42,8 +42,11 @@ MYPY   := mypy
 # PYTHONPATH; install says so when it does. Evaluated only when used,
 # so a build without Python never runs it.
 PYDIR ?= $(shell $(PYTHON) -c 'import os, site, sysconfig; \
-	print(site.getusersitepackages() if os.path.realpath("$(PREFIX)") == os.path.realpath(os.path.expanduser("~")) \
-	else sysconfig.get_path("purelib", "posix_prefix", vars={"base": "$(PREFIX)", "platbase": "$(PREFIX)"}))')
+	print(site.getusersitepackages() \
+	if os.path.realpath("$(PREFIX)") \
+	== os.path.realpath(os.path.expanduser("~")) \
+	else sysconfig.get_path("purelib", "posix_prefix", \
+	vars={"base": "$(PREFIX)", "platbase": "$(PREFIX)"}))')
 
 # The C and C++ compilers for the binding's smoke test, and the warnings
 # it is held to. -Werror because a warning in a 180-line test is a
@@ -56,7 +59,8 @@ CAPI_CFLAGS   := -Wall -Wextra -Werror -std=c11
 CAPI_CXXFLAGS := -x c++ -Wall -Wextra -Werror -std=c++11
 # The C++ interface's own test, held to -pedantic and built without
 # exceptions or RTTI, which is what shows tcslog.hpp needs neither.
-WRAPPER_CXXFLAGS := -Wall -Wextra -Werror -pedantic -std=c++11 -fno-exceptions -fno-rtti
+WRAPPER_CXXFLAGS := -Wall -Wextra -Werror -pedantic -std=c++11 \
+	-fno-exceptions -fno-rtti
 # What `make capi-memcheck` adds. -g so a report names lines rather
 # than addresses, and no optimization so the frames are the real ones.
 CAPI_SAN_FLAGS := -fsanitize=address,undefined -fno-omit-frame-pointer -g -O0
@@ -66,12 +70,12 @@ CARGO_TARGET_DIR ?= target/debug
 
 # Default target
 .PHONY: all
-all: build			## Build the project (default target)
+all: build		## Build the project (default target)
 
 # Display help. Every entry is the `##` comment on the target's own
 # rule, so the list cannot drift from the set of targets that exist.
 .PHONY: help
-help:				## Show this help
+help:			## Show this help
 	@echo "Makefile for Rust Project with Claude Code"
 	@echo ""
 	@echo "Usage:"
@@ -82,7 +86,7 @@ help:				## Show this help
 # Build the project. The subshell groups the whole build so that one
 # `tee` captures all of it.
 .PHONY: build
-build:	docs			## Build the Rust project
+build:	docs		## Build the Rust project
 	echo "Building the project..."
 	cargo build $(RELEASE)
 	echo "[OK] Build complete"
@@ -93,7 +97,7 @@ docs:
 
 # Run tests
 .PHONY: test
-test:				## Run all tests
+test:			## Run all tests
 	@echo "Running tests..."
 	cargo test
 	$(MAKE) -C test
@@ -115,7 +119,7 @@ test:				## Run all tests
 # Each log is written into a temporary directory that is removed
 # afterwards whether the test passed or not.
 .PHONY: capi-test
-capi-test:			## Compile and run the C binding's smoke test as C and C++
+capi-test:		## Run the C binding's smoke test as C and as C++
 	@echo "Running the C binding smoke test..."
 	cargo build $(RELEASE) -p tcslog-c
 	tmp=$$(mktemp -d -t tcslog-capi.XXXXXXXXXX); \
@@ -125,7 +129,8 @@ capi-test:			## Compile and run the C binding's smoke test as C and C++
 		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
 	$(CXX) $(CAPI_CXXFLAGS) -o $$tmp/smoke-cxx tcslog-c/examples/smoke.c \
 		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
-	$(CXX) $(WRAPPER_CXXFLAGS) -o $$tmp/wrapper tcslog-c/examples/wrapper.cpp \
+	$(CXX) $(WRAPPER_CXXFLAGS) -o $$tmp/wrapper \
+		tcslog-c/examples/wrapper.cpp \
 		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
 	mkdir $$tmp/wrap; \
 	echo "-- as C"; $$tmp/smoke-c $$tmp/c; \
@@ -138,7 +143,7 @@ capi-test:			## Compile and run the C binding's smoke test as C and C++
 # the library cargo just built, so an installed copy elsewhere on the
 # loader's path cannot stand in for it.
 .PHONY: python-test
-python-test:			## Run the Python 3 interface's tests
+python-test:		## Run the Python 3 interface's tests
 	@echo "Running the Python 3 interface tests..."
 	cargo build $(RELEASE) -p tcslog-c
 	TCSLOG_LIB=$(abspath $(CARGO_TARGET_DIR))/libtcslog_c.so \
@@ -160,7 +165,7 @@ python-test:			## Run the Python 3 interface's tests
 # Not part of `make test`: it needs a compiler with the sanitizers,
 # which not every toolchain this builds on has.
 .PHONY: capi-memcheck
-capi-memcheck:			## Run the C/C++ smoke test under ASan and UBSan
+capi-memcheck:		## Run the C/C++ smoke test under ASan and UBSan
 	@echo "Running the C binding smoke test under sanitizers..."
 	cargo build $(RELEASE) -p tcslog-c
 	tmp=$$(mktemp -d -t tcslog-capi-san.XXXXXXXXXX); \
@@ -183,11 +188,15 @@ capi-memcheck:			## Run the C/C++ smoke test under ASan and UBSan
 	@echo "[OK] No leak or undefined behaviour reported"
 
 # Regenerate tcslog-c/include/tcslog.h from tcslog-c/src/lib.rs. Needs
-# `cargo install cbindgen`, as `make check` does.
+# `cargo install cbindgen`, as `make check` does. cbindgen indents only
+# with spaces, so unexpand turns its eight-column indents into tabs.
 .PHONY: header
-header:				## Regenerate the C header from tcslog-c/src/lib.rs
+header:			## Regenerate the C header from tcslog-c/src/lib.rs
 	cd tcslog-c && cbindgen --config cbindgen.toml --crate tcslog-c \
-		--output include/tcslog.h
+		--output include/tcslog.h.tmp \
+		&& unexpand --first-only -t 8 include/tcslog.h.tmp \
+			> include/tcslog.h \
+		&& rm include/tcslog.h.tmp
 	@echo "[OK] tcslog-c/include/tcslog.h regenerated"
 
 # Install the C binding: the header and both libraries. The Rust
@@ -199,7 +208,7 @@ header:				## Regenerate the C header from tcslog-c/src/lib.rs
 # optimized libraries; CARGO_TARGET_DIR says which directory those
 # landed in.
 .PHONY: install
-install: header		## Install the C/C++ header, the libraries, and the Python 3 package
+install: header		## Install the header, libraries, and Python 3 package
 	@echo "Installing the C binding to $(DESTDIR)$(PREFIX)..."
 	cargo build $(RELEASE) -p tcslog-c
 	install -d $(INCDIR) $(LIBDIR)
@@ -216,22 +225,28 @@ install: header		## Install the C/C++ header, the libraries, and the Python 3 pa
 	install -d $(DESTDIR)$(PYDIR)/tcslog
 	install -m 644 tcslog-py/tcslog/*.py tcslog-py/tcslog/py.typed \
 		$(DESTDIR)$(PYDIR)/tcslog/
-	ln -sf $(PREFIX)/lib/libtcslog_c.so $(DESTDIR)$(PYDIR)/tcslog/libtcslog_c.so
-	@echo "[OK] Installed the Python 3 package to $(DESTDIR)$(PYDIR)/tcslog/"
+	ln -sf $(PREFIX)/lib/libtcslog_c.so \
+		$(DESTDIR)$(PYDIR)/tcslog/libtcslog_c.so
+	@echo "[OK] Installed the Python 3 package to" \
+		"$(DESTDIR)$(PYDIR)/tcslog/"
 	@# Staged with DESTDIR, the path is not this machine's to check.
-	@[ -n "$(DESTDIR)" ] || $(PYTHON) -c 'import sys; sys.exit("$(PYDIR)" in sys.path)' \
-		&& echo "     $(PYDIR) is not on Python's path; add it to PYTHONPATH" \
+	@[ -n "$(DESTDIR)" ] \
+		|| $(PYTHON) -c 'import sys; sys.exit("$(PYDIR)" in sys.path)' \
+		&& echo "     $(PYDIR) is not on Python's path;" \
+			"add it to PYTHONPATH" \
 		|| true
 	@echo "     Compile against it with:"
-	@echo "       cc  prog.c   -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
-	@echo "       c++ prog.cpp -I$(PREFIX)/include -L$(PREFIX)/lib -ltcslog_c"
+	@echo "       cc  prog.c   -I$(PREFIX)/include" \
+		"-L$(PREFIX)/lib -ltcslog_c"
+	@echo "       c++ prog.cpp -I$(PREFIX)/include" \
+		"-L$(PREFIX)/lib -ltcslog_c"
 	@echo "     and from Python 3 with:"
 	@echo "       import tcslog"
 
 # Removes what install put there, honouring the same two variables.
 # Nothing else in those directories is touched.
 .PHONY: uninstall
-uninstall:			## Remove the installed header, libraries, and Python 3 package
+uninstall:		## Remove the header, libraries, and Python 3 package
 	@echo "Removing the C binding from $(DESTDIR)$(PREFIX)..."
 	$(RM) $(INCDIR)/tcslog.h $(INCDIR)/tcslog.hpp
 	$(RM) $(addprefix $(LIBDIR)/,$(CAPI_LIBS))
@@ -240,7 +255,7 @@ uninstall:			## Remove the installed header, libraries, and Python 3 package
 
 # Clean build artifacts
 .PHONY: clean
-clean:				## Remove build artifacts
+clean:			## Remove build artifacts
 	@echo "Cleaning build artifacts..."
 	-cargo clean
 	$(RM) build.out
@@ -250,7 +265,7 @@ clean:				## Remove build artifacts
 
 # Clean everything including generated source
 .PHONY: distclean
-distclean: clean		## Remove build artifacts and all generated files
+distclean: clean	## Remove build artifacts and all generated files
 	@echo "Removing all generated files..."
 	$(RM) Cargo.lock
 	$(RMDIR) target
@@ -268,7 +283,7 @@ distclean: clean		## Remove build artifacts and all generated files
 # stripped rather than resolved: resolving them wants a pinned nightly,
 # and `SegId` reads as well as a link to it in a README.
 .PHONY: check
-check:				## Run cargo check, clippy, fmt (fuzz crate too), ruff, mypy, and generated-file checks
+check:			## Run cargo check, clippy, fmt, ruff, mypy, and more
 	@echo "Running cargo check..."
 	cargo check --all-targets
 	# The read-only configuration, which nothing else here builds: the
@@ -280,13 +295,16 @@ check:				## Run cargo check, clippy, fmt (fuzz crate too), ruff, mypy, and gene
 	# The fuzz crate is outside the workspace, so the two lines above do
 	# not reach it. Checked on stable; only running it needs nightly.
 	cargo fmt --manifest-path fuzz/Cargo.toml -- --check
-	cargo clippy --manifest-path fuzz/Cargo.toml --all-targets -- -D warnings
+	cargo clippy --manifest-path fuzz/Cargo.toml --all-targets \
+		-- -D warnings
 	cargo rdme --check -w tcslog --intralinks-strip-links
 	@echo "Checking the C header is current..."
 	cd tcslog-c && cbindgen --config cbindgen.toml --crate tcslog-c \
 		--output /dev/stdout 2>/dev/null \
+		| unexpand --first-only -t 8 \
 		| diff -u include/tcslog.h - \
-		|| { echo "tcslog-c/include/tcslog.h is out of date; run 'make header'" 1>&2; \
+		|| { echo "tcslog-c/include/tcslog.h is out of date;" \
+			"run 'make header'" 1>&2; \
 		     exit 1; }
 	@echo "Checking the Python 3 package..."
 	cd tcslog-py && $(RUFF) check . && $(RUFF) format --check . && $(MYPY) .
@@ -294,7 +312,8 @@ check:				## Run cargo check, clippy, fmt (fuzz crate too), ruff, mypy, and gene
 	crate=$$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml); \
 	py=$$(sed -n 's/^version = "\(.*\)"/\1/p' tcslog-py/pyproject.toml); \
 	[ "$$crate" = "$$py" ] \
-		|| { echo "tcslog-py/pyproject.toml is $$py, the crates $$crate" 1>&2; \
+		|| { echo "tcslog-py/pyproject.toml is $$py," \
+			"the crates $$crate" 1>&2; \
 		     exit 1; }
 
 # Fuzz the reader: each target in fuzz/ for FUZZ_TIME seconds, starting
@@ -310,9 +329,11 @@ FUZZ_TIME    := 60
 FUZZ_TARGETS := damaged_log arbitrary_files
 FUZZ_FLAGS   :=
 .PHONY: fuzz
-fuzz:				## Fuzz the reader for FUZZ_TIME seconds a target (nightly, cargo-fuzz)
+fuzz:			## Fuzz each target for FUZZ_TIME seconds (nightly)
 	cd fuzz && for t in $(FUZZ_TARGETS); do \
-		cargo +nightly fuzz run $(FUZZ_FLAGS) $$t -- -max_total_time=$(FUZZ_TIME) -max_len=8192 || exit 1; \
+		cargo +nightly fuzz run $(FUZZ_FLAGS) $$t -- \
+			-max_total_time=$(FUZZ_TIME) -max_len=8192 \
+			|| exit 1; \
 	done
 	@echo "[OK] No fuzz target failed in $(FUZZ_TIME)s each"
 
@@ -322,26 +343,26 @@ fuzz:				## Fuzz the reader for FUZZ_TIME seconds a target (nightly, cargo-fuzz)
 # of `make check`, needing `rustup target add $(CROSS_TARGET)` first.
 CROSS_TARGET := x86_64-pc-windows-gnu
 .PHONY: cross-check
-cross-check:			## Type-check the workspace for CROSS_TARGET (default Windows)
+cross-check:		## Type-check the workspace for CROSS_TARGET (Windows)
 	cargo check --workspace --all-targets --target $(CROSS_TARGET)
 	@echo "[OK] The workspace type-checks for $(CROSS_TARGET)"
 
 # Regenerate the library's README from tcslog/src/lib.rs. Needs
 # `cargo install cargo-rdme`, as `make check` does.
 .PHONY: readme
-readme:				## Regenerate tcslog/README.md from the library docs
+readme:			## Regenerate tcslog/README.md from the library docs
 	cargo rdme -w tcslog --intralinks-strip-links
 	@echo "[OK] tcslog/README.md regenerated"
 
 # Format code
 .PHONY: format
-format:				## Format the code with cargo fmt and ruff
+format:			## Format the code with cargo fmt and ruff
 	cargo fmt
 	cd tcslog-py && $(RUFF) format .
 
 # Create release build. Reuses `build` so there is one build path.
 .PHONY: release
-release: test			## Build with optimizations into target/release
+release: test		## Build with optimizations into target/release
 	@echo "Creating release build..."
 	$(MAKE) build RELEASE=--release
 	@echo "[OK] Release binaries are in target/release/"

@@ -21,7 +21,10 @@ use std::fs;
 
 use arbitrary::Arbitrary;
 use libfuzzer_sys::fuzz_target;
-use tcslog::{Format, LogError, LogRead, SegId, SegmentHeader, SeqId, SEGMENT_FILE_HEADER_LEN};
+use tcslog::{
+    Format, LogError, LogRead, SegId, SegmentHeader, SeqId,
+    SEGMENT_FILE_HEADER_LEN,
+};
 
 const PREFIX: &str = "seg-";
 const SUFFIX: &str = ".log";
@@ -66,11 +69,14 @@ fuzz_target!(|files: Vec<File>| {
                 data,
             } => {
                 let format = match format {
-                    FormatChoice::Fixed(n) => Format::Fixed(u32::from(*n % 32) + 1),
+                    FormatChoice::Fixed(n) => {
+                        Format::Fixed(u32::from(*n % 32) + 1)
+                    }
                     FormatChoice::VariableSimple => Format::VariableSimple,
                     FormatChoice::VariableTsRc => Format::VariableTsRc,
                 };
-                let max_size = SEGMENT_FILE_HEADER_LEN + u32::from(*data_bytes) + 1;
+                let max_size =
+                    SEGMENT_FILE_HEADER_LEN + u32::from(*data_bytes) + 1;
                 let header = SegmentHeader {
                     segment_id: id,
                     // Sessions named by the identifier of a file in this
@@ -89,7 +95,8 @@ fuzz_target!(|files: Vec<File>| {
         };
         total += bytes.len();
         let name = format!("{PREFIX}{id}{SUFFIX}");
-        fs::write(dir.path().join(name), bytes).expect("a writable temporary directory");
+        fs::write(dir.path().join(name), bytes)
+            .expect("a writable temporary directory");
     }
 
     let Ok(mut log) = LogRead::new(path, PREFIX, SUFFIX) else {

@@ -395,7 +395,9 @@ impl<H: WriteCallbacks> LogWrite<H> {
         if TIMER_RESOLUTION_NS == 0 {
             return Err(LogError::TimerResolutionZero);
         }
-        if seg_size_max <= SEGMENT_FILE_HEADER_LEN.saturating_add(format.data_header_len()) {
+        if seg_size_max
+            <= SEGMENT_FILE_HEADER_LEN.saturating_add(format.data_header_len())
+        {
             return Err(LogError::SegSizeTooSmall);
         }
         if format == Format::Fixed(0) {
@@ -427,7 +429,9 @@ impl<H: WriteCallbacks> LogWrite<H> {
                 Format::VariableTsRc => Meta::VariableTsRc(0, 0),
             },
             header_buf: [0u8; MAX_DATA_HEADER_LEN],
-            name_buf: String::with_capacity(prefix.len() + SegId::STR_LEN + suffix.len()),
+            name_buf: String::with_capacity(
+                prefix.len() + SegId::STR_LEN + suffix.len(),
+            ),
             spare_path: None,
         };
 
@@ -587,7 +591,8 @@ impl<H: WriteCallbacks> LogWrite<H> {
         }
         let header_len = self.format.data_header_len();
         let total = u64::from(header_len) + msg.len() as u64;
-        let total = u32::try_from(total).map_err(|_| LogError::PayloadTooLarge)?;
+        let total =
+            u32::try_from(total).map_err(|_| LogError::PayloadTooLarge)?;
 
         if self.current.is_none() {
             self.start_session()?;
@@ -787,7 +792,10 @@ impl<H: WriteCallbacks> LogWrite<H> {
     ///
     /// * `buf` -- a path buffer to build the name in, so that creating a
     ///   segment file need not allocate one.
-    fn create_unique_file(&mut self, buf: PathBuf) -> Result<(SegId, PathBuf, File), LogError> {
+    fn create_unique_file(
+        &mut self,
+        buf: PathBuf,
+    ) -> Result<(SegId, PathBuf, File), LogError> {
         self.create_unique_file_with(buf, create_new)
     }
 
@@ -873,9 +881,9 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// path through this crate can panic. It is a bare error kind, with
     /// no message, so that even this path allocates nothing.
     fn current_mut(&mut self) -> Result<&mut Current, LogError> {
-        self.current
-            .as_mut()
-            .ok_or_else(|| LogError::IoError(std::io::ErrorKind::NotFound.into()))
+        self.current.as_mut().ok_or_else(|| {
+            LogError::IoError(std::io::ErrorKind::NotFound.into())
+        })
     }
 
     /// Bytes still available in the current segment file's data section.
@@ -893,8 +901,12 @@ impl<H: WriteCallbacks> LogWrite<H> {
     ///
     /// Returns the number of header bytes built and the metadata the
     /// header carries.
-    fn build_data_header(&mut self, payload_len: usize) -> Result<(usize, Meta), LogError> {
-        let n = RecSize::try_from(payload_len).map_err(|_| LogError::PayloadTooLarge)?;
+    fn build_data_header(
+        &mut self,
+        payload_len: usize,
+    ) -> Result<(usize, Meta), LogError> {
+        let n = RecSize::try_from(payload_len)
+            .map_err(|_| LogError::PayloadTooLarge)?;
         match self.format {
             Format::Fixed(_) => Ok((0, Meta::Fixed)),
             Format::VariableSimple => {
@@ -953,7 +965,8 @@ impl<H: WriteCallbacks> LogWrite<H> {
 
             let current = self.current_mut()?;
             current.data_written += u32::try_from(take).unwrap_or(u32::MAX);
-            self.record_bytes_left = self.record_bytes_left.saturating_sub(take as u64);
+            self.record_bytes_left =
+                self.record_bytes_left.saturating_sub(take as u64);
             off += take;
         }
         Ok(())
@@ -1163,7 +1176,8 @@ impl Clock {
         // Saturating for the same reason as in `new`: the sum cannot
         // reach the end of a u64 of nanoseconds within any mission, and
         // reading the clock must not be able to panic.
-        let elapsed = u64::try_from(self.mono.elapsed().as_nanos()).unwrap_or(u64::MAX);
+        let elapsed =
+            u64::try_from(self.mono.elapsed().as_nanos()).unwrap_or(u64::MAX);
         self.delta.saturating_add(elapsed)
     }
 
@@ -1244,7 +1258,9 @@ mod tests {
     /// * `adjusted` -- the function to report to.
     ///
     /// Returns the writer and the directory, which must outlive it.
-    fn writer_with(adjusted: fn(u64)) -> (LogWrite<Adjusted>, tempfile::TempDir) {
+    fn writer_with(
+        adjusted: fn(u64),
+    ) -> (LogWrite<Adjusted>, tempfile::TempDir) {
         let dir = tempfile::tempdir().expect("a temporary directory");
         let w = LogWrite::new(
             dir.path().to_str().expect("a UTF-8 temporary path"),
@@ -1386,7 +1402,11 @@ mod tests {
         });
 
         assert!(
-            matches!(outcome, Err(LogError::IoError(ref e)) if e.kind() == ErrorKind::PermissionDenied),
+            matches!(
+                outcome,
+                Err(LogError::IoError(ref e))
+                    if e.kind() == ErrorKind::PermissionDenied
+            ),
             "a permission failure was not reported as itself"
         );
         assert_eq!(
@@ -1418,8 +1438,8 @@ mod tests {
         // The anchor is the floor of every later reading, and the gap
         // above it is time this test actually took.
         let delta = 1_700_000_000_000_000_000;
-        let clock =
-            Clock::anchor(Duration::from_nanos(delta), Instant::now()).expect("a set clock");
+        let clock = Clock::anchor(Duration::from_nanos(delta), Instant::now())
+            .expect("a set clock");
         let now = clock.now();
         assert!(now >= delta, "{now} is below the anchor {delta}");
         assert!(
@@ -1431,7 +1451,8 @@ mod tests {
 
     #[test]
     fn clock_never_goes_backwards() {
-        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now()).expect("a set clock");
+        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now())
+            .expect("a set clock");
         let mut last = clock.now();
         for _ in 0..10_000 {
             let now = clock.now();
@@ -1442,7 +1463,8 @@ mod tests {
 
     #[test]
     fn clock_advances_across_a_sleep() {
-        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now()).expect("a set clock");
+        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now())
+            .expect("a set clock");
         let before = clock.now();
         thread::sleep(Duration::from_millis(2));
         assert!(clock.now() > before);
@@ -1450,8 +1472,8 @@ mod tests {
 
     #[test]
     fn advance_past_steps_over_an_identifier_from_a_later_clock() {
-        let mut clock =
-            Clock::anchor(Duration::from_micros(1), Instant::now()).expect("a set clock");
+        let mut clock = Clock::anchor(Duration::from_micros(1), Instant::now())
+            .expect("a set clock");
         let ahead = SegId::from_u64(5_000_000_000);
         clock.advance_past(ahead);
         assert!(
@@ -1465,7 +1487,8 @@ mod tests {
     fn advance_past_leaves_a_clock_already_ahead_where_it_was() {
         let delta = 1_700_000_000_000_000_000;
         let mut clock =
-            Clock::anchor(Duration::from_nanos(delta), Instant::now()).expect("a set clock");
+            Clock::anchor(Duration::from_nanos(delta), Instant::now())
+                .expect("a set clock");
         clock.advance_past(SegId::from_u64(delta - 1_000_000_000));
         assert_eq!(
             clock.delta, delta,
@@ -1478,8 +1501,8 @@ mod tests {
         // The point of moving the epoch instead of clamping each
         // identifier: a clamped clock would mint one value until real
         // time caught up, and `create_unique_file` would spin on it.
-        let mut clock =
-            Clock::anchor(Duration::from_micros(1), Instant::now()).expect("a set clock");
+        let mut clock = Clock::anchor(Duration::from_micros(1), Instant::now())
+            .expect("a set clock");
         clock.advance_past(SegId::from_u64(5_000_000_000));
         let first = clock.now_seg_id();
         thread::sleep(Duration::from_millis(2));
@@ -1526,7 +1549,8 @@ mod tests {
 
     #[test]
     fn segment_ids_follow_the_clock() {
-        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now()).expect("a set clock");
+        let clock = Clock::anchor(Duration::from_nanos(1), Instant::now())
+            .expect("a set clock");
         let first = clock.now_seg_id();
         thread::sleep(Duration::from_millis(2));
         assert!(clock.now_seg_id() > first);

@@ -58,9 +58,9 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::path::Path;
 
 use tcslog::{
-    write_timestamp, Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, SegmentHeader,
-    WriteCallbacks, SEGMENT_FILE_HEADER_LEN, TIMESTAMP_STR_LEN, VERSION_MAJOR, VERSION_MINOR,
-    VERSION_PATCH,
+    write_timestamp, Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId,
+    SegmentHeader, WriteCallbacks, SEGMENT_FILE_HEADER_LEN, TIMESTAMP_STR_LEN,
+    VERSION_MAJOR, VERSION_MINOR, VERSION_PATCH,
 };
 
 /// What a call reported.
@@ -366,18 +366,21 @@ pub struct TcslogCallbacks {
     /// Called with the path of a segment file being handed over.
     /// Returning non-zero makes the write that triggered it report
     /// [`TcslogStatus::IoError`].
-    pub send: Option<extern "C" fn(ctx: *mut c_void, path: *const c_char) -> c_int>,
+    pub send:
+        Option<extern "C" fn(ctx: *mut c_void, path: *const c_char) -> c_int>,
 
     /// Called with the descriptor of the segment file a record ended
     /// in, which the library still owns: do not close it. On a platform
     /// other than Unix, where a file is not a descriptor, it is -1.
     /// Returning non-zero makes the write report
     /// [`TcslogStatus::IoError`].
-    pub record_complete: Option<extern "C" fn(ctx: *mut c_void, fd: c_int) -> c_int>,
+    pub record_complete:
+        Option<extern "C" fn(ctx: *mut c_void, fd: c_int) -> c_int>,
 
     /// Called with the widened timer resolution, in nanoseconds, when
     /// the build-time value turned out too small for this machine.
-    pub timer_resolution_adjusted: Option<extern "C" fn(ctx: *mut c_void, resolution_ns: u64)>,
+    pub timer_resolution_adjusted:
+        Option<extern "C" fn(ctx: *mut c_void, resolution_ns: u64)>,
 
     /// Handed to each callback above, untouched.
     pub ctx: *mut c_void,
@@ -414,7 +417,8 @@ impl CHandler {
     fn new(cb: TcslogCallbacks, dir: &str, prefix: &str, suffix: &str) -> Self {
         // The directory, a separator, the prefix, a segment identifier,
         // the suffix, and the NUL.
-        let longest = dir.len() + 1 + prefix.len() + SegId::STR_LEN + suffix.len() + 1;
+        let longest =
+            dir.len() + 1 + prefix.len() + SegId::STR_LEN + suffix.len() + 1;
         Self {
             cb,
             path_buf: Vec::with_capacity(longest),
@@ -509,7 +513,9 @@ fn status_of(e: &LogError, out: &mut TcslogReadResult) -> TcslogStatus {
         LogError::InvalidPathname => TcslogStatus::InvalidPathname,
         LogError::IoError(_) => TcslogStatus::IoError,
         LogError::NoSegmentFiles => TcslogStatus::NoSegmentFiles,
-        LogError::PathDelimiterNotAllowed => TcslogStatus::PathDelimiterNotAllowed,
+        LogError::PathDelimiterNotAllowed => {
+            TcslogStatus::PathDelimiterNotAllowed
+        }
         LogError::PayloadTooLarge => TcslogStatus::PayloadTooLarge,
         LogError::ReadOverflow(need) => {
             out.n = *need;
@@ -636,7 +642,11 @@ unsafe fn render_into(
 /// and whose minor version is no greater. Any of the three pointers may
 /// be null.
 #[no_mangle]
-pub extern "C" fn tcslog_format_version(major: *mut u32, minor: *mut u32, patch: *mut u32) {
+pub extern "C" fn tcslog_format_version(
+    major: *mut u32,
+    minor: *mut u32,
+    patch: *mut u32,
+) {
     for (p, v) in [
         (major, VERSION_MAJOR),
         (minor, VERSION_MINOR),
@@ -666,7 +676,8 @@ pub extern "C" fn tcslog_segment_file_header_len() -> u32 {
 /// rejects a literal whose NUL was left off or that holds an interior
 /// one, which is the mistake this form invites.
 fn cstr(bytes: &'static [u8]) -> &'static CStr {
-    CStr::from_bytes_with_nul(bytes).expect("a NUL-terminated literal with no interior NUL")
+    CStr::from_bytes_with_nul(bytes)
+        .expect("a NUL-terminated literal with no interior NUL")
 }
 
 /// A short description of a status, as a static NUL-terminated string.
@@ -680,28 +691,48 @@ pub extern "C" fn tcslog_status_str(status: TcslogStatus) -> *const c_char {
         TcslogStatus::Ok => cstr(b"ok\0"),
         TcslogStatus::Eof => cstr(b"end of log\0"),
         TcslogStatus::SessionEnd => cstr(b"end of session\0"),
-        TcslogStatus::ReadTruncated => cstr(b"telemetry lost; record cut short\0"),
+        TcslogStatus::ReadTruncated => {
+            cstr(b"telemetry lost; record cut short\0")
+        }
         TcslogStatus::ReadOverflow => {
             cstr(b"record larger than the buffer; its front was captured\0")
         }
         TcslogStatus::ClockError => cstr(b"real-time clock is not set\0"),
-        TcslogStatus::FixedLenMismatch => cstr(b"payload is not the fixed record length\0"),
-        TcslogStatus::InvalidHeader => cstr(b"segment file header could not be read\0"),
-        TcslogStatus::InvalidPathname => cstr(b"directory, prefix, or suffix cannot name a log\0"),
+        TcslogStatus::FixedLenMismatch => {
+            cstr(b"payload is not the fixed record length\0")
+        }
+        TcslogStatus::InvalidHeader => {
+            cstr(b"segment file header could not be read\0")
+        }
+        TcslogStatus::InvalidPathname => {
+            cstr(b"directory, prefix, or suffix cannot name a log\0")
+        }
         TcslogStatus::IoError => cstr(b"I/O error\0"),
         TcslogStatus::NoSegmentFiles => cstr(b"no segment files\0"),
-        TcslogStatus::PathDelimiterNotAllowed => cstr(b"prefix or suffix holds a path separator\0"),
-        TcslogStatus::PayloadTooLarge => cstr(b"payload too large for a record\0"),
-        TcslogStatus::SegSizeTooSmall => cstr(b"segment size leaves no room for a record\0"),
-        TcslogStatus::TimerResolutionZero => cstr(b"built without TIMER_RESOLUTION\0"),
+        TcslogStatus::PathDelimiterNotAllowed => {
+            cstr(b"prefix or suffix holds a path separator\0")
+        }
+        TcslogStatus::PayloadTooLarge => {
+            cstr(b"payload too large for a record\0")
+        }
+        TcslogStatus::SegSizeTooSmall => {
+            cstr(b"segment size leaves no room for a record\0")
+        }
+        TcslogStatus::TimerResolutionZero => {
+            cstr(b"built without TIMER_RESOLUTION\0")
+        }
         TcslogStatus::VersionMismatch => {
             cstr(b"segment file version is not readable by this build\0")
         }
         TcslogStatus::NullArgument => cstr(b"null argument\0"),
         TcslogStatus::NotUtf8 => cstr(b"argument is not valid UTF-8\0"),
         TcslogStatus::Panic => cstr(b"panic caught at the boundary\0"),
-        TcslogStatus::InvalidFormat => cstr(b"format tag is not one of the three formats\0"),
-        TcslogStatus::BufferTooSmall => cstr(b"buffer too small for the text\0"),
+        TcslogStatus::InvalidFormat => {
+            cstr(b"format tag is not one of the three formats\0")
+        }
+        TcslogStatus::BufferTooSmall => {
+            cstr(b"buffer too small for the text\0")
+        }
     };
     s.as_ptr()
 }
@@ -744,7 +775,10 @@ pub unsafe extern "C" fn tcslog_seg_id_format(
 /// `text` must be a NUL-terminated string, and `out` must point to
 /// writable storage for one `uint64_t`.
 #[no_mangle]
-pub unsafe extern "C" fn tcslog_seg_id_parse(text: *const c_char, out: *mut u64) -> TcslogStatus {
+pub unsafe extern "C" fn tcslog_seg_id_parse(
+    text: *const c_char,
+    out: *mut u64,
+) -> TcslogStatus {
     guard(|| {
         if out.is_null() {
             return TcslogStatus::NullArgument;
@@ -932,7 +966,9 @@ pub unsafe extern "C" fn tcslog_write_record(
 ///
 /// `h` must come from [`tcslog_write_open`] and not yet be closed.
 #[no_mangle]
-pub unsafe extern "C" fn tcslog_write_flush(h: *mut TcslogWrite) -> TcslogStatus {
+pub unsafe extern "C" fn tcslog_write_flush(
+    h: *mut TcslogWrite,
+) -> TcslogStatus {
     guard(|| {
         if h.is_null() {
             return TcslogStatus::NullArgument;
@@ -951,7 +987,9 @@ pub unsafe extern "C" fn tcslog_write_flush(h: *mut TcslogWrite) -> TcslogStatus
 ///
 /// `h` must come from [`tcslog_write_open`] and not yet be closed.
 #[no_mangle]
-pub unsafe extern "C" fn tcslog_write_clear(h: *mut TcslogWrite) -> TcslogStatus {
+pub unsafe extern "C" fn tcslog_write_clear(
+    h: *mut TcslogWrite,
+) -> TcslogStatus {
     guard(|| {
         if h.is_null() {
             return TcslogStatus::NullArgument;
@@ -1414,7 +1452,8 @@ mod tests {
         }
 
         fn c_string(&self) -> CString {
-            CString::new(self.0.to_str().expect("a UTF-8 path")).expect("a path without NUL")
+            CString::new(self.0.to_str().expect("a UTF-8 path"))
+                .expect("a path without NUL")
         }
     }
 
@@ -1459,7 +1498,9 @@ mod tests {
 
         let msg = b"attitude nominal";
         let mut written = 0u32;
-        let status = unsafe { tcslog_write_record(w, msg.as_ptr(), msg.len(), &mut written) };
+        let status = unsafe {
+            tcslog_write_record(w, msg.as_ptr(), msg.len(), &mut written)
+        };
         assert_eq!(status, TcslogStatus::Ok);
         // The payload plus the four-byte data header a VariableSimple
         // record carries. The conversion is the test's own arithmetic
@@ -1475,19 +1516,29 @@ mod tests {
         assert_eq!(sends, 1, "the context did not reach the send callback");
 
         let mut r: *mut TcslogRead = std::ptr::null_mut();
-        let status =
-            unsafe { tcslog_read_open(d.as_ptr(), prefix.as_ptr(), suffix.as_ptr(), &mut r) };
+        let status = unsafe {
+            tcslog_read_open(
+                d.as_ptr(),
+                prefix.as_ptr(),
+                suffix.as_ptr(),
+                &mut r,
+            )
+        };
         assert_eq!(status, TcslogStatus::Ok, "read open: {status:?}");
 
         let mut buf = [0u8; 64];
         let mut result = TcslogReadResult::empty();
-        let status = unsafe { tcslog_read_record(r, buf.as_mut_ptr(), buf.len(), &mut result) };
+        let status = unsafe {
+            tcslog_read_record(r, buf.as_mut_ptr(), buf.len(), &mut result)
+        };
         assert_eq!(status, TcslogStatus::Ok);
         assert_eq!(result.meta, TcslogMeta::VariableSimple);
         assert_eq!(&buf[..result.n as usize], msg);
 
         // The log held one record, so the next read is the end of it.
-        let status = unsafe { tcslog_read_record(r, buf.as_mut_ptr(), buf.len(), &mut result) };
+        let status = unsafe {
+            tcslog_read_record(r, buf.as_mut_ptr(), buf.len(), &mut result)
+        };
         assert_eq!(status, TcslogStatus::Eof);
         unsafe { tcslog_read_close(r) };
     }
@@ -1497,7 +1548,14 @@ mod tests {
         let mut result = TcslogReadResult::empty();
         let mut buf = [0u8; 8];
         assert_eq!(
-            unsafe { tcslog_read_record(std::ptr::null_mut(), buf.as_mut_ptr(), 8, &mut result) },
+            unsafe {
+                tcslog_read_record(
+                    std::ptr::null_mut(),
+                    buf.as_mut_ptr(),
+                    8,
+                    &mut result,
+                )
+            },
             TcslogStatus::NullArgument
         );
         assert_eq!(
