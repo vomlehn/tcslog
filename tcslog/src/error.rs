@@ -60,6 +60,13 @@ pub enum LogError {
     #[error("I/O error: {0}")]
     IoError(#[from] io::Error),
 
+    /// A prefix or suffix is longer than
+    /// [`PREFIX_SUFFIX_MAX_CHARS`](crate::PREFIX_SUFFIX_MAX_CHARS)
+    /// characters, which keeps a segment file's name within what file
+    /// systems allow.
+    #[error("prefix and suffix must be at most 16 characters each")]
+    NameTooLong,
+
     /// No file in the directory matches the prefix and suffix, so there
     /// is no log there to read.
     #[error("no segment files match the given prefix and suffix")]
@@ -132,6 +139,13 @@ pub enum LogError {
          writer find it"
     )]
     TimerResolutionZero,
+
+    /// The clock reads at or past 2554-07-21T23:34:33.709551615Z, the
+    /// last moment a [`Timestamp`](crate::Timestamp) of nanoseconds since
+    /// the UNIX epoch holds, so neither a segment ID nor a record
+    /// timestamp can be minted.
+    #[error("the clock is past the last time a timestamp holds")]
+    TimestampOverflow,
 
     /// The segment file was written by a version of the on-disk format
     /// this build cannot read.

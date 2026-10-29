@@ -14,15 +14,15 @@ pub(crate) const TAG_VARIABLE_TSRC: u8 = 2;
 /// `RecSize` payload length.
 pub(crate) const VARIABLE_SIMPLE_HEADER_LEN: u32 = 4;
 /// On-disk size of a [`Format::VariableTsRc`] data header: a `RecSize`
-/// payload length, a `Timestamp`, and a `RecordCount` in 48 bits.
-pub(crate) const VARIABLE_TSRC_HEADER_LEN: u32 = 4 + 8 + 6;
+/// payload length, a `Timestamp`, and a `RecordCount` in 32 bits.
+pub(crate) const VARIABLE_TSRC_HEADER_LEN: u32 = 4 + 8 + 4;
 
 /// How data records are laid out in a segment file's data section.
 ///
 /// The choice is made once, when the log is created, and is recorded in
 /// every segment file's header. It trades storage against metadata: a
 /// fixed-length record costs nothing per record and carries nothing,
-/// while a timestamped one costs eighteen bytes and dates itself.
+/// while a timestamped one costs sixteen bytes and dates itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
     /// Every record holds exactly this many payload bytes, and no data
@@ -72,7 +72,7 @@ impl Format {
 
     /// On-disk size of one data record's data header.
     ///
-    /// Returns zero for `Fixed`, four for `VariableSimple`, and eighteen
+    /// Returns zero for `Fixed`, four for `VariableSimple`, and sixteen
     /// for `VariableTsRc`.
     #[must_use]
     pub const fn data_header_len(self) -> u32 {
@@ -139,7 +139,7 @@ mod tests {
     fn data_header_lengths() {
         assert_eq!(Format::Fixed(7).data_header_len(), 0);
         assert_eq!(Format::VariableSimple.data_header_len(), 4);
-        assert_eq!(Format::VariableTsRc.data_header_len(), 18);
+        assert_eq!(Format::VariableTsRc.data_header_len(), 16);
     }
 
     #[test]

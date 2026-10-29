@@ -18,7 +18,7 @@ use tempfile::TempDir;
 
 use tcslog::{
     Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, SegmentHeader,
-    WriteCallbacks, SEGMENT_FILE_HEADER_LEN,
+    WriteCallbacks, PREFIX_SUFFIX_MAX_CHARS, SEGMENT_FILE_HEADER_LEN,
 };
 
 const PREFIX: &str = "seg-";
@@ -1327,9 +1327,9 @@ fn losing_the_last_segment_file_is_not_mistaken_for_the_end_of_the_log() {
 /// recovery weighs against a data header. Two geometries leave exactly
 /// one: a four-byte `VariableSimple` header with a ten-byte data
 /// section and a `first_len` of 12, which owes six bytes and leaves
-/// four; and an eighteen-byte `VariableTsRc` header with a
-/// twenty-two-byte data section and a `first_len` of 8, which owes
-/// four and leaves eighteen. In both the next record's data header fills
+/// four; and a sixteen-byte `VariableTsRc` header with a
+/// twenty-byte data section and a `first_len` of 8, which owes
+/// four and leaves sixteen. In both the next record's data header fills
 /// the rest of the second segment file and its payload begins at the
 /// third.
 fn lost_header_log(
@@ -1411,9 +1411,9 @@ fn a_record_is_not_recovered_when_the_gap_had_room_for_more_than_a_header() {
 fn a_variable_tsrc_record_is_not_recovered_from_a_gap_that_held_its_header() {
     // The geometry the VariableSimple recovery turns on, in the format
     // whose data header holds more than a length: the first record owes
-    // four bytes of the second file, leaving eighteen, which is exactly
+    // four bytes of the second file, leaving sixteen, which is exactly
     // one VariableTsRc data header.
-    let (log, written) = lost_header_log(Format::VariableTsRc, 22, 8);
+    let (log, written) = lost_header_log(Format::VariableTsRc, 20, 8);
     assert_eq!(log.headers()[1].remaining, 4);
     // The next record's payload begins at the third file, so its
     // `remaining` is that whole payload rather than the tail of one.
@@ -1579,6 +1579,47 @@ fn a_prefix_or_suffix_holding_a_path_separator_is_refused() {
             matches!(
                 LogRead::new(log.path(), prefix, suffix),
                 Err(LogError::PathDelimiterNotAllowed)
+            ),
+            "reader accepted prefix {prefix:?} suffix {suffix:?}"
+        );
+    }
+}
+
+#[test]
+fn a_prefix_or_suffix_of_more_than_sixteen_characters_is_refused() {
+    let log = Log::new(64);
+    let most = "é".repeat(PREFIX_SUFFIX_MAX_CHARS);
+    let more = "x".repeat(PREFIX_SUFFIX_MAX_CHARS + 1);
+    // Characters, not bytes, are counted: sixteen two-byte ones are
+    // allowed.
+    LogWrite::new(
+        log.path(),
+        &most,
+        &most,
+        log.seg_size_max,
+        Format::VariableSimple,
+        (),
+    )
+    .expect("sixteen characters each are allowed");
+    for (prefix, suffix) in [(more.as_str(), SUFFIX), (PREFIX, more.as_str())] {
+        assert!(
+            matches!(
+                LogWrite::new(
+                    log.path(),
+                    prefix,
+                    suffix,
+                    log.seg_size_max,
+                    Format::VariableSimple,
+                    (),
+                ),
+                Err(LogError::NameTooLong)
+            ),
+            "writer accepted prefix {prefix:?} suffix {suffix:?}"
+        );
+        assert!(
+            matches!(
+                LogRead::new(log.path(), prefix, suffix),
+                Err(LogError::NameTooLong)
             ),
             "reader accepted prefix {prefix:?} suffix {suffix:?}"
         );
@@ -1840,7 +1881,7 @@ fn write_returns_the_payload_plus_its_data_header() {
     for (format, header_len) in [
         (Format::Fixed(6), 0u32),
         (Format::VariableSimple, 4),
-        (Format::VariableTsRc, 18),
+        (Format::VariableTsRc, 16),
     ] {
         let log = Log::new(400);
         let mut w = log.writer(format);

@@ -15,6 +15,12 @@ const NANOS_PER_SEC: u64 = 1_000_000_000;
 /// Seconds in one day.
 const SECS_PER_DAY: u64 = 86_400;
 
+/// The most characters a prefix or a suffix may have. With the
+/// 19-character segment ID between them, a segment file's name is at most
+/// 51 characters, and at most 147 bytes of UTF-8, within the 255 that
+/// common file systems allow.
+pub const PREFIX_SUFFIX_MAX_CHARS: usize = 16;
+
 /// Reports whether a prefix or suffix holds a path separator.
 ///
 /// Both separators are rejected on every platform rather than only the
@@ -43,7 +49,8 @@ pub(crate) fn has_path_delimiter(text: &str) -> bool {
 /// # Errors
 ///
 /// Returns [`LogError::PathDelimiterNotAllowed`] if either the prefix or
-/// the suffix holds a path separator, and
+/// the suffix holds a path separator, [`LogError::NameTooLong`] if either
+/// is longer than [`PREFIX_SUFFIX_MAX_CHARS`] characters, and
 /// [`LogError::InvalidPathname`] if `dir` does not name a directory.
 pub(crate) fn check_log_location(
     dir: &str,
@@ -52,6 +59,11 @@ pub(crate) fn check_log_location(
 ) -> Result<PathBuf, LogError> {
     if has_path_delimiter(prefix) || has_path_delimiter(suffix) {
         return Err(LogError::PathDelimiterNotAllowed);
+    }
+    if prefix.chars().count() > PREFIX_SUFFIX_MAX_CHARS
+        || suffix.chars().count() > PREFIX_SUFFIX_MAX_CHARS
+    {
+        return Err(LogError::NameTooLong);
     }
     let dir = PathBuf::from(dir);
     if !dir.is_dir() {

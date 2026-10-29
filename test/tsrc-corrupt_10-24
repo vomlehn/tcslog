@@ -1,7 +1,7 @@
 #!/bin/bash
 #
 # An unopenable segment header in the variable-tsrc format, whose
-# 18-byte data header carries a timestamp and record count and so offers
+# 16-byte data header carries a timestamp and record count and so offers
 # the most bytes a resync could misread as a record length.
 #
 # This runs tcslog-gen to generate segment files. It then deletes and

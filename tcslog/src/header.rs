@@ -381,7 +381,7 @@ mod tests {
 
     #[test]
     fn refuses_greater_minor_other_major_and_non_digits() {
-        // 0010 is the format before the 48-bit record count.
+        // 0010 is the format before the 32-bit record count.
         for field in [b"0010", b"0110", b"0200", b"9900", b"00a0", b"    "] {
             let mut b = sample().to_bytes();
             b[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(field);

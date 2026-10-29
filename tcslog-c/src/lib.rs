@@ -148,6 +148,14 @@ pub enum TcslogStatus {
     /// A buffer offered for text is too short for it and its NUL.
     /// Nothing was written to it.
     BufferTooSmall = 20,
+
+    /// A prefix or suffix is longer than
+    /// [`TCSLOG_PREFIX_SUFFIX_MAX_CHARS`] characters.
+    NameTooLong = 21,
+
+    /// The clock is past the last time a timestamp holds,
+    /// 2554-07-21T23:34:33.709551615Z.
+    TimestampOverflow = 22,
 }
 
 /// The record layouts a log may use, as `format_tag` values for
@@ -321,9 +329,12 @@ pub const TCSLOG_SEG_ID_STR_LEN: usize = 19;
 /// The characters a timestamp renders as, without the NUL.
 pub const TCSLOG_TIMESTAMP_STR_LEN: usize = 30;
 
-/// The largest record count a data header holds, 2^48 - 1. The record
+/// The largest record count a data header holds, 2^32 - 1. The record
 /// after a session's last count begins a new session.
-pub const TCSLOG_RECORD_COUNT_MAX: u64 = 0xFFFF_FFFF_FFFF;
+pub const TCSLOG_RECORD_COUNT_MAX: u64 = 0xFFFF_FFFF;
+
+/// The most characters a prefix or a suffix may have.
+pub const TCSLOG_PREFIX_SUFFIX_MAX_CHARS: usize = 16;
 
 // Literals above because cbindgen can only emit a literal into the
 // header; these keep them from drifting from the library's own.
@@ -516,6 +527,7 @@ fn status_of(e: &LogError, out: &mut TcslogReadResult) -> TcslogStatus {
         LogError::InvalidHeader => TcslogStatus::InvalidHeader,
         LogError::InvalidPathname => TcslogStatus::InvalidPathname,
         LogError::IoError(_) => TcslogStatus::IoError,
+        LogError::NameTooLong => TcslogStatus::NameTooLong,
         LogError::NoSegmentFiles => TcslogStatus::NoSegmentFiles,
         LogError::PathDelimiterNotAllowed => {
             TcslogStatus::PathDelimiterNotAllowed
@@ -533,6 +545,7 @@ fn status_of(e: &LogError, out: &mut TcslogReadResult) -> TcslogStatus {
         LogError::SegSizeTooSmall => TcslogStatus::SegSizeTooSmall,
         LogError::SessionEnd => TcslogStatus::SessionEnd,
         LogError::TimerResolutionZero => TcslogStatus::TimerResolutionZero,
+        LogError::TimestampOverflow => TcslogStatus::TimestampOverflow,
         LogError::VersionMismatch => TcslogStatus::VersionMismatch,
     }
 }
@@ -736,6 +749,12 @@ pub extern "C" fn tcslog_status_str(status: TcslogStatus) -> *const c_char {
         }
         TcslogStatus::BufferTooSmall => {
             cstr(b"buffer too small for the text\0")
+        }
+        TcslogStatus::NameTooLong => {
+            cstr(b"prefix or suffix longer than 16 characters\0")
+        }
+        TcslogStatus::TimestampOverflow => {
+            cstr(b"clock past the last time a timestamp holds\0")
         }
     };
     s.as_ptr()
@@ -1620,6 +1639,9 @@ mod tests {
             TcslogStatus::NotUtf8,
             TcslogStatus::Panic,
             TcslogStatus::InvalidFormat,
+            TcslogStatus::BufferTooSmall,
+            TcslogStatus::NameTooLong,
+            TcslogStatus::TimestampOverflow,
         ] {
             let p = tcslog_status_str(s);
             assert!(!p.is_null());
@@ -1648,5 +1670,9 @@ mod tests {
     fn a_header_length_is_reported() {
         assert_eq!(tcslog_segment_file_header_len(), SEGMENT_FILE_HEADER_LEN);
         assert_eq!(TCSLOG_RECORD_COUNT_MAX, tcslog::RECORD_COUNT_MAX);
+        assert_eq!(
+            TCSLOG_PREFIX_SUFFIX_MAX_CHARS,
+            tcslog::PREFIX_SUFFIX_MAX_CHARS
+        );
     }
 }

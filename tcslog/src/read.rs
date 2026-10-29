@@ -544,7 +544,7 @@ impl LogRead {
                 Ok((n, Meta::VariableSimple))
             }
             Format::VariableTsRc => {
-                let mut head = [0u8; 18];
+                let mut head = [0u8; 16];
                 self.fill(cursor, &mut head)?;
                 let mut four = [0u8; 4];
                 let mut eight = [0u8; 8];
@@ -553,10 +553,8 @@ impl LogRead {
                     .settle_payload_len(cursor, RecSize::from_le_bytes(four))?;
                 eight.copy_from_slice(&head[4..12]);
                 let ts = Timestamp::from_le_bytes(eight);
-                // A 48-bit count, little-endian: its top two bytes are 0.
-                eight = [0u8; 8];
-                eight[..6].copy_from_slice(&head[12..18]);
-                let rc = RecordCount::from_le_bytes(eight);
+                four.copy_from_slice(&head[12..16]);
+                let rc = RecordCount::from(u32::from_le_bytes(four));
                 cursor.total =
                     Some(u64::from(format.data_header_len()) + u64::from(n));
                 Ok((n, Meta::VariableTsRc(ts, rc)))

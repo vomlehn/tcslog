@@ -240,8 +240,8 @@ is news about the telemetry, not a failure of the reader.
   `n` bytes.
 - `VariableSimple`: 4 bytes per record. Stores a length, then the
   payload, of that many bytes.
-- `VariableTsRc`: 18 bytes per record. Stores a length, a timestamp
-  and a 48-bit record number, then the payload, of that many bytes.
+- `VariableTsRc`: 16 bytes per record. Stores a length, a timestamp
+  and a 32-bit record number, then the payload, of that many bytes.
 
 ## Tools
 

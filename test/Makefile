@@ -53,7 +53,7 @@ test-variable-last_12-10:
 
 .PHONY: test-variable-tsrc
 test-variable-tsrc: test-variable-tsrc_0-10-21 \
-	test-tsrc-truncated_10-24 test-tsrc-lost-header_8-22
+	test-tsrc-truncated_10-24 test-tsrc-lost-header_8-20
 
 .PHONY: test-variable-tsrc_0-10-21
 test-variable-tsrc_0-10-21:
@@ -69,9 +69,9 @@ test-tsrc-truncated_10-24:
 # combined_12-10 does recover it in variable-simple; here the lost
 # header also held a timestamp and a record count, so the record must
 # be given up instead of handed back with invented metadata.
-.PHONY: test-tsrc-lost-header_8-22
-test-tsrc-lost-header_8-22:
-	./tsrc-lost-header_8-22 $(VERBOSE_EXPECTED)
+.PHONY: test-tsrc-lost-header_8-20
+test-tsrc-lost-header_8-20:
+	./tsrc-lost-header_8-20 $(VERBOSE_EXPECTED)
 
 # Damage that leaves the segment file in place, which deletion cannot
 # reproduce: an unopenable header still leaves a sequence gap, while a

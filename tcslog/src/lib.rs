@@ -245,8 +245,8 @@
 //!   `n` bytes.
 //! - `VariableSimple`: 4 bytes per record. Stores a length, then the
 //!   payload, of that many bytes.
-//! - `VariableTsRc`: 18 bytes per record. Stores a length, a timestamp
-//!   and a 48-bit record number, then the payload, of that many bytes.
+//! - `VariableTsRc`: 16 bytes per record. Stores a length, a timestamp
+//!   and a 32-bit record number, then the payload, of that many bytes.
 //!
 //! # Tools
 //!
@@ -329,7 +329,8 @@ pub use read::{LogRead, LogReadIter, ReadResult, Record};
 pub use segid::SegId;
 pub use seq_id::SeqId;
 pub use util::{
-    format_timestamp, record_trailer, write_timestamp, TIMESTAMP_STR_LEN,
+    format_timestamp, record_trailer, write_timestamp, PREFIX_SUFFIX_MAX_CHARS,
+    TIMESTAMP_STR_LEN,
 };
 #[cfg(feature = "write")]
 pub use write::{LogWrite, WriteCallbacks};
@@ -352,10 +353,10 @@ pub type Timestamp = u64;
 /// reader must report a session boundary before handing back the records
 /// that follow it.
 ///
-/// It is stored in 48 bits, so a session counts at most
+/// It is stored in 32 bits, so a session counts at most
 /// [`RECORD_COUNT_MAX`] records: the writer begins a new session for the
 /// record after that.
 pub type RecordCount = u64;
 
-/// The largest [`RecordCount`] a data header holds, 2^48 - 1.
-pub const RECORD_COUNT_MAX: RecordCount = (1 << 48) - 1;
+/// The largest [`RecordCount`] a data header holds, 2^32 - 1.
+pub const RECORD_COUNT_MAX: RecordCount = u32::MAX as RecordCount;

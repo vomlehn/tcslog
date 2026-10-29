@@ -18,10 +18,15 @@
 #define TCSLOG_TIMESTAMP_STR_LEN 30
 
 /**
- * The largest record count a data header holds, 2^48 - 1. The record
+ * The largest record count a data header holds, 2^32 - 1. The record
  * after a session's last count begins a new session.
  */
-#define TCSLOG_RECORD_COUNT_MAX 281474976710655
+#define TCSLOG_RECORD_COUNT_MAX 4294967295
+
+/**
+ * The most characters a prefix or a suffix may have.
+ */
+#define TCSLOG_PREFIX_SUFFIX_MAX_CHARS 16
 
 /**
  * What a call reported.
@@ -134,6 +139,16 @@ enum TcslogStatus
 	 * Nothing was written to it.
 	 */
 	TCSLOG_STATUS_BUFFER_TOO_SMALL = 20,
+	/**
+	 * A prefix or suffix is longer than
+	 * [`TCSLOG_PREFIX_SUFFIX_MAX_CHARS`] characters.
+	 */
+	TCSLOG_STATUS_NAME_TOO_LONG = 21,
+	/**
+	 * The clock is past the last time a timestamp holds,
+	 * 2554-07-21T23:34:33.709551615Z.
+	 */
+	TCSLOG_STATUS_TIMESTAMP_OVERFLOW = 22,
 };
 #ifndef __cplusplus
 #if __STDC_VERSION__ >= 202311L

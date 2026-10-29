@@ -22,13 +22,19 @@ log written by an earlier release is refused with `VersionMismatch`.
 
 ### Changed
 
-- A `VariableTsRc` record's count is stored in 48 bits rather than 64, so
-  its data header is 18 bytes rather than 20. `RecordCount` is still a u64
+- A `VariableTsRc` record's count is stored in 32 bits rather than 64, so
+  its data header is 16 bytes rather than 20. `RecordCount` is still a u64
   in memory, and the new `RECORD_COUNT_MAX` (`TCSLOG_RECORD_COUNT_MAX` in
-  C, `RECORD_COUNT_MAX` in Python) is 2^48 - 1.
+  C, `RECORD_COUNT_MAX` in Python) is 2^32 - 1.
 - A session that has counted `RECORD_COUNT_MAX` records ends there: the
   next write closes the segment file, sends it, and starts a new session
   whose first record is counted 1. Before, nothing checked the count.
+- A clock at or past 2554-07-21T23:34:33.709551615Z, the last time a
+  `Timestamp` holds, fails with the new `TimestampOverflow` (C status 22)
+  rather than stopping at its last value.
+- A prefix or suffix longer than 16 characters, the new
+  `PREFIX_SUFFIX_MAX_CHARS`, is refused with the new `NameTooLong` (C
+  status 21).
 
 ### Added
 

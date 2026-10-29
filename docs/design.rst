@@ -385,7 +385,7 @@ data section, in bytes, is:
 There are multiple types of data headers, depending on the format specified in
 the segment file header. Each is packed with no padding, and its fields
 appear in the order given below, so the sizes are zero bytes for
-Fixed(n), four for VariableSimple, and eighteen for VariableTsRc:
+Fixed(n), four for VariableSimple, and sixteen for VariableTsRc:
 
     Fixed(n)
 
@@ -414,12 +414,33 @@ Fixed(n), four for VariableSimple, and eighteen for VariableTsRc:
 
             The record count is one for the first record of a session
             and increments by one for each record after it. It is of
-            type RecordCount, a u64 in memory, and is stored in 6 bytes,
-            little-endian, so it is at most RECORD_COUNT_MAX, 2^48 - 1.
+            type RecordCount, a u64 in memory, and is stored in 4 bytes,
+            little-endian, so it is at most RECORD_COUNT_MAX, 2^32 - 1.
             A session that has counted that many records ends there: the
             write of the next record closes the current segment file,
             sends it as a roll does, and starts a new session, whose
-            first record is counted one. The count belongs to the session,
+            first record is counted one.
+
+            Why 32 bits, and why a new session. The count is in every
+            record, so its width is paid for by every record: 32 bits
+            rather than 64 saves four bytes of a sixteen-byte header,
+            which matters most for the short records the format is
+            used for. The cost is that a busy log reaches the end of
+            the count -- at a million records a second, in about 72
+            minutes -- so reaching it has to be an ordinary event
+            rather than an error. Wrapping the count to one, or to zero,
+            within the session would number two records of the session
+            alike, and a reader could no longer tell a repeated record
+            from a new one, or see a loss as a gap in the count. A
+            reader already treats a count that starts again at one as
+            the start of a session, so beginning a new session is the
+            one way to start the count again that every reader
+            understands: the session boundary it reports says exactly
+            what happened. A new session needs a new segment file,
+            since a session is identified by its first file, so the
+            current file is closed and sent first.
+
+            The count belongs to the session,
             not to the log: a new LogWrite starts a session, and so does
             the first write() after clear(), each beginning again at
             one. That is why a reader must report a session boundary
@@ -1180,8 +1201,10 @@ pub fn new(dir: &str, prefix: &str, suffix: &str, seg_size_max: u32, format: For
     The errors are TimerResolutionZero when the build-time timer
     resolution is zero, ClockError when the real-time clock does not read
     later than the UNIX epoch and so has not been set,
-    PathDelimiterNotAllowed for a prefix or suffix holding a path
-    separator, SegSizeTooSmall for a seg_size_max that is
+    TimestampOverflow when the clock is past the last time a Timestamp
+    holds, PathDelimiterNotAllowed for a prefix or suffix holding a path
+    separator, NameTooLong for one longer than PREFIX_SUFFIX_MAX_CHARS
+    (16) characters, SegSizeTooSmall for a seg_size_max that is
     not strictly greater than the segment header plus one data header,
     FixedLenMismatch for Format::Fixed(0), InvalidPathname when dir does
     not name a directory, and IoError from directory enumeration, the
@@ -1354,7 +1377,9 @@ pub fn new(dir: &str, prefix: &str, suffix: &str) -> Result<LogRead, LogError>
                     not contain a filesystem delimiter.
 
     The errors are PathDelimiterNotAllowed for a prefix or suffix holding
-    a path separator, InvalidPathname when dir does not name a directory,
+    a path separator, NameTooLong for one longer than
+    PREFIX_SUFFIX_MAX_CHARS (16) characters, InvalidPathname when dir
+    does not name a directory,
     NoSegmentFiles when no file in it matches the pattern, and IoError on
     directory enumeration failure.
 
@@ -1489,6 +1514,11 @@ LogError
 
         An error occurred from an I/O operation.
 
+    NameTooLong
+
+        The prefix or suffix is longer than PREFIX_SUFFIX_MAX_CHARS (16)
+        characters.
+
     NoSegmentFiles
 
         No file in the directory matches the prefix and suffix, so there
@@ -1547,6 +1577,12 @@ LogError
         could not make progress, and doubling zero cannot change that.
         Zero is what an unset TIMER_RESOLUTION leaves, so this is what a
         dependent that has supplied no value sees.
+
+    TimestampOverflow
+
+        The clock is at or past 2554-07-21T23:34:33.709551615Z, the last
+        time a Timestamp holds, so neither a segment ID nor a record
+        timestamp can be minted.
 
     VersionMismatch
 
@@ -1617,7 +1653,7 @@ Format
     single byte stored in the segment header, which is 0, 1, and 2 in
     that order; fixed_len(), the n of Fixed and zero for the others; and
     data_header_len(), the on-disk size of one data header, which is
-    zero, four, and eighteen bytes respectively.
+    zero, four, and sixteen bytes respectively.
 
 SegmentHeader
 -------------
@@ -1649,7 +1685,8 @@ RecSize, Timestamp, and RecordCount
     VariableTsRc metadata fields, both u64: a Timestamp is nanoseconds
     since the UNIX epoch, and a RecordCount is one for a session's first
     record and one more for each record after it. A RecordCount is
-    stored in 48 bits, and RECORD_COUNT_MAX, 2^48 - 1, is the largest.
+    stored in 32 bits, and RECORD_COUNT_MAX, 2^32 - 1, is the largest;
+    see "Data Header Format".
 
 WriteCallbacks
 --------------
@@ -1780,9 +1817,13 @@ for. What makes them increase is the writer's own clock rather than the
 real-time clock, which can be stepped backwards; see `Segment IDs`_.
 
 Using an u64 value as the segment ID assures that a huge number of segment
-files can be created. Nanosecond timestamps that fit in a u64 run to the
-year 2554, so a log's segment IDs cannot collide within any plausible
-mission.
+files can be created. Nanosecond timestamps that fit in a u64 run to
+2554-07-21T23:34:33.709551615Z, so a log's segment IDs cannot collide
+within any plausible mission. All ones is kept back as the end of that
+range: a clock reading there or later is not a time the log can record,
+and the writer's clock reports TimestampOverflow rather than stopping at
+the last value, which would mint the same segment ID again and again and
+stamp every later record with one time.
 
 Converting this value into a string yields something of fixed length, with
 a value known as SegId::STR_LEN, which is 19: sixteen hexadecimal digits
@@ -1974,6 +2015,8 @@ Code Name                                         ``LogError``
 18   ``TCSLOG_STATUS_PANIC``                      none: a panic caught at the boundary
 19   ``TCSLOG_STATUS_INVALID_FORMAT``             none: a ``format_tag`` outside the three
 20   ``TCSLOG_STATUS_BUFFER_TOO_SMALL``           none: a text buffer too short for the text
+21   ``TCSLOG_STATUS_NAME_TOO_LONG``              ``NameTooLong``
+22   ``TCSLOG_STATUS_TIMESTAMP_OVERFLOW``         ``TimestampOverflow``
 ==== ============================================ ==========================================
 
 ``tcslog_status_str``, above, renders any of these at runtime, including
@@ -2778,16 +2821,16 @@ file and prove nothing about each other.
      - ``-t 2``; ``-c 2``
      - Damage leaving the file in place where the data header offers the
        most bytes a resync could misread as a length.
-   * - ``tsrc-lost-header_8-22``
+   * - ``tsrc-lost-header_8-20``
      - ``variable-tsrc:8``
-     - 22
+     - 20
      - 6
      - ``-d 2``
      - A gap of one segment file that swallowed exactly one whole data
        header and no payload byte of the record it belonged to. The
-       geometry is chosen for it: 8 payload bytes plus an 18-byte data
-       header is 26 against a 22-byte data section, so record 1 owes 4
-       bytes of file 2 and the remaining 18 are precisely record 2's
+       geometry is chosen for it: 8 payload bytes plus a 16-byte data
+       header is 24 against a 20-byte data section, so record 1 owes 4
+       bytes of file 2 and the remaining 16 are precisely record 2's
        data header, whose payload then begins at the first byte of file
        3. That is the one gap whose arithmetic settles where the next
        record starts, and ``combined_12-10`` does recover it in
@@ -2949,6 +2992,11 @@ with why.
 
 o   Prefix and suffix values must not contain the path delimiters. If they
     do, the return value must be LogError::PathDelimiterNotAllowed
+
+o   Prefix and suffix values must be at most PREFIX_SUFFIX_MAX_CHARS (16)
+    characters each, so that a segment file's name, with its 19-character
+    segment ID, is at most 51 characters. If they are longer, the return
+    value must be LogError::NameTooLong
 
 o   LogError values must be returned instead of panicking.
 

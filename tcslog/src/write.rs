@@ -19,7 +19,7 @@ include!(concat!(env!("OUT_DIR"), "/timer_resolution.rs"));
 /// Largest data header this crate has, which is
 /// [`Format::VariableTsRc`]'s. A buffer of this size holds any format's
 /// data header, so building one allocates nothing.
-const MAX_DATA_HEADER_LEN: usize = 18;
+const MAX_DATA_HEADER_LEN: usize = 16;
 
 /// What a [`LogWrite`] calls as it works, and the context it calls them
 /// with.
@@ -443,7 +443,7 @@ impl<H: WriteCallbacks> LogWrite<H> {
         // real-time clock, which may have been stepped backwards since
         // the writer that minted those identifiers read it.
         if let Some(highest) = log.send_existing()? {
-            log.clock.advance_past(highest);
+            log.clock.advance_past(highest)?;
         }
         log.start_session()?;
         Ok(log)
@@ -577,9 +577,9 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// header would exceed the `u32` this function returns -- a count
     /// that wrapped would understate what was written.
     /// [`LogError::IoError`] as encountered, including from creating a
-    /// segment file on a roll. A timestamp cannot fail here: the clock a
-    /// record is stamped from was validated when the writer was
-    /// constructed.
+    /// segment file on a roll. [`LogError::TimestampOverflow`] once the
+    /// clock is past what a [`Timestamp`] holds, for a record's
+    /// timestamp or a new segment file's ID.
     pub fn write(&mut self, msg: &[u8]) -> Result<u32, LogError> {
         if let Format::Fixed(n) = self.format {
             if msg.len() != n as usize {
@@ -599,9 +599,13 @@ impl<H: WriteCallbacks> LogWrite<H> {
         } else if self.format == Format::VariableTsRc
             && self.record_count >= RECORD_COUNT_MAX
         {
-            // A data header holds a count of 48 bits, so the record after
-            // the last a session can count begins a new session, as a
-            // reader expects the count to restart.
+            // A data header holds a count of 32 bits, which a busy log
+            // can exhaust: at a million records a second, in about 72
+            // minutes. Wrapping would number two records of one session
+            // alike, and a reader takes the count's restarting at one to
+            // mean a new session. So the record after the last count
+            // begins a new session, which a reader reports as a boundary
+            // before it, as after any other.
             self.close_and_send()?;
             self.start_session()?;
         }
@@ -832,7 +836,7 @@ impl<H: WriteCallbacks> LogWrite<H> {
     ) -> Result<(SegId, PathBuf, File), LogError> {
         let mut collided_before = false;
         loop {
-            let id = self.clock.now_seg_id();
+            let id = self.clock.now_seg_id()?;
             build_name(&mut self.name_buf, &self.prefix, id, &self.suffix);
             buf.set_file_name(&self.name_buf);
             match attempt(&buf) {
@@ -922,13 +926,15 @@ impl<H: WriteCallbacks> LogWrite<H> {
                 Ok((4, Meta::VariableSimple))
             }
             Format::VariableTsRc => {
-                let ts = self.clock.now();
+                let ts = self.clock.now()?;
                 self.record_count += 1;
                 let rc = self.record_count;
                 self.header_buf[0..4].copy_from_slice(&n.to_le_bytes());
                 self.header_buf[4..12].copy_from_slice(&ts.to_le_bytes());
-                self.header_buf[12..18].copy_from_slice(&rc.to_le_bytes()[..6]);
-                Ok((18, Meta::VariableTsRc(ts, rc)))
+                // The low four bytes: a session never counts past
+                // RECORD_COUNT_MAX, which `write` sees to.
+                self.header_buf[12..16].copy_from_slice(&rc.to_le_bytes()[..4]);
+                Ok((16, Meta::VariableTsRc(ts, rc)))
             }
         }
     }
@@ -937,7 +943,7 @@ impl<H: WriteCallbacks> LogWrite<H> {
     ///
     /// The buffer is a field of `self`, which the byte writer also
     /// borrows, so the bytes are copied to the stack first. A data
-    /// header is at most eighteen bytes, so the copy is free.
+    /// header is at most sixteen bytes, so the copy is free.
     fn write_bytes_from_header(&mut self, len: usize) -> Result<(), LogError> {
         let mut scratch = [0u8; MAX_DATA_HEADER_LEN];
         scratch[..len].copy_from_slice(&self.header_buf[..len]);
@@ -1164,34 +1170,55 @@ impl Clock {
     /// # Errors
     ///
     /// Returns [`LogError::ClockError`] if `since_epoch` is zero, the
-    /// real-time clock reading at the epoch itself.
+    /// real-time clock reading at the epoch itself, and
+    /// [`LogError::TimestampOverflow`] if it is at or past the last
+    /// moment a [`Timestamp`] holds.
     fn anchor(since_epoch: Duration, mono: Instant) -> Result<Self, LogError> {
-        // A u64 of nanoseconds runs to the year 2554, so saturation here
-        // is unreachable in practice; it is written out rather than
-        // asserted so that no clock reading can panic.
-        let delta = u64::try_from(since_epoch.as_nanos()).unwrap_or(u64::MAX);
+        let delta = Self::stamp(since_epoch.as_nanos())?;
         if delta == 0 {
             return Err(LogError::ClockError);
         }
         Ok(Self { delta, mono })
     }
 
+    /// A count of nanoseconds since the UNIX epoch as a [`Timestamp`].
+    ///
+    /// A u64 of nanoseconds runs to 2554-07-21T23:34:33.709551615Z, and
+    /// all ones is kept back as the moment it ends, so that a time the
+    /// clock cannot represent is an error rather than a timestamp that
+    /// stops advancing.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::TimestampOverflow`] for `ns` of all ones or
+    /// more.
+    fn stamp(ns: u128) -> Result<Timestamp, LogError> {
+        match Timestamp::try_from(ns) {
+            Ok(t) if t < Timestamp::MAX => Ok(t),
+            _ => Err(LogError::TimestampOverflow),
+        }
+    }
+
     /// The current time as nanoseconds since the UNIX epoch.
     ///
     /// Never decreases, and increases between any two calls far enough
     /// apart for the monotonic clock to have ticked.
-    fn now(&self) -> Timestamp {
-        // Saturating for the same reason as in `new`: the sum cannot
-        // reach the end of a u64 of nanoseconds within any mission, and
-        // reading the clock must not be able to panic.
-        let elapsed =
-            u64::try_from(self.mono.elapsed().as_nanos()).unwrap_or(u64::MAX);
-        self.delta.saturating_add(elapsed)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::TimestampOverflow`] once the time is past
+    /// what a [`Timestamp`] holds.
+    fn now(&self) -> Result<Timestamp, LogError> {
+        Self::stamp(u128::from(self.delta) + self.mono.elapsed().as_nanos())
     }
 
     /// The current time as a segment identifier.
-    fn now_seg_id(&self) -> SegId {
-        SegId::from_u64(self.now())
+    ///
+    /// # Errors
+    ///
+    /// As [`now`](Self::now).
+    fn now_seg_id(&self) -> Result<SegId, LogError> {
+        self.now().map(SegId::from_u64)
     }
 
     /// Shifts the epoch forward, if it has to, so that this clock reads
@@ -1217,14 +1244,21 @@ impl Clock {
     ///
     /// * `id` -- the highest identifier the log's directory already
     ///   holds.
-    fn advance_past(&mut self, id: SegId) {
-        let now = self.now();
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::TimestampOverflow`] if reading past `id` would
+    /// take the clock past what a [`Timestamp`] holds.
+    fn advance_past(&mut self, id: SegId) -> Result<(), LogError> {
+        // The clock is to read past `id`, so `id` + 1 must be a time.
+        Self::stamp(u128::from(id.as_u64()) + 1)?;
+        let now = self.now()?;
         if id.as_u64() >= now {
-            // Saturating for the same reason as elsewhere here: a clock
-            // this cannot move past is one no mission will see, and
-            // nothing about reading a clock may panic.
-            self.delta = self.delta.saturating_add(id.as_u64() - now + 1);
+            let delta =
+                u128::from(self.delta) + u128::from(id.as_u64() - now) + 1;
+            self.delta = Self::stamp(delta)?;
         }
+        Ok(())
     }
 }
 
@@ -1476,10 +1510,48 @@ mod tests {
     }
 
     #[test]
+    fn clock_refuses_a_time_a_timestamp_cannot_hold() {
+        for ns in [u128::from(u64::MAX), u128::from(u64::MAX) + 1] {
+            let secs = u64::try_from(ns / 1_000_000_000).expect("seconds");
+            let nanos = u32::try_from(ns % 1_000_000_000).expect("nanos");
+            let err = Clock::anchor(Duration::new(secs, nanos), Instant::now());
+            assert!(
+                matches!(err, Err(LogError::TimestampOverflow)),
+                "a clock reading {ns} ns was accepted"
+            );
+        }
+    }
+
+    #[test]
+    fn clock_reports_reaching_the_last_timestamp() {
+        let clock =
+            Clock::anchor(Duration::from_nanos(u64::MAX - 1), Instant::now())
+                .expect("the last moment but one is a timestamp");
+        thread::sleep(Duration::from_millis(1));
+        assert!(matches!(clock.now(), Err(LogError::TimestampOverflow)));
+        assert!(matches!(
+            clock.now_seg_id(),
+            Err(LogError::TimestampOverflow)
+        ));
+    }
+
+    #[test]
+    fn advance_past_reports_a_step_beyond_the_last_timestamp() {
+        let mut clock =
+            Clock::anchor(Duration::from_nanos(1_000), Instant::now())
+                .expect("a set clock");
+        let last = SegId::from_u64(u64::MAX - 1);
+        assert!(matches!(
+            clock.advance_past(last),
+            Err(LogError::TimestampOverflow)
+        ));
+    }
+
+    #[test]
     fn clock_accepts_a_set_real_time_clock() {
         let clock = Clock::anchor(Duration::from_nanos(1), Instant::now())
             .expect("one nanosecond past the epoch is a set clock");
-        assert!(clock.now() >= 1);
+        assert!(clock.now().expect("a time a timestamp holds") >= 1);
     }
 
     #[test]
@@ -1489,7 +1561,7 @@ mod tests {
         let delta = 1_700_000_000_000_000_000;
         let clock = Clock::anchor(Duration::from_nanos(delta), Instant::now())
             .expect("a set clock");
-        let now = clock.now();
+        let now = clock.now().expect("a time a timestamp holds");
         assert!(now >= delta, "{now} is below the anchor {delta}");
         assert!(
             u128::from(now - delta) < Duration::from_secs(60).as_nanos(),
@@ -1502,9 +1574,9 @@ mod tests {
     fn clock_never_goes_backwards() {
         let clock = Clock::anchor(Duration::from_nanos(1), Instant::now())
             .expect("a set clock");
-        let mut last = clock.now();
+        let mut last = clock.now().expect("a time a timestamp holds");
         for _ in 0..10_000 {
-            let now = clock.now();
+            let now = clock.now().expect("a time a timestamp holds");
             assert!(now >= last, "{now} follows {last}");
             last = now;
         }
@@ -1514,9 +1586,9 @@ mod tests {
     fn clock_advances_across_a_sleep() {
         let clock = Clock::anchor(Duration::from_nanos(1), Instant::now())
             .expect("a set clock");
-        let before = clock.now();
+        let before = clock.now().expect("a time a timestamp holds");
         thread::sleep(Duration::from_millis(2));
-        assert!(clock.now() > before);
+        assert!(clock.now().expect("a time a timestamp holds") > before);
     }
 
     #[test]
@@ -1524,11 +1596,11 @@ mod tests {
         let mut clock = Clock::anchor(Duration::from_micros(1), Instant::now())
             .expect("a set clock");
         let ahead = SegId::from_u64(5_000_000_000);
-        clock.advance_past(ahead);
+        clock.advance_past(ahead).expect("a time a timestamp holds");
         assert!(
-            clock.now() > ahead.as_u64(),
+            clock.now().expect("a time a timestamp holds") > ahead.as_u64(),
             "{} did not step past {ahead}",
-            clock.now()
+            clock.now().expect("a time a timestamp holds")
         );
     }
 
@@ -1538,7 +1610,9 @@ mod tests {
         let mut clock =
             Clock::anchor(Duration::from_nanos(delta), Instant::now())
                 .expect("a set clock");
-        clock.advance_past(SegId::from_u64(delta - 1_000_000_000));
+        clock
+            .advance_past(SegId::from_u64(delta - 1_000_000_000))
+            .expect("a time a timestamp holds");
         assert_eq!(
             clock.delta, delta,
             "the epoch moved for an older identifier"
@@ -1552,10 +1626,12 @@ mod tests {
         // time caught up, and `create_unique_file` would spin on it.
         let mut clock = Clock::anchor(Duration::from_micros(1), Instant::now())
             .expect("a set clock");
-        clock.advance_past(SegId::from_u64(5_000_000_000));
-        let first = clock.now_seg_id();
+        clock
+            .advance_past(SegId::from_u64(5_000_000_000))
+            .expect("a time a timestamp holds");
+        let first = clock.now_seg_id().expect("a time a timestamp holds");
         thread::sleep(Duration::from_millis(2));
-        assert!(clock.now_seg_id() > first);
+        assert!(clock.now_seg_id().expect("a time a timestamp holds") > first);
     }
 
     #[test]
@@ -1600,8 +1676,8 @@ mod tests {
     fn segment_ids_follow_the_clock() {
         let clock = Clock::anchor(Duration::from_nanos(1), Instant::now())
             .expect("a set clock");
-        let first = clock.now_seg_id();
+        let first = clock.now_seg_id().expect("a time a timestamp holds");
         thread::sleep(Duration::from_millis(2));
-        assert!(clock.now_seg_id() > first);
+        assert!(clock.now_seg_id().expect("a time a timestamp holds") > first);
     }
 }

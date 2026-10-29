@@ -104,6 +104,8 @@ __all__ = [
     "NotUtf8",
     "NullArgument",
     "Panic",
+    "NameTooLong",
+    "PREFIX_SUFFIX_MAX_CHARS",
     "PathDelimiterNotAllowed",
     "PayloadTooLarge",
     "ReadOverflow",
@@ -120,6 +122,7 @@ __all__ = [
     "SessionEnd",
     "Status",
     "TimerResolutionZero",
+    "TimestampOverflow",
     "VersionMismatch",
     "WriteCallbacks",
     "format_timestamp",
@@ -196,6 +199,8 @@ class Status(enum.IntEnum):
     PANIC = 18
     INVALID_FORMAT = 19
     BUFFER_TOO_SMALL = 20
+    NAME_TOO_LONG = 21
+    TIMESTAMP_OVERFLOW = 22
 
 
 class Meta(enum.IntEnum):
@@ -293,7 +298,10 @@ TIMESTAMP_STR_LEN = 30
 # The largest record count a data header holds, as TCSLOG_RECORD_COUNT_MAX
 # and the Rust RECORD_COUNT_MAX: the record after a session's last count
 # begins a new session.
-RECORD_COUNT_MAX = (1 << 48) - 1
+RECORD_COUNT_MAX = (1 << 32) - 1
+# The most characters a prefix or a suffix may have, as the C
+# TCSLOG_PREFIX_SUFFIX_MAX_CHARS and the Rust PREFIX_SUFFIX_MAX_CHARS.
+PREFIX_SUFFIX_MAX_CHARS = 16
 
 
 class SegId(int):
@@ -491,6 +499,18 @@ class BufferTooSmall(LogError):
     status = Status.BUFFER_TOO_SMALL
 
 
+class NameTooLong(LogError):
+    """A prefix or suffix is longer than :data:`PREFIX_SUFFIX_MAX_CHARS`."""
+
+    status = Status.NAME_TOO_LONG
+
+
+class TimestampOverflow(LogError):
+    """The clock is past the last time a timestamp holds, in 2554."""
+
+    status = Status.TIMESTAMP_OVERFLOW
+
+
 _ERRORS: Dict[int, Type[LogError]] = {
     cls.status: cls
     for cls in (
@@ -512,6 +532,8 @@ _ERRORS: Dict[int, Type[LogError]] = {
         Panic,
         InvalidFormat,
         BufferTooSmall,
+        NameTooLong,
+        TimestampOverflow,
     )
 }
 

@@ -82,9 +82,9 @@ class Scenarios(unittest.TestCase):
             c,
         ) as w:
             for m in msgs:
-                # A VariableTsRc record carries an eighteen-byte data
+                # A VariableTsRc record carries a sixteen-byte data
                 # header.
-                self.assertEqual(w.write(m), len(m) + 18)
+                self.assertEqual(w.write(m), len(m) + 16)
             self.assertGreater(w.timer_resolution(), 0)
             w.flush()
         self.assertEqual(c.completes, len(msgs))
