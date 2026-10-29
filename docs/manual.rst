@@ -2266,3 +2266,21 @@ buffer too small, a bad sector -- and none of them is a reason to stop
 reading or to do anything to the reader first. A caller can write one loop
 that reads until the log is finished and treats everything else as an
 annotation on the records it got.
+
+See Also
+========
+
+`Tcslog design <https://vomlehn.github.io/tcslog/docs/design.html>`__
+    The Tcslog specification: the on-disk format, the public interfaces,
+    the status codes and their ABI numbers, and the behaviour the library
+    is required to have.
+
+`tcs-xtce manual <https://vomlehn.github.io/tcs-xtce/docs/manual.html>`__
+    tcs-xtce turns an XTCE description of telemetry and command packets
+    into Rust, C, C++ and Python code that encodes and decodes them. The
+    manual says how to generate that code and use it.
+
+`tcslog-tools <https://vomlehn.github.io/tcslog-tools/docs/tcslog-tools.html>`__
+    tcslog-dump and tcslog-dumphdr, the command-line programs that read the
+    logs Tcslog writes: one prints the records a whole log yields, the other
+    one segment file's header.

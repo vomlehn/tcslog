@@ -435,6 +435,7 @@ ul.auto-toc {
 </ul>
 </li>
 <li><a class="reference internal" href="#what-a-caller-should-do-with-each-outcome" id="toc-entry-52">What a caller should do with each outcome</a></li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-53">See Also</a></li>
 </ul>
 </div>
 <div class="section" id="introduction">
@@ -2655,6 +2656,23 @@ buffer too small, a bad sector -- and none of them is a reason to stop
 reading or to do anything to the reader first. A caller can write one loop
 that reads until the log is finished and treats everything else as an
 annotation on the records it got.</p>
+</div>
+<div class="section" id="see-also">
+<h1><a class="toc-backref" href="#toc-entry-53">See Also</a></h1>
+<dl class="docutils">
+<dt><a class="reference external" href="https://vomlehn.github.io/tcslog/docs/design.html">Tcslog design</a></dt>
+<dd>The Tcslog specification: the on-disk format, the public interfaces,
+the status codes and their ABI numbers, and the behaviour the library
+is required to have.</dd>
+<dt><a class="reference external" href="https://vomlehn.github.io/tcs-xtce/docs/manual.html">tcs-xtce manual</a></dt>
+<dd>tcs-xtce turns an XTCE description of telemetry and command packets
+into Rust, C, C++ and Python code that encodes and decodes them. The
+manual says how to generate that code and use it.</dd>
+<dt><a class="reference external" href="https://vomlehn.github.io/tcslog-tools/docs/tcslog-tools.html">tcslog-tools</a></dt>
+<dd>tcslog-dump and tcslog-dumphdr, the command-line programs that read the
+logs Tcslog writes: one prints the records a whole log yields, the other
+one segment file's header.</dd>
+</dl>
 </div>
 </div>
 </body>

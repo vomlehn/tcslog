@@ -2983,3 +2983,21 @@ specification now, maintained by hand and read rather than run, and the
 code is not regenerated from it. The user manual, ``docs/manual.rst``,
 was generated from this file originally and is likewise maintained by
 hand now.
+
+See Also
+========
+
+`Tcslog manual <https://vomlehn.github.io/tcslog/docs/manual.html>`__
+    Tcslog is flight software that stores telemetry on board a vehicle that
+    is often out of contact. The manual says how to write a log, read it
+    back, and what each outcome of reading means.
+
+`tcs-xtce manual <https://vomlehn.github.io/tcs-xtce/docs/manual.html>`__
+    tcs-xtce turns an XTCE description of telemetry and command packets
+    into Rust, C, C++ and Python code that encodes and decodes them. The
+    manual says how to generate that code and use it.
+
+`tcslog-tools <https://vomlehn.github.io/tcslog-tools/docs/tcslog-tools.html>`__
+    tcslog-dump and tcslog-dumphdr, the command-line programs that read the
+    logs Tcslog writes: one prints the records a whole log yields, the other
+    one segment file's header.
