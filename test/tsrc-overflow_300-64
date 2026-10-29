@@ -3,7 +3,7 @@
 # Reads variable-tsrc records larger than tcslog-dump's fixed 256-byte
 # buffer. The overflow count covers payload only, so the reader must
 # report the same 256 bytes captured here as in the variable-simple
-# case, with the 20-byte data header accounted for separately rather
+# case, with the 18-byte data header accounted for separately rather
 # than charged against the caller's buffer.
 #
 # No segment file is damaged: the recovery being checked is the one a

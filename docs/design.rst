@@ -385,7 +385,7 @@ data section, in bytes, is:
 There are multiple types of data headers, depending on the format specified in
 the segment file header. Each is packed with no padding, and its fields
 appear in the order given below, so the sizes are zero bytes for
-Fixed(n), four for VariableSimple, and twenty for VariableTsRc:
+Fixed(n), four for VariableSimple, and eighteen for VariableTsRc:
 
     Fixed(n)
 
@@ -414,7 +414,12 @@ Fixed(n), four for VariableSimple, and twenty for VariableTsRc:
 
             The record count is one for the first record of a session
             and increments by one for each record after it. It is of
-            type RecordCount, a u64. The count belongs to the session,
+            type RecordCount, a u64 in memory, and is stored in 6 bytes,
+            little-endian, so it is at most RECORD_COUNT_MAX, 2^48 - 1.
+            A session that has counted that many records ends there: the
+            write of the next record closes the current segment file,
+            sends it as a roll does, and starts a new session, whose
+            first record is counted one. The count belongs to the session,
             not to the log: a new LogWrite starts a session, and so does
             the first write() after clear(), each beginning again at
             one. That is why a reader must report a session boundary
@@ -1612,7 +1617,7 @@ Format
     single byte stored in the segment header, which is 0, 1, and 2 in
     that order; fixed_len(), the n of Fixed and zero for the others; and
     data_header_len(), the on-disk size of one data header, which is
-    zero, four, and twenty bytes respectively.
+    zero, four, and eighteen bytes respectively.
 
 SegmentHeader
 -------------
@@ -1639,11 +1644,12 @@ Version Constants
 RecSize, Timestamp, and RecordCount
 -----------------------------------
     RecSize is the type used to contain the size of the telemetry portion
-    of a data record. For the on-disk format version 0.1.0 it is defined
+    of a data record. For the on-disk format version 1.0.0 it is defined
     to be u32. Timestamp and RecordCount are the types of the two
     VariableTsRc metadata fields, both u64: a Timestamp is nanoseconds
     since the UNIX epoch, and a RecordCount is one for a session's first
-    record and one more for each record after it.
+    record and one more for each record after it. A RecordCount is
+    stored in 48 bits, and RECORD_COUNT_MAX, 2^48 - 1, is the largest.
 
 WriteCallbacks
 --------------
@@ -2772,16 +2778,16 @@ file and prove nothing about each other.
      - ``-t 2``; ``-c 2``
      - Damage leaving the file in place where the data header offers the
        most bytes a resync could misread as a length.
-   * - ``tsrc-lost-header_8-24``
+   * - ``tsrc-lost-header_8-22``
      - ``variable-tsrc:8``
-     - 24
+     - 22
      - 6
      - ``-d 2``
      - A gap of one segment file that swallowed exactly one whole data
        header and no payload byte of the record it belonged to. The
-       geometry is chosen for it: 8 payload bytes plus a 20-byte data
-       header is 28 against a 24-byte data section, so record 1 owes 4
-       bytes of file 2 and the remaining 20 are precisely record 2's
+       geometry is chosen for it: 8 payload bytes plus an 18-byte data
+       header is 26 against a 22-byte data section, so record 1 owes 4
+       bytes of file 2 and the remaining 18 are precisely record 2's
        data header, whose payload then begins at the first byte of file
        3. That is the one gap whose arithmetic settles where the next
        record starts, and ``combined_12-10`` does recover it in

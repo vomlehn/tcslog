@@ -12,14 +12,14 @@ use crate::header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN};
 use crate::segid::SegId;
 use crate::seq_id::SeqId;
 use crate::util::{build_name, check_log_location, scan_segment_ids};
-use crate::{RecSize, RecordCount, Timestamp};
+use crate::{RecSize, RecordCount, Timestamp, RECORD_COUNT_MAX};
 
 include!(concat!(env!("OUT_DIR"), "/timer_resolution.rs"));
 
 /// Largest data header this crate has, which is
 /// [`Format::VariableTsRc`]'s. A buffer of this size holds any format's
 /// data header, so building one allocates nothing.
-const MAX_DATA_HEADER_LEN: usize = 20;
+const MAX_DATA_HEADER_LEN: usize = 18;
 
 /// What a [`LogWrite`] calls as it works, and the context it calls them
 /// with.
@@ -596,6 +596,14 @@ impl<H: WriteCallbacks> LogWrite<H> {
 
         if self.current.is_none() {
             self.start_session()?;
+        } else if self.format == Format::VariableTsRc
+            && self.record_count >= RECORD_COUNT_MAX
+        {
+            // A data header holds a count of 48 bits, so the record after
+            // the last a session can count begins a new session, as a
+            // reader expects the count to restart.
+            self.close_and_send()?;
+            self.start_session()?;
         }
 
         // Roll an exactly-full segment before the record begins. Rolling
@@ -919,8 +927,8 @@ impl<H: WriteCallbacks> LogWrite<H> {
                 let rc = self.record_count;
                 self.header_buf[0..4].copy_from_slice(&n.to_le_bytes());
                 self.header_buf[4..12].copy_from_slice(&ts.to_le_bytes());
-                self.header_buf[12..20].copy_from_slice(&rc.to_le_bytes());
-                Ok((20, Meta::VariableTsRc(ts, rc)))
+                self.header_buf[12..18].copy_from_slice(&rc.to_le_bytes()[..6]);
+                Ok((18, Meta::VariableTsRc(ts, rc)))
             }
         }
     }
@@ -929,7 +937,7 @@ impl<H: WriteCallbacks> LogWrite<H> {
     ///
     /// The buffer is a field of `self`, which the byte writer also
     /// borrows, so the bytes are copied to the stack first. A data
-    /// header is at most twenty bytes, so the copy is free.
+    /// header is at most eighteen bytes, so the copy is free.
     fn write_bytes_from_header(&mut self, len: usize) -> Result<(), LogError> {
         let mut scratch = [0u8; MAX_DATA_HEADER_LEN];
         scratch[..len].copy_from_slice(&self.header_buf[..len]);
@@ -1272,6 +1280,47 @@ mod tests {
         )
         .expect("a writer on a fresh directory");
         (w, dir)
+    }
+
+    /// A session counts [`RECORD_COUNT_MAX`] records, the most a data
+    /// header holds: the record after that begins a new session, which
+    /// numbers it 1, and a reader reports the boundary before it.
+    #[test]
+    fn the_record_after_the_last_count_begins_a_session() {
+        let dir = tempfile::tempdir().expect("a temporary directory");
+        let path = dir.path().to_str().expect("a UTF-8 temporary path");
+        let mut w = LogWrite::new(
+            path,
+            "seg-",
+            ".log",
+            SEGMENT_FILE_HEADER_LEN + 64,
+            Format::VariableTsRc,
+            Adjusted(unreported),
+        )
+        .expect("a writer on a fresh directory");
+        w.write(b"first").expect("a writable payload");
+        w.record_count = RECORD_COUNT_MAX - 1;
+        w.write(b"last").expect("a writable payload");
+        w.write(b"next").expect("a writable payload");
+        assert!(matches!(w.last_meta(), Meta::VariableTsRc(_, 1)));
+        drop(w);
+
+        let mut r =
+            crate::LogRead::new(path, "seg-", ".log").expect("a readable log");
+        let mut buf = [0u8; 16];
+        let mut seen = Vec::new();
+        loop {
+            match r.read(&mut buf) {
+                Ok(res) => match res.meta {
+                    Meta::VariableTsRc(_, rc) => seen.push(Some(rc)),
+                    other => panic!("expected VariableTsRc, got {other:?}"),
+                },
+                Err(LogError::SessionEnd) => seen.push(None),
+                Err(LogError::Eof) => break,
+                Err(e) => panic!("unexpected {e:?}"),
+            }
+        }
+        assert_eq!(seen, [Some(1), Some(RECORD_COUNT_MAX), None, Some(1)]);
     }
 
     /// An attempt that reports the name taken `n` times over, then

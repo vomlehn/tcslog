@@ -16,12 +16,12 @@ pub const SEGMENT_FILE_HEADER_LEN: u32 = 53;
 /// Major number of the on-disk format this build writes. A file whose
 /// major differs is refused: a different major means the layout itself
 /// differs.
-pub const VERSION_MAJOR: u32 = 0;
+pub const VERSION_MAJOR: u32 = 1;
 
 /// Minor number of the on-disk format this build writes. A file whose
 /// minor is greater is refused, since it may use something this build
 /// does not know about; a lesser or equal one is readable.
-pub const VERSION_MINOR: u32 = 1;
+pub const VERSION_MINOR: u32 = 0;
 
 /// Patch number of the on-disk format this build writes. It takes no
 /// part in the compatibility decision.
@@ -234,7 +234,11 @@ fn check_version(field: &[u8]) -> Result<(), LogError> {
     let digit = |b: u8| u32::from(b - b'0');
     let major = digit(field[0]) * 10 + digit(field[1]);
     let minor = digit(field[2]);
-    if major == VERSION_MAJOR && minor <= VERSION_MINOR {
+    // While VERSION_MINOR is 0 the comparison is an equality, which
+    // clippy objects to; it is the rule for every minor all the same.
+    #[allow(clippy::absurd_extreme_comparisons)]
+    let readable = major == VERSION_MAJOR && minor <= VERSION_MINOR;
+    if readable {
         Ok(())
     } else {
         Err(LogError::VersionMismatch)
@@ -281,7 +285,7 @@ mod tests {
         let h = sample();
         let b = h.to_bytes();
         assert_eq!(&b[0..8], b"tcslogsf");
-        assert_eq!(&b[8..12], b"0010");
+        assert_eq!(&b[8..12], b"0100");
         assert_eq!(&b[12..20], &h.segment_id.to_le_bytes());
         assert_eq!(&b[20..28], &h.session_id.to_le_bytes());
         assert_eq!(&b[28..32], &h.max_size.to_le_bytes());
@@ -362,8 +366,9 @@ mod tests {
     #[test]
     fn accepts_an_equal_or_lesser_minor_and_any_patch() {
         // The rule is a comparison of parsed numbers, not a match
-        // against the literal string this build writes.
-        for field in [b"0010", b"0000", b"0019"] {
+        // against the literal string this build writes. This build's
+        // minor is 0, so no lesser one exists.
+        for field in [b"0100", b"0109"] {
             let mut b = sample().to_bytes();
             b[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(field);
             assert!(
@@ -376,7 +381,8 @@ mod tests {
 
     #[test]
     fn refuses_greater_minor_other_major_and_non_digits() {
-        for field in [b"0020", b"0110", b"9900", b"00a0", b"    "] {
+        // 0010 is the format before the 48-bit record count.
+        for field in [b"0010", b"0110", b"0200", b"9900", b"00a0", b"    "] {
             let mut b = sample().to_bytes();
             b[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(field);
             assert!(

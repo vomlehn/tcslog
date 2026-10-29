@@ -109,6 +109,7 @@ __all__ = [
     "ReadOverflow",
     "ReadResult",
     "ReadTruncated",
+    "RECORD_COUNT_MAX",
     "Record",
     "RecordMeta",
     "SEG_ID_STR_LEN",
@@ -289,6 +290,10 @@ class RecordMeta(NamedTuple):
 # SegId::STR_LEN and TIMESTAMP_STR_LEN.
 SEG_ID_STR_LEN = 19
 TIMESTAMP_STR_LEN = 30
+# The largest record count a data header holds, as TCSLOG_RECORD_COUNT_MAX
+# and the Rust RECORD_COUNT_MAX: the record after a session's last count
+# begins a new session.
+RECORD_COUNT_MAX = (1 << 48) - 1
 
 
 class SegId(int):

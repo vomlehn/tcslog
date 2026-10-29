@@ -15,6 +15,26 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: 1.0.0, which this release cannot read alongside 0.1.0: a
+log written by an earlier release is refused with `VersionMismatch`.
+
+### Changed
+
+- A `VariableTsRc` record's count is stored in 48 bits rather than 64, so
+  its data header is 18 bytes rather than 20. `RecordCount` is still a u64
+  in memory, and the new `RECORD_COUNT_MAX` (`TCSLOG_RECORD_COUNT_MAX` in
+  C, `RECORD_COUNT_MAX` in Python) is 2^48 - 1.
+- A session that has counted `RECORD_COUNT_MAX` records ends there: the
+  next write closes the segment file, sends it, and starts a new session
+  whose first record is counted 1. Before, nothing checked the count.
+
+### Added
+
+- A Limitations section in the manual, and a See Also section in the manual
+  and the design.
+
 ## [0.4.3] - 2026-10-21
 
 Stored format: unchanged, 0.1.0.

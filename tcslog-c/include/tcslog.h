@@ -18,6 +18,12 @@
 #define TCSLOG_TIMESTAMP_STR_LEN 30
 
 /**
+ * The largest record count a data header holds, 2^48 - 1. The record
+ * after a session's last count begins a new session.
+ */
+#define TCSLOG_RECORD_COUNT_MAX 281474976710655
+
+/**
  * What a call reported.
  *
  * `Ok` is zero and every failure is positive, so `if (status)` reads

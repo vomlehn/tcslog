@@ -321,6 +321,10 @@ pub const TCSLOG_SEG_ID_STR_LEN: usize = 19;
 /// The characters a timestamp renders as, without the NUL.
 pub const TCSLOG_TIMESTAMP_STR_LEN: usize = 30;
 
+/// The largest record count a data header holds, 2^48 - 1. The record
+/// after a session's last count begins a new session.
+pub const TCSLOG_RECORD_COUNT_MAX: u64 = 0xFFFF_FFFF_FFFF;
+
 // Literals above because cbindgen can only emit a literal into the
 // header; these keep them from drifting from the library's own.
 const _: () = assert!(TCSLOG_SEG_ID_STR_LEN == SegId::STR_LEN);
@@ -1643,5 +1647,6 @@ mod tests {
     #[test]
     fn a_header_length_is_reported() {
         assert_eq!(tcslog_segment_file_header_len(), SEGMENT_FILE_HEADER_LEN);
+        assert_eq!(TCSLOG_RECORD_COUNT_MAX, tcslog::RECORD_COUNT_MAX);
     }
 }

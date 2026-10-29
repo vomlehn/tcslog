@@ -245,8 +245,8 @@
 //!   `n` bytes.
 //! - `VariableSimple`: 4 bytes per record. Stores a length, then the
 //!   payload, of that many bytes.
-//! - `VariableTsRc`: 20 bytes per record. Stores a length, a timestamp
-//!   and a record number, then the payload, of that many bytes.
+//! - `VariableTsRc`: 18 bytes per record. Stores a length, a timestamp
+//!   and a 48-bit record number, then the payload, of that many bytes.
 //!
 //! # Tools
 //!
@@ -336,7 +336,7 @@ pub use write::{LogWrite, WriteCallbacks};
 
 /// The type that holds the size of a data record's telemetry payload.
 ///
-/// For on-disk format version 0.1.0 this is `u32`, so
+/// For on-disk format version 1.0.0 this is `u32`, so
 /// `RecSize::MAX` is the largest payload a record may hold.
 pub type RecSize = u32;
 
@@ -351,4 +351,11 @@ pub type Timestamp = u64;
 /// restarts at one whenever a new session begins -- which is why a
 /// reader must report a session boundary before handing back the records
 /// that follow it.
+///
+/// It is stored in 48 bits, so a session counts at most
+/// [`RECORD_COUNT_MAX`] records: the writer begins a new session for the
+/// record after that.
 pub type RecordCount = u64;
+
+/// The largest [`RecordCount`] a data header holds, 2^48 - 1.
+pub const RECORD_COUNT_MAX: RecordCount = (1 << 48) - 1;
