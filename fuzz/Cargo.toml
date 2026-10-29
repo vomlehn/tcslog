@@ -31,3 +31,9 @@ path = "fuzz_targets/arbitrary_files.rs"
 test = false
 doc = false
 bench = false
+
+[lints.clippy]
+# Each argument in a doc comment's # Arguments list continues in its
+# description's column, as the TCS projects' documentation rule has it,
+# which is deeper than this lint's two spaces.
+doc_overindented_list_items = "allow"

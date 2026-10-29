@@ -31,8 +31,19 @@ struct Log {
 }
 
 impl Log {
-    /// Creates an empty log directory whose segment files will have a
-    /// data section of `data_size` bytes.
+    /// Creates an empty log directory.
+    ///
+    /// # Arguments
+    ///
+    /// * `data_size` - The bytes in each segment file's data section.
+    ///
+    /// # Returns
+    ///
+    /// The log, whose directory is removed when it is dropped.
+    ///
+    /// # Panics
+    ///
+    /// If no temporary directory can be created.
     fn new(data_size: u32) -> Self {
         Self {
             dir: tempfile::tempdir().expect("a temporary directory"),
@@ -47,6 +58,18 @@ impl Log {
 
     /// Opens a writer on this log with callbacks that do nothing, so
     /// that the segment files stay put for a reader to find.
+    ///
+    /// # Arguments
+    ///
+    /// * `format` - How the writer lays out its records.
+    ///
+    /// # Returns
+    ///
+    /// The writer.
+    ///
+    /// # Panics
+    ///
+    /// If the writer cannot be opened.
     fn writer(&self, format: Format) -> LogWrite {
         LogWrite::new(
             self.path(),
@@ -59,8 +82,17 @@ impl Log {
         .expect("a writer on a fresh directory")
     }
 
-    /// Writes one session of `payloads` and closes it, so that every
-    /// byte has reached the directory.
+    /// Writes one session and closes it, so that every byte has reached
+    /// the directory.
+    ///
+    /// # Arguments
+    ///
+    /// * `format`   - How the session lays out its records.
+    /// * `payloads` - The records to write, in order.
+    ///
+    /// # Panics
+    ///
+    /// If the writer cannot be opened or refuses a payload.
     fn write_session(&self, format: Format, payloads: &[Vec<u8>]) {
         let mut log = self.writer(format);
         for payload in payloads {
@@ -69,9 +101,17 @@ impl Log {
         drop(log);
     }
 
-    /// This log's segment files, oldest first. The identifier is
+    /// Lists this log's segment files, oldest first. The identifier is
     /// fixed-width zero-filled hexadecimal, so sorting the names sorts
     /// the files into the order they were written.
+    ///
+    /// # Returns
+    ///
+    /// The paths of the segment files.
+    ///
+    /// # Panics
+    ///
+    /// If the directory cannot be read.
     fn segment_files(&self) -> Vec<PathBuf> {
         let mut files: Vec<PathBuf> = fs::read_dir(self.dir.path())
             .expect("a readable directory")
@@ -86,7 +126,15 @@ impl Log {
         files
     }
 
-    /// The header of every segment file, oldest first.
+    /// Reads the header of every segment file.
+    ///
+    /// # Returns
+    ///
+    /// The headers, oldest file first.
+    ///
+    /// # Panics
+    ///
+    /// If a segment file cannot be opened or its header is not valid.
     fn headers(&self) -> Vec<SegmentHeader> {
         self.segment_files()
             .iter()
@@ -108,8 +156,22 @@ impl Log {
         self.read_with(4096)
     }
 
-    /// Reads the whole log into a buffer of `buf_len` bytes, collecting
-    /// what came back and what was reported.
+    /// Reads the whole log, collecting what came back and what was
+    /// reported.
+    ///
+    /// # Arguments
+    ///
+    /// * `buf_len` - The size in bytes of the buffer each record is read
+    ///               into.
+    ///
+    /// # Returns
+    ///
+    /// The records, partial records and errors the read produced.
+    ///
+    /// # Panics
+    ///
+    /// If the reader cannot be opened, or if a read fails with an error
+    /// other than those that report damage or the end of the log.
     fn read_with(&self, buf_len: usize) -> Outcome {
         let mut log = self.reader().expect("a readable log");
         let mut out = Outcome::default();
@@ -159,8 +221,17 @@ struct Outcome {
     segments_opened: u64,
 }
 
-/// Payloads that name themselves, so that a record recovered from a
-/// damaged log can be identified rather than merely counted.
+/// Builds payloads that name themselves, so that a record recovered from
+/// a damaged log can be identified rather than merely counted.
+///
+/// # Arguments
+///
+/// * `count` - How many payloads to build.
+/// * `len`   - The length in bytes of each one.
+///
+/// # Returns
+///
+/// The payloads: `#1 `, `#2 ` and so on, padded with digits to `len`.
 fn payloads(count: usize, len: usize) -> Vec<Vec<u8>> {
     (0..count)
         .map(|i| {
@@ -174,8 +245,16 @@ fn payloads(count: usize, len: usize) -> Vec<Vec<u8>> {
         .collect()
 }
 
-/// Cuts a segment file down to `data_bytes` bytes of data section,
-/// leaving its header intact.
+/// Cuts a segment file down, leaving its header intact.
+///
+/// # Arguments
+///
+/// * `path`       - The segment file.
+/// * `data_bytes` - The bytes of its data section to keep.
+///
+/// # Panics
+///
+/// If the file cannot be opened or truncated.
 fn truncate_to(path: &Path, data_bytes: u64) {
     let f = OpenOptions::new()
         .write(true)
@@ -188,6 +267,14 @@ fn truncate_to(path: &Path, data_bytes: u64) {
 /// Overwrites a segment file's eight-byte type field, so that it cannot
 /// be opened at all. The file stays in place, so its neighbours' sequence
 /// numbers still step over it.
+///
+/// # Arguments
+///
+/// * `path` - The segment file to damage.
+///
+/// # Panics
+///
+/// If the file cannot be opened or written.
 fn corrupt_magic(path: &Path) {
     use std::io::{Seek, SeekFrom, Write};
     let mut f = OpenOptions::new()
@@ -1089,6 +1176,15 @@ fn a_loss_is_attributed_to_the_session_it_fell_in() {
 /// A reader that spliced bytes from either side of a gap onto a partial
 /// data header would return a record the writer never wrote, and would
 /// otherwise pass a test that only counted what came back.
+///
+/// # Arguments
+///
+/// * `out`     - What the read produced.
+/// * `written` - Every payload that was written.
+///
+/// # Panics
+///
+/// If any record or partial record is not a prefix of a written payload.
 fn assert_invented_nothing(out: &Outcome, written: &[Vec<u8>]) {
     for got in out.payloads.iter().chain(out.partials.iter()) {
         assert!(
@@ -1332,6 +1428,20 @@ fn losing_the_last_segment_file_is_not_mistaken_for_the_end_of_the_log() {
 /// four and leaves sixteen. In both the next record's data header fills
 /// the rest of the second segment file and its payload begins at the
 /// third.
+///
+/// # Arguments
+///
+/// * `format`    - The variable format to write in.
+/// * `data_size` - The bytes in each segment file's data section.
+/// * `first_len` - The payload length of the first record, at most 12.
+///
+/// # Returns
+///
+/// The log and the four payloads written to it.
+///
+/// # Panics
+///
+/// If `first_len` is greater than 12, or the log cannot be written.
 fn lost_header_log(
     format: Format,
     data_size: u32,

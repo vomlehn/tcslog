@@ -185,15 +185,20 @@ pub struct LogRead {
 impl LogRead {
     /// Opens an existing log for reading.
     ///
-    /// * `dir` -- directory holding the segment files. It must already
-    ///   exist and hold at least one segment file of this log.
-    /// * `prefix` -- first part of the segment file names. Must hold no
-    ///   path separator.
-    /// * `suffix` -- last part of the segment file names. Must hold no
-    ///   path separator.
+    /// # Arguments
     ///
-    /// Returns a reader positioned before the first record, with no
-    /// segment file open.
+    /// * `dir`    - The directory holding the segment files. It must
+    ///              already exist and hold at least one segment file of
+    ///              this log.
+    /// * `prefix` - The first part of the segment file names. Must hold
+    ///              no path separator.
+    /// * `suffix` - The last part of the segment file names. Must hold
+    ///              no path separator.
+    ///
+    /// # Returns
+    ///
+    /// A reader positioned before the first record, with no segment
+    /// file open.
     ///
     /// # Errors
     ///
@@ -256,10 +261,14 @@ impl LogRead {
     /// following read begins at the next record rather than in the
     /// middle of this one.
     ///
-    /// * `buf` -- buffer to receive the payload.
+    /// # Arguments
     ///
-    /// Returns how many bytes were placed in `buf` and the metadata the
-    /// record carried.
+    /// * `buf` - The buffer to receive the payload.
+    ///
+    /// # Returns
+    ///
+    /// How many bytes were placed in `buf` and the metadata the record
+    /// carried.
     ///
     /// # Errors
     ///
@@ -383,9 +392,13 @@ impl LogRead {
     /// buffer rather than a string, since a payload recovered in part
     /// need not be valid UTF-8.
     ///
-    /// * `buf` -- buffer to receive the payload.
+    /// # Arguments
     ///
-    /// Returns what [`read`](Self::read) returns.
+    /// * `buf` - The buffer to receive the payload.
+    ///
+    /// # Returns
+    ///
+    /// What [`read`](Self::read) returns.
     ///
     /// # Errors
     ///
@@ -422,7 +435,9 @@ impl LogRead {
     /// [`read`](Self::read), where the storage error arrives as an
     /// error and the reader stays fit to continue past it.
     ///
-    /// Returns the iterator, which borrows the reader for its lifetime.
+    /// # Returns
+    ///
+    /// The iterator, which borrows the reader for its lifetime.
     pub fn iter(&mut self) -> LogReadIter<'_> {
         LogReadIter {
             log: self,
@@ -480,7 +495,9 @@ impl LogRead {
     /// until taken, so a caller that never took them would grow the
     /// buffer without bound.
     ///
-    /// * `enable` -- whether to retain headers from now on.
+    /// # Arguments
+    ///
+    /// * `enable` - Whether to retain headers from now on.
     pub fn collect_opened_headers(&mut self, enable: bool) {
         self.collect_headers = enable;
     }
@@ -505,9 +522,13 @@ impl LogRead {
     /// allocates, since how many segment files a read opens is not
     /// bounded; see [`collect_opened_headers`](Self::collect_opened_headers).
     ///
-    /// * `out` -- where to put the headers.
+    /// # Arguments
     ///
-    /// Returns how many were placed at the front of `out`.
+    /// * `out` - Where to put the headers.
+    ///
+    /// # Returns
+    ///
+    /// How many were placed at the front of `out`.
     pub fn take_opened_headers_into(
         &mut self,
         out: &mut [SegmentHeader],
@@ -521,9 +542,26 @@ impl LogRead {
 
     /// Reads and decodes one data record's data header.
     ///
-    /// Returns the payload length it declares and the metadata it
-    /// carries. `Format::Fixed` has no data header, so its length comes
-    /// from the format itself.
+    /// `Format::Fixed` has no data header, so its length comes from the
+    /// format itself and nothing is read. Either way the cursor's
+    /// `total` is set to the bytes the whole record occupies.
+    ///
+    /// # Arguments
+    ///
+    /// * `cursor` - The read position within the record being read.
+    /// * `format` - The data record layout of the current segment file.
+    ///
+    /// # Returns
+    ///
+    /// The payload length the header declares and the metadata it
+    /// carries.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`fill`](Self::fill) returns while reading the header,
+    /// and [`LogError::ReadTruncated`] from
+    /// [`settle_payload_len`](Self::settle_payload_len) when the
+    /// declared length disagrees with one a crossing implied.
     fn read_data_header(
         &mut self,
         cursor: &mut Cursor,
@@ -571,7 +609,15 @@ impl LogRead {
     /// exactly, and a header that decodes to anything else was finished
     /// with bytes that were not this record's.
     ///
-    /// Returns the payload length when the two agree.
+    /// # Arguments
+    ///
+    /// * `cursor`  - The read position within the record, carrying the
+    ///               payload length a crossing implied, if any.
+    /// * `decoded` - The payload length the data header declares.
+    ///
+    /// # Returns
+    ///
+    /// The payload length, when the two agree or nothing was implied.
     ///
     /// # Errors
     ///
@@ -599,13 +645,16 @@ impl LogRead {
     /// file which is not available; such a file is discarded and the
     /// search moves on.
     ///
-    /// Returns where the read position was left.
+    /// # Returns
+    ///
+    /// Where the read position was left.
     ///
     /// # Errors
     ///
-    /// Returns [`LogError::Eof`] when the pending list runs out, and
+    /// Returns [`LogError::Eof`] when the pending list runs out,
     /// [`LogError::SessionEnd`] when the next segment file belongs to a
-    /// different session.
+    /// different session, and [`LogError::IoError`] if seeking to the
+    /// record boundary fails.
     fn find_record_start(&mut self) -> Result<Start, LogError> {
         debug_assert!(
             self.current.is_none(),
@@ -666,8 +715,10 @@ impl LogRead {
     /// file it does not have, and the loss surfaces the way a deleted
     /// file's does, through the sequence gap its neighbours show.
     ///
-    /// Returns true when a segment file became current, and false when
-    /// the pending list is exhausted.
+    /// # Returns
+    ///
+    /// True when a segment file became current, and false when the
+    /// pending list is exhausted.
     ///
     /// # Errors
     ///
@@ -727,7 +778,13 @@ impl LogRead {
     /// in the name, which catches a renamed or copied file; and the file
     /// must be no larger than the maximum size its own header declares.
     ///
-    /// Returns the open segment file, or `None` if any check failed. No
+    /// # Arguments
+    ///
+    /// * `id` - The identifier of the segment file, which names it.
+    ///
+    /// # Returns
+    ///
+    /// The open segment file, or `None` if any check failed. No
     /// distinction is drawn between the reasons, because none would
     /// change what the reader does.
     fn open_validated(&mut self, id: SegId) -> Option<Segment> {
@@ -755,8 +812,14 @@ impl LogRead {
         })
     }
 
-    /// Whether the current segment file has no more data section left,
-    /// which includes there being no current segment file at all.
+    /// Tells whether the current segment file has no more data section
+    /// left.
+    ///
+    /// # Returns
+    ///
+    /// True when the read position is at or past the end of the current
+    /// segment file's data section, or there is no current segment file
+    /// at all.
     fn exhausted(&self) -> bool {
         match self.current.as_ref() {
             None => true,
@@ -767,12 +830,25 @@ impl LogRead {
     /// Crosses from an exhausted segment file into the next one, and
     /// checks that the next one really does continue this record.
     ///
+    /// # Arguments
+    ///
+    /// * `cursor` - The read position within the record in progress;
+    ///              a crossing inside a data header records in it the
+    ///              payload length the next file implies.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once the next segment file is current and continues the
+    /// record.
+    ///
     /// # Errors
     ///
     /// Returns [`LogError::ReadTruncated`] when the crossing cannot be
     /// allowed, having handed the offending segment file back for the
-    /// resynchronization to re-examine, and [`LogError::SessionEnd`] at
-    /// a session boundary that falls on a record boundary.
+    /// resynchronization to re-examine, and also when the record runs
+    /// off the end of the log or into another session part way through;
+    /// and [`LogError::SessionEnd`] at a session boundary that falls on
+    /// a record boundary.
     fn cross(&mut self, cursor: &mut Cursor) -> Result<(), LogError> {
         let prev_seq = self.prev_seq;
         let prev_session = self.session;
@@ -904,7 +980,17 @@ impl LogRead {
     /// list so that the resynchronization re-examines it as the start of
     /// a fresh record.
     ///
-    /// Returns the error to report for the record that was lost.
+    /// # Arguments
+    ///
+    /// * `lost` - How many segment files are known to be missing before
+    ///            the rejected one.
+    /// * `n`    - How many payload bytes of the lost record are already
+    ///            in the caller's buffer.
+    ///
+    /// # Returns
+    ///
+    /// The [`LogError::ReadTruncated`] to report for the record that
+    /// was lost, carrying `lost` and `n`.
     fn reject_current(&mut self, lost: u64, n: RecSize) -> LogError {
         if let Some(segment) = self.current.take() {
             self.pending.push_front(segment.id);
@@ -916,10 +1002,21 @@ impl LogRead {
     /// Reads exactly `dst.len()` bytes of the record in progress,
     /// crossing into further segment files as needed.
     ///
+    /// # Arguments
+    ///
+    /// * `cursor` - The read position within the record, advanced by the
+    ///              bytes read.
+    /// * `dst`    - Where to put the bytes; all of it is filled.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once `dst` is full.
+    ///
     /// # Errors
     ///
     /// Returns whatever [`cross`](Self::cross) reports at a boundary,
-    /// and [`LogError::IoError`] if a read fails.
+    /// [`LogError::ReadTruncated`] if no segment file is current, and
+    /// [`LogError::IoError`] if a read fails.
     fn fill(
         &mut self,
         cursor: &mut Cursor,
@@ -958,10 +1055,21 @@ impl LogRead {
     /// This is how a read whose buffer was too small reaches the end of
     /// the record, so that the next read begins at the following one.
     ///
+    /// # Arguments
+    ///
+    /// * `cursor` - The read position within the record, advanced by the
+    ///              bytes skipped.
+    /// * `count`  - How many bytes to skip.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once `count` bytes have been skipped.
+    ///
     /// # Errors
     ///
     /// Returns whatever [`cross`](Self::cross) reports at a boundary,
-    /// and [`LogError::IoError`] if a seek fails.
+    /// [`LogError::ReadTruncated`] if no segment file is current, and
+    /// [`LogError::IoError`] if a seek fails.
     fn skip(
         &mut self,
         cursor: &mut Cursor,
@@ -1013,15 +1121,19 @@ impl LogRead {
 /// data header. The payload therefore begins at the first byte of this
 /// data section and is `remaining` bytes long.
 ///
-/// * `recovery` -- what was known when the gap was found.
-/// * `id` -- the segment file now being examined.
-/// * `format` -- that file's data record layout.
-/// * `remaining` -- that file's `remaining` field.
-/// * `data_section` -- the data section size the file's header implies,
-///   which is the size of the one the gap swallowed.
+/// # Arguments
 ///
-/// Returns the payload length, or `None` when the arithmetic does not
-/// settle it. Any other value for the room leaves a choice between
+/// * `recovery`     - What was known when the gap was found.
+/// * `id`           - The segment file now being examined.
+/// * `format`       - That file's data record layout.
+/// * `remaining`    - That file's `remaining` field.
+/// * `data_section` - The data section size the file's header implies,
+///                    which is the size of the one the gap swallowed.
+///
+/// # Returns
+///
+/// The payload length, or `None` when the arithmetic does not settle
+/// it. Any other value for the room leaves a choice between
 /// payload bytes lost from the front of this record and whole records
 /// lost ahead of it, which nothing on disk resolves. Room smaller than a
 /// data header is one of those values: the gap held the leading bytes of

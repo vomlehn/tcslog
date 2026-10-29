@@ -36,8 +36,14 @@ class Quiet(tcslog.WriteCallbacks):
         self.downlinked = 0
 
     def timer_resolution_adjusted(self, resolution_ns: int) -> None:
-        # The figure to build with next time, so a deployed system
-        # records it and carries on.
+        """Prints the widened resolution as the figure to build with next
+        time, so a deployed system records it and carries on.
+
+        Args:
+            resolution_ns: The timer resolution now in force, in
+                           nanoseconds.
+
+        """
         print(
             f"note: timer resolution widened to {resolution_ns} ns; build with "
             f"TIMER_RESOLUTION={resolution_ns} next time",
@@ -62,6 +68,19 @@ class Downlink(Quiet):
 
 
 def write_telemetry(log_dir: str, handler: Quiet) -> None:
+    """Writes RECORD_COUNT text records as one session of a log, then
+    reports how many segment files the handler has been sent.
+
+    Args:
+        log_dir: The log's directory.
+        handler: The callbacks the writer uses, which count the segment
+                 files they are sent.
+
+    Raises:
+        tcslog.LogError: If opening, a write, the flush or closing
+                         fails.
+
+    """
     with tcslog.LogWrite(
         log_dir,
         "seg-",
@@ -88,6 +107,14 @@ def write_telemetry(log_dir: str, handler: Quiet) -> None:
 
 
 def read_remaining(log_dir: str) -> None:
+    """Reads and prints every record left in the log, noting session
+    ends, truncated records and oversized records, then a summary.
+
+    Args:
+        log_dir: The log's directory; if it holds no segment files, says
+                 so and reads nothing.
+
+    """
     try:
         r = tcslog.LogRead(log_dir, "seg-", ".tcslog")
     except tcslog.NoSegmentFiles:
@@ -142,6 +169,18 @@ def read_remaining(log_dir: str) -> None:
 
 
 def main(argv: List[str]) -> int:
+    """Writes a session with a send callback and one without, then reads
+    what is left.
+
+    Args:
+        argv: The command line: the program's name and the directory to
+              write the log in, which must exist and must not yet hold a
+              "downlinked" subdirectory.
+
+    Returns:
+        The exit status: 0 on success, 2 for a wrong command line.
+
+    """
     if len(argv) != 2:
         print(f"usage: {argv[0]} <directory>", file=sys.stderr)
         return 2

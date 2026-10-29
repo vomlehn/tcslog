@@ -20,6 +20,8 @@ thread_local! {
     static COUNT: Cell<usize> = const { Cell::new(0) };
 }
 
+/// Counts one allocation, if this thread has asked for its allocations
+/// to be counted and still has its thread-locals.
 fn note() {
     // A thread being torn down has no locals left to count with, and
     // nothing of the test's is running on it then.
@@ -61,7 +63,15 @@ unsafe impl GlobalAlloc for Counting {
 #[global_allocator]
 static ALLOC: Counting = Counting;
 
-/// Runs `f` and returns how many allocations it made on this thread.
+/// Counts the allocations a closure makes on this thread.
+///
+/// # Arguments
+///
+/// * `f` - The code to run with counting on.
+///
+/// # Returns
+///
+/// How many allocations, reallocations included, `f` made.
 fn allocations(f: impl FnOnce()) -> usize {
     COUNT.with(|n| n.set(0));
     COUNTING.with(|on| on.set(true));
@@ -73,10 +83,24 @@ fn allocations(f: impl FnOnce()) -> usize {
 const PREFIX: &str = "seg-";
 const SUFFIX: &str = ".log";
 
-/// Writes `records` records of 30 bytes into segment files of 64 data
-/// bytes, so that the writer rolls every couple of records, and reads
-/// them back, counting the allocations each side makes once its log is
-/// open.
+/// Writes records of 30 bytes into segment files of 64 data bytes, so
+/// that the writer rolls every couple of records, and reads them back,
+/// counting the allocations each side makes once its log is open.
+///
+/// # Arguments
+///
+/// * `format`  - How the log lays out its records; a `Fixed` length is
+///               at most 30.
+/// * `records` - How many records to write.
+///
+/// # Returns
+///
+/// The allocations made while writing and those made while reading.
+///
+/// # Panics
+///
+/// If the log cannot be written or read, or fewer records are read back
+/// than were written.
 fn write_then_read(format: Format, records: usize) -> (usize, usize) {
     let dir = tempfile::tempdir().expect("a temporary directory");
     let path = dir.path().to_str().expect("a UTF-8 temporary path");

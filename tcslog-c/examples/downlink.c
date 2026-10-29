@@ -58,13 +58,17 @@ typedef struct {
 
 static const char *log_dir;
 
-/* Takes a filled segment file out of the log's namespace.
+/** Takes a filled segment file out of the log's namespace, renaming it
+ * into the downlink directory with ".sent" appended.
  *
- * Returns zero on success. Anything else makes the write that
- * triggered this report TCSLOG_STATUS_IO_ERROR, which is the right
- * answer: if the file cannot be taken, the storage bound the log was
- * given has stopped holding and the caller needs to know.
- */
+ * @param ctx   The writer's context, a Downlink, whose count of files
+ *              handed over this increments.
+ * @param path  The segment file the library is handing over.
+ * @return      Zero on success. Anything else makes the write that
+ *              triggered this report TCSLOG_STATUS_IO_ERROR, which is
+ *              the right answer: if the file cannot be taken, the
+ *              storage bound the log was given has stopped holding and
+ *              the caller needs to know. */
 static int on_send(void *ctx, const char *path) {
 	Downlink *d = (Downlink *)ctx;
 	const char *base = strrchr(path, '/');
@@ -85,9 +89,12 @@ static int on_send(void *ctx, const char *path) {
 	return 0;
 }
 
-/* Reports that TIMER_RESOLUTION was too small for this machine and has
- * been widened. The value passed is the figure to build with next time,
- * so a deployed system records it and carries on. */
+/** Reports that TIMER_RESOLUTION was too small for this machine and has
+ * been widened, so a deployed system records it and carries on.
+ *
+ * @param ctx            The writer's context; unused.
+ * @param resolution_ns  The resolution now in force, in nanoseconds:
+ *                       the figure to build with next time. */
 static void on_timer_resolution_adjusted(void *ctx, uint64_t resolution_ns) {
 	(void)ctx;
 	fprintf(stderr,
@@ -96,8 +103,15 @@ static void on_timer_resolution_adjusted(void *ctx, uint64_t resolution_ns) {
 	        (unsigned long)resolution_ns, (unsigned long)resolution_ns);
 }
 
-/* Writes RECORD_COUNT records, which is enough to fill several segment
- * files and so to hand several over. */
+/** Writes RECORD_COUNT records, which is enough to fill several segment
+ * files and so to hand several over, then closes the writer.
+ *
+ * @param d          The callbacks' context, whose count of files handed
+ *                   over is printed at the end.
+ * @param with_send  Nonzero to give the writer the send callback, so
+ *                   filled files leave the log; zero to leave them in it.
+ * @return           Zero on success, or 1 after printing why the log
+ *                   could not be opened, written or flushed. */
 static int write_telemetry(Downlink *d, int with_send) {
 	/* The callbacks this writer is to use, and the context they get
 	 * back. Passing NULL for send is what leaves filled files in the
@@ -165,8 +179,11 @@ static int write_telemetry(Downlink *d, int with_send) {
 	return 0;
 }
 
-/* Reads back whatever is still in the log, which is the records that
- * have not been downlinked. */
+/** Reads back whatever is still in the log, which is the records that
+ * have not been downlinked, and prints them and a summary.
+ *
+ * @return  Zero on success, including when the log holds no segment
+ *          files, or 1 after printing why opening or reading failed. */
 static int read_remaining(void) {
 	TcslogRead *r = NULL;
 	TcslogStatus s = tcslog_read_open(log_dir, "seg-", ".tcslog", &r);
@@ -247,6 +264,14 @@ static int read_remaining(void) {
 	return 0;
 }
 
+/** Runs the example: writes with a send callback, writes again without
+ * one, then reads what is left.
+ *
+ * @param argc  The number of arguments, which must be 2.
+ * @param argv  The program's name and the directory to hold the log; it
+ *              must exist, and a "downlinked" subdirectory is made in it.
+ * @return      Zero on success, 1 if any step fails, or 2 for a usage
+ *              error or a directory name too long. */
 int main(int argc, char **argv) {
 	if (argc != 2) {
 		fprintf(stderr, "usage: %s <directory>\n", argv[0]);

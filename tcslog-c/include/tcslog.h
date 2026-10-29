@@ -387,25 +387,32 @@ extern "C" {
  * Writes the stored format version this build reads and writes.
  *
  * A build reads a segment file whose major version matches this one
- * and whose minor version is no greater. Any of the three pointers may
- * be null.
+ * and whose minor version is no greater.
+ *
+ * @param major  Receives the major version, unless null.
+ * @param minor  Receives the minor version, unless null.
+ * @param patch  Receives the patch version, unless null.
  */
 void tcslog_format_version(uint32_t *major, uint32_t *minor, uint32_t *patch);
 
 /**
- * The bytes a segment file's own header occupies.
+ * Gives the bytes a segment file's own header occupies.
  *
  * `seg_size_max` must leave room for this and for a data header, so
  * this is the floor a caller computes from.
+ *
+ * @return The length of a segment file header, in bytes.
  */
 uint32_t tcslog_segment_file_header_len(void);
 
 /**
- * A short description of a status, as a static NUL-terminated string.
+ * Describes a status briefly.
  *
- * Never null, and never needs freeing. An unrecognized value gives
- * "unknown status" rather than nothing, so a caller that was compiled
- * against an older header still prints something.
+ * @param status  The status to describe.
+ * @return        A static NUL-terminated string, never null and never needing
+ *                freeing. An unrecognized value gives "unknown status" rather
+ *                than nothing, so a caller that was compiled against an older
+ *                header still prints something.
  */
 const char *tcslog_status_str(TcslogStatus status);
 
@@ -413,13 +420,17 @@ const char *tcslog_status_str(TcslogStatus status);
  * Renders a segment identifier as it appears in a segment file's name:
  * four dash-separated groups of four lower-case hexadecimal digits.
  *
- * `buf` must hold at least [`TCSLOG_SEG_ID_STR_LEN`] + 1 bytes, for the
- * text and its NUL; a shorter one is refused as
- * [`TcslogStatus::BufferTooSmall`] and left untouched.
- *
  * # Safety
  *
  * `buf` must point to `cap` writable bytes.
+ *
+ * @param id   The segment identifier.
+ * @param buf  Receives the text and its NUL. It must hold at least
+ *             [`TCSLOG_SEG_ID_STR_LEN`] + 1 bytes.
+ * @param cap  The bytes `buf` holds.
+ * @return     [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if `buf` is
+ *             null; or [`TcslogStatus::BufferTooSmall`], leaving `buf`
+ *             untouched, if `cap` is too small.
  */
 TcslogStatus tcslog_seg_id_format(uint64_t id, char *buf, uintptr_t cap);
 
@@ -427,14 +438,18 @@ TcslogStatus tcslog_seg_id_format(uint64_t id, char *buf, uintptr_t cap);
  * Parses a segment identifier in the form [`tcslog_seg_id_format`]
  * renders.
  *
- * Text in any other form is refused as
- * [`TcslogStatus::InvalidPathname`], as the library refuses it, since
- * it names no segment file.
- *
  * # Safety
  *
  * `text` must be a NUL-terminated string, and `out` must point to
  * writable storage for one `uint64_t`.
+ *
+ * @param text  The identifier's text.
+ * @param out   Receives the identifier on success.
+ * @return      [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if either
+ *              pointer is null; [`TcslogStatus::NotUtf8`] if `text` is not
+ *              UTF-8; or [`TcslogStatus::InvalidPathname`] for text in any
+ *              other form, as the library refuses it, since it names no segment
+ *              file.
  */
 TcslogStatus tcslog_seg_id_parse(const char *text, uint64_t *out);
 
@@ -442,13 +457,17 @@ TcslogStatus tcslog_seg_id_parse(const char *text, uint64_t *out);
  * Renders a timestamp as an ISO 8601 UTC date and time with nanosecond
  * precision, for example `2026-09-21T16:45:12.123456789Z`.
  *
- * `buf` must hold at least [`TCSLOG_TIMESTAMP_STR_LEN`] + 1 bytes, for
- * the text and its NUL; a shorter one is refused as
- * [`TcslogStatus::BufferTooSmall`] and left untouched.
- *
  * # Safety
  *
  * `buf` must point to `cap` writable bytes.
+ *
+ * @param ts   The timestamp, in nanoseconds since the UNIX epoch.
+ * @param buf  Receives the text and its NUL. It must hold at least
+ *             [`TCSLOG_TIMESTAMP_STR_LEN`] + 1 bytes.
+ * @param cap  The bytes `buf` holds.
+ * @return     [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if `buf` is
+ *             null; or [`TcslogStatus::BufferTooSmall`], leaving `buf`
+ *             untouched, if `cap` is too small.
  */
 TcslogStatus tcslog_format_timestamp(uint64_t ts, char *buf, uintptr_t cap);
 
@@ -456,27 +475,34 @@ TcslogStatus tcslog_format_timestamp(uint64_t ts, char *buf, uintptr_t cap);
  * Opens a writer on the log in `dir` whose segment files are named
  * `prefix` + identifier + `suffix`.
  *
- * `seg_size_max` is the most bytes a segment file may occupy, its own
- * header included. `format_tag` is a [`TcslogFormat`] value, and
- * `fixed_len` is the record length, read only for
- * [`TcslogFormat::Fixed`]. A tag outside the three is refused as
- * [`TcslogStatus::InvalidFormat`].
- *
- * `cb` is the callbacks this writer is to use and the context to hand
- * them, and may be null for none. It is copied, so the structure
- * itself need not outlive the call -- but the `ctx` it holds is used
- * until the writer is closed, so that must outlive the writer. Each
- * writer has its own, so two logs in one process can have different
- * callbacks and different contexts.
- *
- * On success `*out` holds a writer to pass to
- * [`tcslog_write_close`]. On failure `*out` is left null.
- *
  * # Safety
  *
  * The three strings must be NUL-terminated, `cb` must be null or point
  * to a readable [`TcslogCallbacks`], and `out` must point to writable
  * storage for one pointer.
+ *
+ * @param dir           The directory holding the log.
+ * @param prefix        What each segment file's name starts with.
+ * @param suffix        What each segment file's name ends with.
+ * @param seg_size_max  The most bytes a segment file may occupy, its own header
+ *                      included.
+ * @param format_tag    A [`TcslogFormat`] value.
+ * @param fixed_len     The record length, read only for
+ *                      [`TcslogFormat::Fixed`].
+ * @param cb            The callbacks this writer is to use and the context to
+ *                      hand them, or null for none. It is copied, so the
+ *                      structure itself need not outlive the call -- but the
+ *                      `ctx` it holds is used until the writer is closed, so
+ *                      that must outlive the writer. Each writer has its own,
+ *                      so two logs in one process can have different callbacks
+ *                      and different contexts.
+ * @param out           Receives a writer to pass to [`tcslog_write_close`] on
+ *                      success, and is left null on failure.
+ * @return              [`TcslogStatus::Ok`]; [`TcslogStatus::InvalidFormat`]
+ *                      for a tag outside the three;
+ *                      [`TcslogStatus::NullArgument`] or
+ *                      [`TcslogStatus::NotUtf8`] for a bad pointer or string;
+ *                      or the status of the library's refusal to open the log.
  */
 TcslogStatus tcslog_write_open(const char *dir,
 			       const char *prefix,
@@ -490,14 +516,21 @@ TcslogStatus tcslog_write_open(const char *dir,
 /**
  * Writes one record, `len` bytes from `data`.
  *
- * `*written`, when `written` is not null, is left holding the bytes
- * the record occupied in the log, its data header included.
- *
  * # Safety
  *
  * `h` must come from [`tcslog_write_open`] and not yet be closed, and
- * `data` must point to `len` readable bytes. `len` of zero is allowed
- * and `data` may then be null.
+ * `data` must point to `len` readable bytes.
+ *
+ * @param h        The writer.
+ * @param data     The record's payload.
+ * @param len      The payload's length in bytes; zero is allowed, and `data`
+ *                 may then be null.
+ * @param written  Unless null, receives the bytes the record occupied in the
+ *                 log, its data header included.
+ * @return         [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] for a
+ *                 null handle, or null `data` with a non-zero `len`;
+ *                 [`TcslogStatus::PayloadTooLarge`] if `len` does not fit a
+ *                 record; or the status of the library's failure to write.
  */
 TcslogStatus tcslog_write_record(struct TcslogWrite *h,
 				 const uint8_t *data,
@@ -510,6 +543,10 @@ TcslogStatus tcslog_write_record(struct TcslogWrite *h,
  * # Safety
  *
  * `h` must come from [`tcslog_write_open`] and not yet be closed.
+ *
+ * @param h  The writer.
+ * @return   [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if `h` is
+ *           null; or the status of the library's failure to flush.
  */
 TcslogStatus tcslog_write_flush(struct TcslogWrite *h);
 
@@ -519,6 +556,10 @@ TcslogStatus tcslog_write_flush(struct TcslogWrite *h);
  * # Safety
  *
  * `h` must come from [`tcslog_write_open`] and not yet be closed.
+ *
+ * @param h  The writer.
+ * @return   [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if `h` is
+ *           null; or the status of the library's failure to clear the log.
  */
 TcslogStatus tcslog_write_clear(struct TcslogWrite *h);
 
@@ -534,6 +575,11 @@ TcslogStatus tcslog_write_clear(struct TcslogWrite *h);
  *
  * `h` must come from [`tcslog_write_open`] and not yet be closed, and
  * `out` must point to writable storage for one `uint64_t`.
+ *
+ * @param h    The writer.
+ * @param out  Receives the resolution, in nanoseconds.
+ * @return     [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+ *             pointer is null.
  */
 TcslogStatus tcslog_write_timer_resolution(struct TcslogWrite *h,
 					   uint64_t *out);
@@ -549,6 +595,11 @@ TcslogStatus tcslog_write_timer_resolution(struct TcslogWrite *h,
  *
  * `h` must come from [`tcslog_write_open`] and not yet be closed, and
  * `out` must point to writable storage for one `uint64_t`.
+ *
+ * @param h    The writer.
+ * @param out  Receives the session's identifier.
+ * @return     [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+ *             pointer is null.
  */
 TcslogStatus tcslog_write_session_id(struct TcslogWrite *h, uint64_t *out);
 
@@ -559,6 +610,11 @@ TcslogStatus tcslog_write_session_id(struct TcslogWrite *h, uint64_t *out);
  *
  * `h` must come from [`tcslog_write_open`] and not yet be closed, and
  * `out` must point to writable storage for one `uint64_t`.
+ *
+ * @param h    The writer.
+ * @param out  Receives the segment file's identifier.
+ * @return     [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+ *             pointer is null.
  */
 TcslogStatus tcslog_write_current_segment_id(struct TcslogWrite *h,
 					     uint64_t *out);
@@ -572,13 +628,17 @@ TcslogStatus tcslog_write_current_segment_id(struct TcslogWrite *h,
  *
  * `h` must come from [`tcslog_write_open`] and not yet be closed, and
  * `out` must point to writable storage for one [`TcslogRecordMeta`].
+ *
+ * @param h    The writer.
+ * @param out  Receives the record's metadata.
+ * @return     [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+ *             pointer is null.
  */
 TcslogStatus tcslog_write_last_meta(struct TcslogWrite *h,
 				    struct TcslogRecordMeta *out);
 
 /**
- * Closes a writer and releases it. Null is accepted and does nothing,
- * as `free` does.
+ * Closes a writer and releases it.
  *
  * The segment file being written is flushed and, if it holds any
  * records at all, handed to `send` -- so the records written last are
@@ -595,6 +655,9 @@ TcslogStatus tcslog_write_last_meta(struct TcslogWrite *h,
  *
  * `h` must come from [`tcslog_write_open`] and must not be used again
  * after this returns.
+ *
+ * @param h  The writer, or null, which is accepted and does nothing, as `free`
+ *           does.
  */
 void tcslog_write_close(struct TcslogWrite *h);
 
@@ -602,13 +665,20 @@ void tcslog_write_close(struct TcslogWrite *h);
  * Opens a reader on the log in `dir` whose segment files are named
  * `prefix` + identifier + `suffix`.
  *
- * On success `*out` holds a reader to pass to [`tcslog_read_close`].
- * On failure `*out` is left null.
- *
  * # Safety
  *
  * The three strings must be NUL-terminated, and `out` must point to
  * writable storage for one pointer.
+ *
+ * @param dir     The directory holding the log.
+ * @param prefix  What each segment file's name starts with.
+ * @param suffix  What each segment file's name ends with.
+ * @param out     Receives a reader to pass to [`tcslog_read_close`] on success,
+ *                and is left null on failure.
+ * @return        [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] or
+ *                [`TcslogStatus::NotUtf8`] for a bad pointer or string; or the
+ *                status of the library's refusal to open the log, such as
+ *                [`TcslogStatus::NoSegmentFiles`].
  */
 TcslogStatus tcslog_read_open(const char *dir,
 			      const char *prefix,
@@ -618,18 +688,25 @@ TcslogStatus tcslog_read_open(const char *dir,
 /**
  * Reads the next record into `buf`, which holds `cap` bytes.
  *
- * `*result` is filled whatever the status, so the fields a status
- * describes can be read without checking for null first. The statuses
- * that are news about the telemetry rather than a failure --
- * [`TcslogStatus::SessionEnd`], [`TcslogStatus::ReadTruncated`] and
- * [`TcslogStatus::ReadOverflow`] -- are followed by reading again; the
- * loop ends at [`TcslogStatus::Eof`].
- *
  * # Safety
  *
  * `h` must come from [`tcslog_read_open`] and not yet be closed, `buf`
  * must point to `cap` writable bytes, and `result` must point to
  * writable storage for one [`TcslogReadResult`].
+ *
+ * @param h       The reader.
+ * @param buf     Receives the record's payload; may be null when `cap` is zero.
+ * @param cap     The bytes `buf` holds.
+ * @param result  Filled whatever the status, so the fields a status describes
+ *                can be read without checking for null first.
+ * @return        [`TcslogStatus::Ok`] for a whole record. The statuses that are
+ *                news about the telemetry rather than a failure --
+ *                [`TcslogStatus::SessionEnd`], [`TcslogStatus::ReadTruncated`]
+ *                and [`TcslogStatus::ReadOverflow`] -- are followed by reading
+ *                again; the loop ends at [`TcslogStatus::Eof`].
+ *                [`TcslogStatus::NullArgument`] for a null handle or `result`,
+ *                or a null `buf` with a non-zero `cap`; otherwise the status of
+ *                the library's failure to read.
  */
 TcslogStatus tcslog_read_record(struct TcslogRead *h,
 				uint8_t *buf,
@@ -643,6 +720,11 @@ TcslogStatus tcslog_read_record(struct TcslogRead *h,
  *
  * `h` must come from [`tcslog_read_open`] and not yet be closed, and
  * `out` must point to writable storage for one `uint64_t`.
+ *
+ * @param h    The reader.
+ * @param out  Receives the number of segment files opened.
+ * @return     [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+ *             pointer is null.
  */
 TcslogStatus tcslog_read_segments_opened(struct TcslogRead *h, uint64_t *out);
 
@@ -655,6 +737,11 @@ TcslogStatus tcslog_read_segments_opened(struct TcslogRead *h, uint64_t *out);
  *
  * `h` must come from [`tcslog_read_open`] and not yet be closed, and
  * `out` must point to writable storage for one [`TcslogRecordMeta`].
+ *
+ * @param h    The reader.
+ * @param out  Receives the record's metadata.
+ * @return     [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+ *             pointer is null.
  */
 TcslogStatus tcslog_read_last_meta(struct TcslogRead *h,
 				   struct TcslogRecordMeta *out);
@@ -662,9 +749,7 @@ TcslogStatus tcslog_read_last_meta(struct TcslogRead *h,
 /**
  * Writes the header of the segment file now open.
  *
- * `*present` is set to 1 and `*out` filled when a segment file is
- * open, and `*present` set to 0 and `*out` left alone when none is:
- * before the first read, and after a read that returned
+ * None is open before the first read, and after a read that returned
  * [`TcslogStatus::Eof`], [`TcslogStatus::SessionEnd`] or
  * [`TcslogStatus::ReadTruncated`].
  *
@@ -673,6 +758,13 @@ TcslogStatus tcslog_read_last_meta(struct TcslogRead *h,
  * `h` must come from [`tcslog_read_open`] and not yet be closed, `out`
  * must point to writable storage for one [`TcslogSegmentHeader`], and
  * `present` to writable storage for one `int`.
+ *
+ * @param h        The reader.
+ * @param out      Receives the header when a segment file is open, and is left
+ *                 alone when none is.
+ * @param present  Set to 1 when a segment file is open, and to 0 when none is.
+ * @return         [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if
+ *                 any pointer is null.
  */
 TcslogStatus tcslog_read_current_header(struct TcslogRead *h,
 					struct TcslogSegmentHeader *out,
@@ -680,7 +772,7 @@ TcslogStatus tcslog_read_current_header(struct TcslogRead *h,
 
 /**
  * Asks the reader to retain the header of every segment file it opens,
- * when `enable` is non-zero, or to stop.
+ * or to stop.
  *
  * Retention is off by default and must be: the headers accumulate,
  * allocating as they do, until taken by
@@ -689,6 +781,11 @@ TcslogStatus tcslog_read_current_header(struct TcslogRead *h,
  * # Safety
  *
  * `h` must come from [`tcslog_read_open`] and not yet be closed.
+ *
+ * @param h       The reader.
+ * @param enable  Non-zero to retain headers, zero to stop.
+ * @return        [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if `h`
+ *                is null.
  */
 TcslogStatus tcslog_read_collect_opened_headers(struct TcslogRead *h,
 						int enable);
@@ -704,8 +801,15 @@ TcslogStatus tcslog_read_collect_opened_headers(struct TcslogRead *h,
  *
  * `h` must come from [`tcslog_read_open`] and not yet be closed, `out`
  * must point to `cap` writable [`TcslogSegmentHeader`] entries, and
- * `n` to writable storage for one `size_t`. `out` may be null when
- * `cap` is zero.
+ * `n` to writable storage for one `size_t`.
+ *
+ * @param h    The reader.
+ * @param out  Receives the headers, oldest first; may be null when `cap` is
+ *             zero.
+ * @param cap  The entries `out` holds.
+ * @param n    Receives the number of headers moved into `out`.
+ * @return     [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] for a
+ *             null handle or `n`, or a null `out` with a non-zero `cap`.
  */
 TcslogStatus tcslog_read_take_opened_headers(struct TcslogRead *h,
 					     struct TcslogSegmentHeader *out,
@@ -713,13 +817,15 @@ TcslogStatus tcslog_read_take_opened_headers(struct TcslogRead *h,
 					     uintptr_t *n);
 
 /**
- * Closes a reader and releases it. Null is accepted and does nothing,
- * as `free` does.
+ * Closes a reader and releases it.
  *
  * # Safety
  *
  * `h` must come from [`tcslog_read_open`] and must not be used again
  * after this returns.
+ *
+ * @param h  The reader, or null, which is accepted and does nothing, as `free`
+ *           does.
  */
 void tcslog_read_close(struct TcslogRead *h);
 

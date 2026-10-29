@@ -23,6 +23,12 @@
 
 static int news = 0;
 
+/** Replaces the global operator new with one that counts each call in
+ * `news`, so the test can show the wrapper allocates nothing.
+ *
+ * @param n  The bytes wanted; zero is treated as one.
+ * @return   The storage, from malloc. Aborts if there is none, as this
+ *           test is built without exceptions to throw bad_alloc. */
 void *operator new(std::size_t n) {
 	news++;
 	void *p = std::malloc(n == 0 ? 1 : n);
@@ -37,6 +43,11 @@ void operator delete(void *p, std::size_t) noexcept { std::free(p); }
 
 static int failures = 0;
 
+/** Reports a check's outcome, counting it in `failures` if it failed,
+ * and carries on.
+ *
+ * @param ok    Whether the check passed.
+ * @param what  What was checked, for the report. */
 static void check(bool ok, const char *what) {
 	std::printf("%s %s\n", ok ? "ok      " : "not ok  ", what);
 	if (!ok) {
@@ -86,6 +97,11 @@ static_assert(tcslog::detail::Overrides<SendOnly>::send,
 static_assert(!tcslog::detail::Overrides<SendOnly>::record_complete,
               "record_complete is inherited, and so not installed");
 
+/** Writes records through a handler, moves the writer, and reads the
+ * records back.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void round_trip(const char *base) {
 	std::printf("-- round trip through the C++ interface\n");
 	char dir[4096];
@@ -150,6 +166,11 @@ static void round_trip(const char *base) {
 	check(count == 2, "every record written was read back");
 }
 
+/** Writes through a handler that overrides send alone, which must still
+ * be called for each filled file and at close.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void partial_handler(const char *base) {
 	std::printf("-- a handler overriding send alone\n");
 	char dir[4096];
@@ -171,6 +192,11 @@ static void partial_handler(const char *base) {
 	check(handler.sends >= 2, "send ran for each filled file and at close");
 }
 
+/** Writes through a handler whose send refuses, which the write that
+ * triggered it must report as an I/O error.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void refusing_send(const char *base) {
 	std::printf("-- a send that refuses\n");
 	char dir[4096];
@@ -191,6 +217,11 @@ static void refusing_send(const char *base) {
 	      "the write that triggered it reports an I/O error");
 }
 
+/** Checks the text forms of identifiers and timestamps, and the
+ * segment headers a reader retains, taken a few at a time.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void headers_and_text(const char *base) {
 	std::printf("-- headers and text forms\n");
 	char dir[4096];
@@ -252,6 +283,14 @@ static void headers_and_text(const char *base) {
 	      "every header was taken, a few at a time");
 }
 
+/** Runs every scenario and reports whether every check passed and the
+ * C++ interface allocated nothing.
+ *
+ * @param argc  The number of arguments, which must be 2.
+ * @param argv  The program's name and an existing directory in which
+ *              each scenario makes its own subdirectory.
+ * @return      Zero if every check passed, 1 if any failed, or 2 for a
+ *              usage error. */
 int main(int argc, char **argv) {
 	if (argc != 2) {
 		std::fprintf(stderr, "usage: %s <directory>\n", argv[0]);

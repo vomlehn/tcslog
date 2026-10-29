@@ -1873,6 +1873,11 @@ source by ``cbindgen`` and is not written by hand. ``make header``
 regenerates it and ``make check`` fails if it is out of date, so a
 header that no longer describes the binding cannot reach a caller.
 
+cbindgen copies each function's doc comment as rustdoc has it, so
+``tcslog-c/rustdoc_to_doxygen.py`` rewrites the comments' ``# Arguments``
+and ``# Returns`` sections as Doxygen ``@param`` and ``@return``
+commands, which is what a C or C++ reader's tools understand.
+
 The header must compile as C11 and as C++11 and mean the same in both:
 its functions are declared inside ``extern "C"`` when compiled as C++,
 and its enums are given a fixed underlying type there, so a C++ caller

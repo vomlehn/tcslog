@@ -20,9 +20,13 @@ impl SeqId {
 
     /// Wraps a raw counter value.
     ///
-    /// * `value` -- the position within the session.
+    /// # Arguments
     ///
-    /// Returns the corresponding `SeqId`.
+    /// * `value` - The position within the session.
+    ///
+    /// # Returns
+    ///
+    /// The corresponding `SeqId`.
     #[must_use]
     pub const fn from_u64(value: u64) -> Self {
         Self(value)
@@ -30,20 +34,24 @@ impl SeqId {
 
     /// Unwraps the counter to its raw value.
     ///
-    /// Returns the position within the session.
+    /// # Returns
+    ///
+    /// The position within the session.
     #[must_use]
     pub const fn as_u64(self) -> u64 {
         self.0
     }
 
-    /// The value for the segment file after this one.
+    /// Returns the value for the segment file after this one.
     ///
     /// Saturates rather than wrapping: a counter that wrapped to zero
     /// would announce itself as the first segment of a session, which
     /// is the one thing a reader must be able to trust. A `u64` counter
     /// cannot reach the saturation point in any real session.
     ///
-    /// Returns the next `SeqId`.
+    /// # Returns
+    ///
+    /// The next `SeqId`.
     #[must_use]
     pub const fn next(self) -> Self {
         Self(self.0.saturating_add(1))
@@ -51,7 +59,9 @@ impl SeqId {
 
     /// Encodes the counter for the segment file header.
     ///
-    /// Returns the eight little-endian bytes stored on disk.
+    /// # Returns
+    ///
+    /// The eight little-endian bytes stored on disk.
     #[must_use]
     pub const fn to_le_bytes(self) -> [u8; 8] {
         self.0.to_le_bytes()
@@ -59,9 +69,13 @@ impl SeqId {
 
     /// Decodes a counter from its stored form.
     ///
-    /// * `bytes` -- the eight little-endian bytes read from a header.
+    /// # Arguments
     ///
-    /// Returns the decoded `SeqId`.
+    /// * `bytes` - The eight little-endian bytes read from a header.
+    ///
+    /// # Returns
+    ///
+    /// The decoded `SeqId`.
     #[must_use]
     pub const fn from_le_bytes(bytes: [u8; 8]) -> Self {
         Self(u64::from_le_bytes(bytes))

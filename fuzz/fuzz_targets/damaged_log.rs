@@ -63,9 +63,18 @@ struct Input {
     buf_len: u16,
 }
 
-/// The payload of record `index`: its index first, so that a payload of
-/// four bytes or more names the record it belongs to, then a pattern
+/// Builds the payload of one record: its index first, so that a payload
+/// of four bytes or more names the record it belongs to, then a pattern
 /// that differs from record to record.
+///
+/// # Arguments
+///
+/// * `index` - The record's position among all those written.
+/// * `len`   - The payload's length in bytes.
+///
+/// # Returns
+///
+/// The payload.
 fn payload(index: usize, len: usize) -> Vec<u8> {
     let tag = (index as u32).to_le_bytes();
     (0..len)
@@ -79,6 +88,16 @@ fn payload(index: usize, len: usize) -> Vec<u8> {
         .collect()
 }
 
+/// Lists the log's segment files in a directory, oldest first.
+///
+/// # Arguments
+///
+/// * `dir` - The directory the log is in.
+///
+/// # Returns
+///
+/// The segment files' paths, sorted by name, which sorts them by
+/// identifier; empty if the directory cannot be read.
 fn segment_files(dir: &std::path::Path) -> Vec<PathBuf> {
     let mut files: Vec<PathBuf> = fs::read_dir(dir)
         .map(|entries| {

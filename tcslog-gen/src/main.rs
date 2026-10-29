@@ -50,6 +50,20 @@ struct Args {
     verbose: bool,
 }
 
+/// Parses the command line, creates the directory it names, and writes
+/// a log chain there in the requested format.
+///
+/// # Returns
+///
+/// Nothing on success.
+///
+/// # Errors
+///
+/// Any error creating the directory or writing the log.
+///
+/// # Panics
+///
+/// If the directory's path is not valid UTF-8.
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::try_parse().unwrap_or_else(|e| e.exit());
 

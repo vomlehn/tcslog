@@ -43,6 +43,14 @@ use std::env;
 use std::fs;
 use std::path::Path;
 
+/// Writes `timer_resolution.rs` into `OUT_DIR`, defining
+/// `TIMER_RESOLUTION_NS` from the build-time `TIMER_RESOLUTION`, when
+/// the `write` feature is on.
+///
+/// # Panics
+///
+/// If `TIMER_RESOLUTION` is set but is not a nanosecond count, or if the
+/// file cannot be written.
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=TIMER_RESOLUTION");

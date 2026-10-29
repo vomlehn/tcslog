@@ -31,6 +31,13 @@ class Counters(tcslog.WriteCallbacks):
     """Counts each callback, and refuses send when asked to."""
 
     def __init__(self, refuse_send: bool = False) -> None:
+        """Starts every count at zero.
+
+        Args:
+            refuse_send: Whether ``send`` raises OSError rather than
+                         counting quietly.
+
+        """
         self.sends = 0
         self.completes = 0
         self.adjustments = 0
@@ -209,6 +216,13 @@ class Scenarios(unittest.TestCase):
             r.read(bytes(16))
 
     def _write_many(self, count: int) -> None:
+        """Writes a log of numbered records into 32-byte segment files.
+
+        Args:
+            count: How many records to write, at most 100, each payload
+                   being ``record`` and the record's two-digit number.
+
+        """
         with tcslog.LogWrite(
             self.dir,
             PREFIX,

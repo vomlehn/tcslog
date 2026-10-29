@@ -62,9 +62,21 @@ impl WriteCallbacks for Announce {
     }
 }
 
-/// Creates a sample log chain in `dir_name` using the given file-name
-/// `prefix` and `suffix`: a root segment file plus successor segment
-/// files, filled with small ASCII messages.
+/// Creates a sample log chain: a root segment file plus successor
+/// segment files, filled with small ASCII messages, each of which is
+/// also printed.
+///
+/// # Arguments
+///
+/// * `dir_name` - The directory to create the log in, which must exist.
+/// * `prefix`   - The first part of every segment file name.
+/// * `suffix`   - The last part of every segment file name.
+/// * `verbose`  - Whether to print the segment sizes and a column ruler
+///                as well.
+///
+/// # Returns
+///
+/// The root segment file's name and the number of messages written.
 ///
 /// # Errors
 ///
@@ -165,6 +177,20 @@ struct Args {
     verbose: bool,
 }
 
+/// Parses the command line, creates the directory it names, and writes
+/// a sample log chain there.
+///
+/// # Returns
+///
+/// Nothing on success.
+///
+/// # Errors
+///
+/// Any error creating the directory or writing the log.
+///
+/// # Panics
+///
+/// If the directory's path is not valid UTF-8.
 fn main() -> Result<(), Box<dyn Error>> {
     let args = Args::try_parse().unwrap_or_else(|e| e.exit());
 

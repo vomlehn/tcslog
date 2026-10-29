@@ -43,11 +43,12 @@ pub enum Format {
 }
 
 impl Format {
-    /// The single byte stored in the segment file header's data format
-    /// field.
+    /// Returns the single byte stored in the segment file header's data
+    /// format field.
     ///
-    /// Returns 0 for `Fixed`, 1 for `VariableSimple`, and 2 for
-    /// `VariableTsRc`.
+    /// # Returns
+    ///
+    /// 0 for `Fixed`, 1 for `VariableSimple`, and 2 for `VariableTsRc`.
     #[must_use]
     pub const fn tag(self) -> u8 {
         match self {
@@ -57,11 +58,13 @@ impl Format {
         }
     }
 
-    /// The `n` of `Fixed(n)`, stored in the header's data format
+    /// Returns the `n` of `Fixed(n)`, stored in the header's data format
     /// argument field.
     ///
-    /// Returns the fixed record length, or zero for the variable
-    /// formats, which do not use the field.
+    /// # Returns
+    ///
+    /// The fixed record length, or zero for the variable formats, which
+    /// do not use the field.
     #[must_use]
     pub const fn fixed_len(self) -> RecSize {
         match self {
@@ -70,10 +73,12 @@ impl Format {
         }
     }
 
-    /// On-disk size of one data record's data header.
+    /// Returns the on-disk size of one data record's data header.
     ///
-    /// Returns zero for `Fixed`, four for `VariableSimple`, and sixteen
-    /// for `VariableTsRc`.
+    /// # Returns
+    ///
+    /// Zero for `Fixed`, four for `VariableSimple`, and sixteen for
+    /// `VariableTsRc`.
     #[must_use]
     pub const fn data_header_len(self) -> u32 {
         match self {
@@ -85,8 +90,14 @@ impl Format {
 
     /// Rebuilds a `Format` from the two header fields that store it.
     ///
-    /// * `tag` -- the data format tag byte.
-    /// * `arg` -- the data format argument, the `n` of `Fixed(n)`.
+    /// # Arguments
+    ///
+    /// * `tag` - The data format tag byte.
+    /// * `arg` - The data format argument, the `n` of `Fixed(n)`.
+    ///
+    /// # Returns
+    ///
+    /// The format the two fields describe.
     ///
     /// # Errors
     ///

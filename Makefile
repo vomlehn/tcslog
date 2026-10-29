@@ -190,12 +190,15 @@ capi-memcheck:		## Run the C/C++ smoke test under ASan and UBSan
 # Regenerate tcslog-c/include/tcslog.h from tcslog-c/src/lib.rs. Needs
 # `cargo install cbindgen`, as `make check` does. cbindgen indents only
 # with spaces, so unexpand turns its eight-column indents into tabs.
+# cbindgen copies the doc comments as rustdoc wrote them, so
+# rustdoc_to_doxygen.py rewrites their Arguments and Returns sections as
+# the @param and @return commands a C reader's tools know.
 .PHONY: header
 header:			## Regenerate the C header from tcslog-c/src/lib.rs
 	cd tcslog-c && cbindgen --config cbindgen.toml --crate tcslog-c \
 		--output include/tcslog.h.tmp \
 		&& unexpand --first-only -t 8 include/tcslog.h.tmp \
-			> include/tcslog.h \
+		| $(PYTHON) -I rustdoc_to_doxygen.py > include/tcslog.h \
 		&& rm include/tcslog.h.tmp
 	@echo "[OK] tcslog-c/include/tcslog.h regenerated"
 
@@ -302,6 +305,7 @@ check:			## Run cargo check, clippy, fmt, ruff, mypy, and more
 	cd tcslog-c && cbindgen --config cbindgen.toml --crate tcslog-c \
 		--output /dev/stdout 2>/dev/null \
 		| unexpand --first-only -t 8 \
+		| $(PYTHON) -I rustdoc_to_doxygen.py \
 		| diff -u include/tcslog.h - \
 		|| { echo "tcslog-c/include/tcslog.h is out of date;" \
 			"run 'make header'" 1>&2; \

@@ -137,7 +137,16 @@ public:
 	LogWrite(const LogWrite &) = delete;
 	LogWrite &operator=(const LogWrite &) = delete;
 
-	/* Opens a log with no callbacks. Closes any log already open first. */
+	/** Opens a log with no callbacks. Closes any log already open first.
+	 *
+	 * @param dir           The log's directory.
+	 * @param prefix        What each segment file's name begins with.
+	 * @param suffix        What each segment file's name ends with.
+	 * @param seg_size_max  The most bytes a segment file may occupy, its
+	 *                      own header included.
+	 * @param format        The log's record layout.
+	 * @return              TCSLOG_STATUS_OK, or why tcslog_write_open
+	 *                      refused; the writer is then closed. */
 	Status open(const char *dir, const char *prefix, const char *suffix,
 	            uint32_t seg_size_max, Format format) {
 		close();
@@ -146,8 +155,20 @@ public:
 		                         format.fixed_len, nullptr, &h_);
 	}
 
-	/* Opens a log whose callbacks are handler's methods. handler is not
-	 * owned and must outlive the writer, as ctx must in C. */
+	/** Opens a log whose callbacks are handler's methods, installing
+	 * only those H defines itself. Closes any log already open first.
+	 *
+	 * @param dir           The log's directory.
+	 * @param prefix        What each segment file's name begins with.
+	 * @param suffix        What each segment file's name ends with.
+	 * @param seg_size_max  The most bytes a segment file may occupy, its
+	 *                      own header included.
+	 * @param format        The log's record layout.
+	 * @param handler       The callbacks' object, derived from
+	 *                      WriteCallbacks. It is not owned and must
+	 *                      outlive the writer, as ctx must in C.
+	 * @return              TCSLOG_STATUS_OK, or why tcslog_write_open
+	 *                      refused; the writer is then closed. */
 	template <class H>
 	Status open(const char *dir, const char *prefix, const char *suffix,
 	            uint32_t seg_size_max, Format format, H *handler) {
@@ -182,7 +203,12 @@ public:
 		                           len, written);
 	}
 
-	/* Writes a NUL-terminated string, without its NUL, as one record. */
+	/** Writes a NUL-terminated string, without its NUL, as one record.
+	 *
+	 * @param msg      The string; null writes an empty record.
+	 * @param written  When not null, set to the bytes the record
+	 *                 occupied, its data header included.
+	 * @return         TCSLOG_STATUS_OK, or why the write failed. */
 	Status write_str(const char *msg, uint32_t *written = nullptr) {
 		size_t len = 0;
 		while (msg != nullptr && msg[len] != '\0') {
@@ -264,8 +290,13 @@ public:
 		return tcslog_read_last_meta(h_, &out);
 	}
 
-	/* Fills out and sets present when a segment file is open, and
-	 * clears present when none is. */
+	/** Reports the header of the segment file being read.
+	 *
+	 * @param out      Filled with the header when a segment file is
+	 *                 open.
+	 * @param present  Set when a segment file is open, and cleared when
+	 *                 none is.
+	 * @return         TCSLOG_STATUS_OK, or why the query failed. */
 	Status current_header(SegmentHeader &out, bool &present) {
 		int p = 0;
 		Status s = tcslog_read_current_header(h_, &out, &p);

@@ -236,7 +236,12 @@ pub struct TcslogReadResult {
 }
 
 impl TcslogReadResult {
-    /// A result holding nothing, which every call fills from.
+    /// Makes a result holding nothing, which every call fills from.
+    ///
+    /// # Returns
+    ///
+    /// A result whose counts are zero and whose metadata is
+    /// [`TcslogMeta::Fixed`].
     fn empty() -> Self {
         Self {
             n: 0,
@@ -402,7 +407,12 @@ pub struct TcslogCallbacks {
 }
 
 impl TcslogCallbacks {
-    /// No callbacks at all, which is what a null `cb` argument means.
+    /// Makes the set of no callbacks at all, which is what a null `cb`
+    /// argument means.
+    ///
+    /// # Returns
+    ///
+    /// Callbacks whose function pointers and context are all null.
     fn none() -> Self {
         Self {
             send: None,
@@ -429,6 +439,19 @@ struct CHandler {
 }
 
 impl CHandler {
+    /// Makes the router for one writer, reserving its path buffer for the
+    /// longest path the log can name.
+    ///
+    /// # Arguments
+    ///
+    /// * `cb`     - The callbacks and context the writer was opened with.
+    /// * `dir`    - The log's directory.
+    /// * `prefix` - The prefix of the log's segment file names.
+    /// * `suffix` - The suffix of the log's segment file names.
+    ///
+    /// # Returns
+    ///
+    /// The router, holding `cb` and an empty path buffer.
     fn new(cb: TcslogCallbacks, dir: &str, prefix: &str, suffix: &str) -> Self {
         // The directory, a separator, the prefix, a segment identifier,
         // the suffix, and the NUL.
@@ -519,6 +542,18 @@ impl WriteCallbacks for CHandler {
 
 /// Maps a library error onto a status, filling in what the error
 /// carried.
+///
+/// # Arguments
+///
+/// * `e`   - The library's error.
+/// * `out` - The read result that receives the bytes recovered (`n`) and
+///           the segment files lost (`lost`) of a
+///           [`LogError::ReadOverflow`] or [`LogError::ReadTruncated`];
+///           untouched for any other error.
+///
+/// # Returns
+///
+/// The status that stands for `e`.
 fn status_of(e: &LogError, out: &mut TcslogReadResult) -> TcslogStatus {
     match e {
         LogError::ClockError => TcslogStatus::ClockError,
@@ -551,6 +586,12 @@ fn status_of(e: &LogError, out: &mut TcslogReadResult) -> TcslogStatus {
 }
 
 /// Fills the metadata fields of a read result.
+///
+/// # Arguments
+///
+/// * `out`  - The result whose `meta`, and for a variable-tsrc record
+///            `timestamp` and `record_count`, are set.
+/// * `meta` - The record's metadata.
 fn set_meta(out: &mut TcslogReadResult, meta: Meta) {
     match meta {
         Meta::Fixed => out.meta = TcslogMeta::Fixed,
@@ -570,6 +611,19 @@ fn status_only(e: &LogError) -> TcslogStatus {
 }
 
 /// Borrows a C string as `&str`.
+///
+/// # Arguments
+///
+/// * `p` - The NUL-terminated string, or null.
+///
+/// # Returns
+///
+/// The string, without its NUL.
+///
+/// # Errors
+///
+/// [`TcslogStatus::NullArgument`] if `p` is null, and
+/// [`TcslogStatus::NotUtf8`] if the string is not valid UTF-8.
 ///
 /// # Safety
 ///
@@ -593,8 +647,19 @@ fn guard(f: impl FnOnce() -> TcslogStatus) -> TcslogStatus {
 
 /// Builds a [`Format`] from the tag and length a C caller passed.
 ///
-/// The tags are the library's own: 0 fixed, 1 variable-simple, 2
-/// variable-tsrc. `fixed_len` is read only for tag 0.
+/// # Arguments
+///
+/// * `tag`       - The library's own format tag: 0 fixed, 1
+///                 variable-simple, 2 variable-tsrc.
+/// * `fixed_len` - The record length in bytes, read only for tag 0.
+///
+/// # Returns
+///
+/// The format the tag names.
+///
+/// # Errors
+///
+/// [`TcslogStatus::InvalidFormat`] for a tag other than the three.
 fn format_of(tag: u32, fixed_len: u32) -> Result<Format, TcslogStatus> {
     match tag {
         0 => Ok(Format::Fixed(fixed_len)),
@@ -624,8 +689,20 @@ impl fmt::Write for SliceWriter<'_> {
 /// Renders `render`'s text into the caller's `cap` bytes at `buf` with
 /// a NUL after it.
 ///
-/// `len` is the length the text always has, so a buffer too short for
-/// it and the NUL is refused before anything is written to it.
+/// # Arguments
+///
+/// * `buf`    - The caller's buffer, which receives the text and its NUL.
+/// * `cap`    - The bytes `buf` holds.
+/// * `len`    - The length the text always has, without the NUL, so a
+///              buffer too short for it and the NUL is refused before
+///              anything is written to it.
+/// * `render` - Writes the text to the writer it is handed.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if `buf` is
+/// null; or [`TcslogStatus::BufferTooSmall`] if `cap` is no more than
+/// `len`, or `render` fails or writes more than `cap` bytes.
 ///
 /// # Safety
 ///
@@ -656,8 +733,13 @@ unsafe fn render_into(
 /// Writes the stored format version this build reads and writes.
 ///
 /// A build reads a segment file whose major version matches this one
-/// and whose minor version is no greater. Any of the three pointers may
-/// be null.
+/// and whose minor version is no greater.
+///
+/// # Arguments
+///
+/// * `major` - Receives the major version, unless null.
+/// * `minor` - Receives the minor version, unless null.
+/// * `patch` - Receives the patch version, unless null.
 #[no_mangle]
 pub extern "C" fn tcslog_format_version(
     major: *mut u32,
@@ -677,10 +759,14 @@ pub extern "C" fn tcslog_format_version(
     }
 }
 
-/// The bytes a segment file's own header occupies.
+/// Gives the bytes a segment file's own header occupies.
 ///
 /// `seg_size_max` must leave room for this and for a data header, so
 /// this is the floor a caller computes from.
+///
+/// # Returns
+///
+/// The length of a segment file header, in bytes.
 #[no_mangle]
 pub extern "C" fn tcslog_segment_file_header_len() -> u32 {
     SEGMENT_FILE_HEADER_LEN
@@ -697,11 +783,18 @@ fn cstr(bytes: &'static [u8]) -> &'static CStr {
         .expect("a NUL-terminated literal with no interior NUL")
 }
 
-/// A short description of a status, as a static NUL-terminated string.
+/// Describes a status briefly.
 ///
-/// Never null, and never needs freeing. An unrecognized value gives
-/// "unknown status" rather than nothing, so a caller that was compiled
-/// against an older header still prints something.
+/// # Arguments
+///
+/// * `status` - The status to describe.
+///
+/// # Returns
+///
+/// A static NUL-terminated string, never null and never needing
+/// freeing. An unrecognized value gives "unknown status" rather than
+/// nothing, so a caller that was compiled against an older header still
+/// prints something.
 #[no_mangle]
 pub extern "C" fn tcslog_status_str(status: TcslogStatus) -> *const c_char {
     let s: &CStr = match status {
@@ -763,9 +856,18 @@ pub extern "C" fn tcslog_status_str(status: TcslogStatus) -> *const c_char {
 /// Renders a segment identifier as it appears in a segment file's name:
 /// four dash-separated groups of four lower-case hexadecimal digits.
 ///
-/// `buf` must hold at least [`TCSLOG_SEG_ID_STR_LEN`] + 1 bytes, for the
-/// text and its NUL; a shorter one is refused as
-/// [`TcslogStatus::BufferTooSmall`] and left untouched.
+/// # Arguments
+///
+/// * `id`  - The segment identifier.
+/// * `buf` - Receives the text and its NUL. It must hold at least
+///           [`TCSLOG_SEG_ID_STR_LEN`] + 1 bytes.
+/// * `cap` - The bytes `buf` holds.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if `buf` is
+/// null; or [`TcslogStatus::BufferTooSmall`], leaving `buf` untouched,
+/// if `cap` is too small.
 ///
 /// # Safety
 ///
@@ -789,9 +891,17 @@ pub unsafe extern "C" fn tcslog_seg_id_format(
 /// Parses a segment identifier in the form [`tcslog_seg_id_format`]
 /// renders.
 ///
-/// Text in any other form is refused as
-/// [`TcslogStatus::InvalidPathname`], as the library refuses it, since
-/// it names no segment file.
+/// # Arguments
+///
+/// * `text` - The identifier's text.
+/// * `out`  - Receives the identifier on success.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if either
+/// pointer is null; [`TcslogStatus::NotUtf8`] if `text` is not UTF-8;
+/// or [`TcslogStatus::InvalidPathname`] for text in any other form, as
+/// the library refuses it, since it names no segment file.
 ///
 /// # Safety
 ///
@@ -825,9 +935,18 @@ pub unsafe extern "C" fn tcslog_seg_id_parse(
 /// Renders a timestamp as an ISO 8601 UTC date and time with nanosecond
 /// precision, for example `2026-09-21T16:45:12.123456789Z`.
 ///
-/// `buf` must hold at least [`TCSLOG_TIMESTAMP_STR_LEN`] + 1 bytes, for
-/// the text and its NUL; a shorter one is refused as
-/// [`TcslogStatus::BufferTooSmall`] and left untouched.
+/// # Arguments
+///
+/// * `ts`  - The timestamp, in nanoseconds since the UNIX epoch.
+/// * `buf` - Receives the text and its NUL. It must hold at least
+///           [`TCSLOG_TIMESTAMP_STR_LEN`] + 1 bytes.
+/// * `cap` - The bytes `buf` holds.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if `buf` is
+/// null; or [`TcslogStatus::BufferTooSmall`], leaving `buf` untouched,
+/// if `cap` is too small.
 ///
 /// # Safety
 ///
@@ -851,21 +970,33 @@ pub unsafe extern "C" fn tcslog_format_timestamp(
 /// Opens a writer on the log in `dir` whose segment files are named
 /// `prefix` + identifier + `suffix`.
 ///
-/// `seg_size_max` is the most bytes a segment file may occupy, its own
-/// header included. `format_tag` is a [`TcslogFormat`] value, and
-/// `fixed_len` is the record length, read only for
-/// [`TcslogFormat::Fixed`]. A tag outside the three is refused as
-/// [`TcslogStatus::InvalidFormat`].
+/// # Arguments
 ///
-/// `cb` is the callbacks this writer is to use and the context to hand
-/// them, and may be null for none. It is copied, so the structure
-/// itself need not outlive the call -- but the `ctx` it holds is used
-/// until the writer is closed, so that must outlive the writer. Each
-/// writer has its own, so two logs in one process can have different
-/// callbacks and different contexts.
+/// * `dir`          - The directory holding the log.
+/// * `prefix`       - What each segment file's name starts with.
+/// * `suffix`       - What each segment file's name ends with.
+/// * `seg_size_max` - The most bytes a segment file may occupy, its own
+///                    header included.
+/// * `format_tag`   - A [`TcslogFormat`] value.
+/// * `fixed_len`    - The record length, read only for
+///                    [`TcslogFormat::Fixed`].
+/// * `cb`           - The callbacks this writer is to use and the
+///                    context to hand them, or null for none. It is
+///                    copied, so the structure itself need not outlive
+///                    the call -- but the `ctx` it holds is used until
+///                    the writer is closed, so that must outlive the
+///                    writer. Each writer has its own, so two logs in one
+///                    process can have different callbacks and different
+///                    contexts.
+/// * `out`          - Receives a writer to pass to [`tcslog_write_close`]
+///                    on success, and is left null on failure.
 ///
-/// On success `*out` holds a writer to pass to
-/// [`tcslog_write_close`]. On failure `*out` is left null.
+/// # Returns
+///
+/// [`TcslogStatus::Ok`]; [`TcslogStatus::InvalidFormat`] for a tag
+/// outside the three; [`TcslogStatus::NullArgument`] or
+/// [`TcslogStatus::NotUtf8`] for a bad pointer or string; or the
+/// status of the library's refusal to open the log.
 ///
 /// # Safety
 ///
@@ -934,14 +1065,26 @@ pub unsafe extern "C" fn tcslog_write_open(
 
 /// Writes one record, `len` bytes from `data`.
 ///
-/// `*written`, when `written` is not null, is left holding the bytes
-/// the record occupied in the log, its data header included.
+/// # Arguments
+///
+/// * `h`       - The writer.
+/// * `data`    - The record's payload.
+/// * `len`     - The payload's length in bytes; zero is allowed, and
+///               `data` may then be null.
+/// * `written` - Unless null, receives the bytes the record occupied in
+///               the log, its data header included.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] for a null
+/// handle, or null `data` with a non-zero `len`;
+/// [`TcslogStatus::PayloadTooLarge`] if `len` does not fit a record;
+/// or the status of the library's failure to write.
 ///
 /// # Safety
 ///
 /// `h` must come from [`tcslog_write_open`] and not yet be closed, and
-/// `data` must point to `len` readable bytes. `len` of zero is allowed
-/// and `data` may then be null.
+/// `data` must point to `len` readable bytes.
 #[no_mangle]
 pub unsafe extern "C" fn tcslog_write_record(
     h: *mut TcslogWrite,
@@ -985,6 +1128,15 @@ pub unsafe extern "C" fn tcslog_write_record(
 
 /// Flushes the segment file now being written.
 ///
+/// # Arguments
+///
+/// * `h` - The writer.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if `h` is null;
+/// or the status of the library's failure to flush.
+///
 /// # Safety
 ///
 /// `h` must come from [`tcslog_write_open`] and not yet be closed.
@@ -1005,6 +1157,15 @@ pub unsafe extern "C" fn tcslog_write_flush(
 }
 
 /// Removes every segment file of this log, leaving it empty.
+///
+/// # Arguments
+///
+/// * `h` - The writer.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] if `h` is null;
+/// or the status of the library's failure to clear the log.
 ///
 /// # Safety
 ///
@@ -1032,6 +1193,16 @@ pub unsafe extern "C" fn tcslog_write_clear(
 /// too small and widened it, in which case it is the figure to build
 /// with next time.
 ///
+/// # Arguments
+///
+/// * `h`   - The writer.
+/// * `out` - Receives the resolution, in nanoseconds.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+/// pointer is null.
+///
 /// # Safety
 ///
 /// `h` must come from [`tcslog_write_open`] and not yet be closed, and
@@ -1058,6 +1229,16 @@ pub unsafe extern "C" fn tcslog_write_timer_resolution(
 /// After [`tcslog_write_clear`] this still names the cleared session
 /// until the next write starts one.
 ///
+/// # Arguments
+///
+/// * `h`   - The writer.
+/// * `out` - Receives the session's identifier.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+/// pointer is null.
+///
 /// # Safety
 ///
 /// `h` must come from [`tcslog_write_open`] and not yet be closed, and
@@ -1079,6 +1260,16 @@ pub unsafe extern "C" fn tcslog_write_session_id(
 }
 
 /// Writes the identifier of the segment file being written.
+///
+/// # Arguments
+///
+/// * `h`   - The writer.
+/// * `out` - Receives the segment file's identifier.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+/// pointer is null.
 ///
 /// # Safety
 ///
@@ -1104,6 +1295,16 @@ pub unsafe extern "C" fn tcslog_write_current_segment_id(
 /// which is how a caller learns the timestamp and record count a
 /// variable-tsrc record was stamped with.
 ///
+/// # Arguments
+///
+/// * `h`   - The writer.
+/// * `out` - Receives the record's metadata.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+/// pointer is null.
+///
 /// # Safety
 ///
 /// `h` must come from [`tcslog_write_open`] and not yet be closed, and
@@ -1124,8 +1325,7 @@ pub unsafe extern "C" fn tcslog_write_last_meta(
     })
 }
 
-/// Closes a writer and releases it. Null is accepted and does nothing,
-/// as `free` does.
+/// Closes a writer and releases it.
 ///
 /// The segment file being written is flushed and, if it holds any
 /// records at all, handed to `send` -- so the records written last are
@@ -1137,6 +1337,11 @@ pub unsafe extern "C" fn tcslog_write_last_meta(
 /// `send` is discarded. A caller that needs to know the last records
 /// reached storage calls [`tcslog_write_flush`] first, which does
 /// report.
+///
+/// # Arguments
+///
+/// * `h` - The writer, or null, which is accepted and does nothing, as
+///         `free` does.
 ///
 /// # Safety
 ///
@@ -1160,8 +1365,20 @@ pub unsafe extern "C" fn tcslog_write_close(h: *mut TcslogWrite) {
 /// Opens a reader on the log in `dir` whose segment files are named
 /// `prefix` + identifier + `suffix`.
 ///
-/// On success `*out` holds a reader to pass to [`tcslog_read_close`].
-/// On failure `*out` is left null.
+/// # Arguments
+///
+/// * `dir`    - The directory holding the log.
+/// * `prefix` - What each segment file's name starts with.
+/// * `suffix` - What each segment file's name ends with.
+/// * `out`    - Receives a reader to pass to [`tcslog_read_close`] on
+///              success, and is left null on failure.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`]; [`TcslogStatus::NullArgument`] or
+/// [`TcslogStatus::NotUtf8`] for a bad pointer or string; or the
+/// status of the library's refusal to open the log, such as
+/// [`TcslogStatus::NoSegmentFiles`].
 ///
 /// # Safety
 ///
@@ -1203,12 +1420,24 @@ pub unsafe extern "C" fn tcslog_read_open(
 
 /// Reads the next record into `buf`, which holds `cap` bytes.
 ///
-/// `*result` is filled whatever the status, so the fields a status
-/// describes can be read without checking for null first. The statuses
-/// that are news about the telemetry rather than a failure --
+/// # Arguments
+///
+/// * `h`      - The reader.
+/// * `buf`    - Receives the record's payload; may be null when `cap` is
+///              zero.
+/// * `cap`    - The bytes `buf` holds.
+/// * `result` - Filled whatever the status, so the fields a status
+///              describes can be read without checking for null first.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`] for a whole record. The statuses that are news
+/// about the telemetry rather than a failure --
 /// [`TcslogStatus::SessionEnd`], [`TcslogStatus::ReadTruncated`] and
 /// [`TcslogStatus::ReadOverflow`] -- are followed by reading again; the
-/// loop ends at [`TcslogStatus::Eof`].
+/// loop ends at [`TcslogStatus::Eof`]. [`TcslogStatus::NullArgument`]
+/// for a null handle or `result`, or a null `buf` with a non-zero
+/// `cap`; otherwise the status of the library's failure to read.
 ///
 /// # Safety
 ///
@@ -1262,6 +1491,16 @@ pub unsafe extern "C" fn tcslog_read_record(
 
 /// Writes the number of segment files this reader has opened.
 ///
+/// # Arguments
+///
+/// * `h`   - The reader.
+/// * `out` - Receives the number of segment files opened.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+/// pointer is null.
+///
 /// # Safety
 ///
 /// `h` must come from [`tcslog_read_open`] and not yet be closed, and
@@ -1286,6 +1525,16 @@ pub unsafe extern "C" fn tcslog_read_segments_opened(
 /// what describes the bytes a [`TcslogStatus::ReadOverflow`] or a
 /// [`TcslogStatus::ReadTruncated`] left in the buffer.
 ///
+/// # Arguments
+///
+/// * `h`   - The reader.
+/// * `out` - Receives the record's metadata.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if either
+/// pointer is null.
+///
 /// # Safety
 ///
 /// `h` must come from [`tcslog_read_open`] and not yet be closed, and
@@ -1308,11 +1557,22 @@ pub unsafe extern "C" fn tcslog_read_last_meta(
 
 /// Writes the header of the segment file now open.
 ///
-/// `*present` is set to 1 and `*out` filled when a segment file is
-/// open, and `*present` set to 0 and `*out` left alone when none is:
-/// before the first read, and after a read that returned
+/// None is open before the first read, and after a read that returned
 /// [`TcslogStatus::Eof`], [`TcslogStatus::SessionEnd`] or
 /// [`TcslogStatus::ReadTruncated`].
+///
+/// # Arguments
+///
+/// * `h`       - The reader.
+/// * `out`     - Receives the header when a segment file is open, and is
+///               left alone when none is.
+/// * `present` - Set to 1 when a segment file is open, and to 0 when
+///               none is.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if any
+/// pointer is null.
 ///
 /// # Safety
 ///
@@ -1345,11 +1605,21 @@ pub unsafe extern "C" fn tcslog_read_current_header(
 }
 
 /// Asks the reader to retain the header of every segment file it opens,
-/// when `enable` is non-zero, or to stop.
+/// or to stop.
 ///
 /// Retention is off by default and must be: the headers accumulate,
 /// allocating as they do, until taken by
 /// [`tcslog_read_take_opened_headers`].
+///
+/// # Arguments
+///
+/// * `h`      - The reader.
+/// * `enable` - Non-zero to retain headers, zero to stop.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] if `h` is
+/// null.
 ///
 /// # Safety
 ///
@@ -1375,12 +1645,24 @@ pub unsafe extern "C" fn tcslog_read_collect_opened_headers(
 /// Those that do not fit stay retained, in order, so a caller drains
 /// them by calling until `*n` comes back less than `cap`.
 ///
+/// # Arguments
+///
+/// * `h`   - The reader.
+/// * `out` - Receives the headers, oldest first; may be null when `cap`
+///           is zero.
+/// * `cap` - The entries `out` holds.
+/// * `n`   - Receives the number of headers moved into `out`.
+///
+/// # Returns
+///
+/// [`TcslogStatus::Ok`], or [`TcslogStatus::NullArgument`] for a null
+/// handle or `n`, or a null `out` with a non-zero `cap`.
+///
 /// # Safety
 ///
 /// `h` must come from [`tcslog_read_open`] and not yet be closed, `out`
 /// must point to `cap` writable [`TcslogSegmentHeader`] entries, and
-/// `n` to writable storage for one `size_t`. `out` may be null when
-/// `cap` is zero.
+/// `n` to writable storage for one `size_t`.
 #[no_mangle]
 pub unsafe extern "C" fn tcslog_read_take_opened_headers(
     h: *mut TcslogRead,
@@ -1424,8 +1706,12 @@ pub unsafe extern "C" fn tcslog_read_take_opened_headers(
     })
 }
 
-/// Closes a reader and releases it. Null is accepted and does nothing,
-/// as `free` does.
+/// Closes a reader and releases it.
+///
+/// # Arguments
+///
+/// * `h` - The reader, or null, which is accepted and does nothing, as
+///         `free` does.
 ///
 /// # Safety
 ///
@@ -1450,6 +1736,15 @@ mod tests {
 
     /// Counts into the context it is handed, which is a `u32` the test
     /// owns on its own stack.
+    ///
+    /// # Arguments
+    ///
+    /// * `ctx`   - The test's `u32` counter, or null to count nothing.
+    /// * `_path` - The segment file handed over, which is ignored.
+    ///
+    /// # Returns
+    ///
+    /// Zero, so the write that triggered it succeeds.
     extern "C" fn count_send(ctx: *mut c_void, _path: *const c_char) -> c_int {
         if !ctx.is_null() {
             // SAFETY: the test passes a pointer to its own live `u32`
@@ -1464,6 +1759,15 @@ mod tests {
     struct TmpDir(std::path::PathBuf);
 
     impl TmpDir {
+        /// Creates a fresh temporary directory for one test.
+        ///
+        /// # Arguments
+        ///
+        /// * `tag` - Distinguishes the test's directory from other tests'.
+        ///
+        /// # Returns
+        ///
+        /// The directory, which is removed when dropped.
         fn new(tag: &str) -> Self {
             let p = std::env::temp_dir().join(format!(
                 "tcslog-c-{tag}-{}-{:?}",

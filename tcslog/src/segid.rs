@@ -29,9 +29,13 @@ impl SegId {
 
     /// Wraps a raw nanosecond count as a segment ID.
     ///
-    /// * `value` -- nanoseconds since the UNIX epoch.
+    /// # Arguments
     ///
-    /// Returns the corresponding `SegId`.
+    /// * `value` - Nanoseconds since the UNIX epoch.
+    ///
+    /// # Returns
+    ///
+    /// The corresponding `SegId`.
     #[must_use]
     pub const fn from_u64(value: u64) -> Self {
         Self(value)
@@ -39,7 +43,9 @@ impl SegId {
 
     /// Unwraps the segment ID to its raw nanosecond count.
     ///
-    /// Returns nanoseconds since the UNIX epoch.
+    /// # Returns
+    ///
+    /// Nanoseconds since the UNIX epoch.
     #[must_use]
     pub const fn as_u64(self) -> u64 {
         self.0
@@ -47,7 +53,9 @@ impl SegId {
 
     /// Encodes the segment ID for the segment file header.
     ///
-    /// Returns the eight little-endian bytes stored on disk.
+    /// # Returns
+    ///
+    /// The eight little-endian bytes stored on disk.
     #[must_use]
     pub const fn to_le_bytes(self) -> [u8; 8] {
         self.0.to_le_bytes()
@@ -55,9 +63,13 @@ impl SegId {
 
     /// Decodes a segment ID from its stored form.
     ///
-    /// * `bytes` -- the eight little-endian bytes read from a header.
+    /// # Arguments
     ///
-    /// Returns the decoded `SegId`.
+    /// * `bytes` - The eight little-endian bytes read from a header.
+    ///
+    /// # Returns
+    ///
+    /// The decoded `SegId`.
     #[must_use]
     pub const fn from_le_bytes(bytes: [u8; 8]) -> Self {
         Self(u64::from_le_bytes(bytes))
@@ -66,9 +78,15 @@ impl SegId {
     /// Parses the dashed hexadecimal form that appears in a segment file
     /// name, as written by [`Display`](fmt::Display).
     ///
-    /// * `text` -- exactly [`STR_LEN`](Self::STR_LEN) characters:
-    ///   four groups of four lower-case hexadecimal digits separated by
-    ///   dashes.
+    /// # Arguments
+    ///
+    /// * `text` - Exactly [`STR_LEN`](Self::STR_LEN) characters: four
+    ///            groups of four lower-case hexadecimal digits separated
+    ///            by dashes.
+    ///
+    /// # Returns
+    ///
+    /// The segment ID the text names.
     ///
     /// # Errors
     ///

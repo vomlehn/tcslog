@@ -45,8 +45,12 @@ static const char *SUFFIX = ".log";
 
 static int failures = 0;
 
-/* Reports a failed check and carries on, so one run says everything
- * that is wrong rather than only the first thing. */
+/** Reports a check's outcome, counting it in `failures` if it failed,
+ * and carries on, so one run says everything that is wrong rather than
+ * only the first thing.
+ *
+ * @param ok    Nonzero if the check passed.
+ * @param what  What was checked, for the report. */
 static void check(int ok, const char *what) {
 	if (ok) {
 		printf("ok       %s\n", what);
@@ -56,6 +60,12 @@ static void check(int ok, const char *what) {
 	}
 }
 
+/** Checks that a call returned the status wanted, reporting it as
+ * check() does and naming both statuses when they differ.
+ *
+ * @param got   The status the call returned.
+ * @param want  The status it should have returned.
+ * @param what  What was checked, for the report. */
 static void check_status(TcslogStatus got, TcslogStatus want,
                          const char *what) {
 	if (got == want) {
@@ -68,7 +78,14 @@ static void check_status(TcslogStatus got, TcslogStatus want,
 	}
 }
 
-/* A directory of its own for one scenario. */
+/** Makes a directory of its own for one scenario.
+ *
+ * @param base  The directory given on the command line.
+ * @param name  The scenario's subdirectory name.
+ * @param out   Filled with the new directory's path.
+ * @param cap   The bytes `out` holds.
+ * @return      Zero on success, or -1 after printing why, if the path
+ *              does not fit in `out` or the directory cannot be made. */
 static int scenario_dir(const char *base, const char *name, char *out,
                         size_t cap) {
 	int n = snprintf(out, cap, "%s/%s", base, name);
@@ -87,9 +104,16 @@ static int by_name(const void *a, const void *b) {
 	return strcmp((const char *)a, (const char *)b);
 }
 
-/* Collects this log's segment file names, sorted. The identifiers are
+/** Collects this log's segment file names, sorted. The identifiers are
  * times, and their hexadecimal form sorts in the order the files were
- * created, so sorted order is creation order. */
+ * created, so sorted order is creation order.
+ *
+ * @param dir    The log's directory.
+ * @param names  Filled with the names of the files in it that have the
+ *               log's prefix and suffix.
+ * @param max    The names `names` holds.
+ * @return       The number of names found, or -1 after printing why if
+ *               the directory cannot be opened or holds more than `max`. */
 static int segment_files(const char *dir, char names[][NAME_LEN], int max) {
 	DIR *d = opendir(dir);
 	if (d == NULL) {
@@ -134,6 +158,13 @@ typedef struct {
 	int refuse_send;
 } Counters;
 
+/** Counts a segment file handed over, leaving it in place, and refuses
+ * it if the counters ask for that.
+ *
+ * @param ctx   The scenario's Counters, or NULL to count nothing.
+ * @param path  The segment file handed over; unused.
+ * @return      The counters' refuse_send, so nonzero refuses the file;
+ *              zero when ctx is NULL. */
 static int on_send(void *ctx, const char *path) {
 	Counters *c = (Counters *)ctx;
 	(void)path;
@@ -144,6 +175,11 @@ static int on_send(void *ctx, const char *path) {
 	return c->refuse_send;
 }
 
+/** Counts a record completed.
+ *
+ * @param ctx  The scenario's Counters, or NULL to count nothing.
+ * @param fd   The segment file's descriptor; unused.
+ * @return     Zero, always: the record is accepted. */
 static int on_record_complete(void *ctx, int fd) {
 	Counters *c = (Counters *)ctx;
 	(void)fd;
@@ -153,6 +189,12 @@ static int on_record_complete(void *ctx, int fd) {
 	return 0;
 }
 
+/** Counts a widening of the timer resolution.
+ *
+ * @param ctx            The scenario's Counters, or NULL to count
+ *                       nothing.
+ * @param resolution_ns  The resolution now in force, in nanoseconds;
+ *                       unused. */
 static void on_timer_resolution_adjusted(void *ctx, uint64_t resolution_ns) {
 	Counters *c = (Counters *)ctx;
 	(void)resolution_ns;
@@ -161,7 +203,10 @@ static void on_timer_resolution_adjusted(void *ctx, uint64_t resolution_ns) {
 	}
 }
 
-/* All three callbacks, aimed at one scenario's counters. */
+/** Gives all three callbacks, aimed at one scenario's counters.
+ *
+ * @param c  The counters the callbacks are to update.
+ * @return   The callbacks, with `c` as their context. */
 static TcslogCallbacks callbacks_for(Counters *c) {
 	TcslogCallbacks cb;
 	cb.send = on_send;
@@ -182,8 +227,11 @@ static TcslogStatus open_writer(const char *dir, uint32_t data_bytes,
 
 /* ---------------------------------------------------------- scenarios */
 
-/* Writes records and reads them back, with the metadata the format
- * carries. */
+/** Writes records and reads them back, with the metadata the format
+ * carries.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_round_trip(const char *base) {
 	char dir[PATH_LEN];
 	if (scenario_dir(base, "round-trip", dir, sizeof dir) != 0) {
@@ -286,8 +334,11 @@ static void scenario_round_trip(const char *base) {
 	tcslog_read_close(r);
 }
 
-/* The fixed format, which carries no data header and takes one payload
- * length only. */
+/** The fixed format, which carries no data header and takes one payload
+ * length only.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_fixed_format(const char *base) {
 	char dir[PATH_LEN];
 	if (scenario_dir(base, "fixed", dir, sizeof dir) != 0) {
@@ -343,8 +394,11 @@ static void scenario_fixed_format(const char *base) {
 	tcslog_read_close(r);
 }
 
-/* A format tag outside the three, which must be refused rather than
- * constructed. */
+/** A format tag outside the three, which must be refused rather than
+ * constructed.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_invalid_format(const char *base) {
 	char dir[PATH_LEN];
 	if (scenario_dir(base, "invalid-format", dir, sizeof dir) != 0) {
@@ -368,10 +422,13 @@ static void scenario_invalid_format(const char *base) {
 	check(w == NULL, "a refused open leaves the handle null");
 }
 
-/* A record larger than the buffer offered. The front of it reaches the
+/** A record larger than the buffer offered. The front of it reaches the
  * buffer and the rest is skipped, so the next read returns the record
  * after it -- which is the part worth asserting, the name inviting the
- * opposite reading. */
+ * opposite reading.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_read_overflow(const char *base) {
 	char dir[PATH_LEN];
 	if (scenario_dir(base, "overflow", dir, sizeof dir) != 0) {
@@ -437,9 +494,12 @@ static void scenario_read_overflow(const char *base) {
 	tcslog_read_close(r);
 }
 
-/* A segment file deleted under the reader, which is what damaged
+/** A segment file deleted under the reader, which is what damaged
  * storage looks like. The loss has to be reported, with how many files
- * went missing, and the records after it still returned. */
+ * went missing, and the records after it still returned.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_truncation(const char *base) {
 	char dir[PATH_LEN];
 	if (scenario_dir(base, "truncation", dir, sizeof dir) != 0) {
@@ -538,9 +598,12 @@ static void scenario_truncation(const char *base) {
 	       records, record_count, truncations, (unsigned long)lost_total);
 }
 
-/* A send callback that refuses. The write that triggers the handover
+/** A send callback that refuses. The write that triggers the handover
  * has to report it: silence would leave the caller believing the
- * storage bound still holds. */
+ * storage bound still holds.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_send_failure(const char *base) {
 	char dir[PATH_LEN];
 	if (scenario_dir(base, "send-failure", dir, sizeof dir) != 0) {
@@ -578,7 +641,10 @@ static void scenario_send_failure(const char *base) {
 	tcslog_write_close(w);
 }
 
-/* Clearing a log, which must leave nothing for a reader to find. */
+/** Clearing a log, which must leave nothing for a reader to find.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_clear(const char *base) {
 	char dir[PATH_LEN];
 	if (scenario_dir(base, "clear", dir, sizeof dir) != 0) {
@@ -613,10 +679,13 @@ static void scenario_clear(const char *base) {
 	check(r == NULL, "a refused open leaves the handle null");
 }
 
-/* The third callback. A widening cannot be provoked on demand -- it
+/** The third callback. A widening cannot be provoked on demand -- it
  * takes a machine whose clock is coarser than the build-time value --
  * so what is checked is that registering it changes nothing and that it
- * does not fire when the resolution is adequate. */
+ * does not fire when the resolution is adequate.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_timer_resolution_callback(const char *base) {
 	char dir[PATH_LEN];
 	if (scenario_dir(base, "resolution", dir, sizeof dir) != 0) {
@@ -645,11 +714,14 @@ static void scenario_timer_resolution_callback(const char *base) {
 	      "no widening is reported when the resolution is adequate");
 }
 
-/* Two logs open at once, each with its own callbacks and its own
+/** Two logs open at once, each with its own callbacks and its own
  * context. This is what a context is for and what three process-wide
  * function pointers could not express: before, both writers would have
  * called the same functions with no way to say which log a call was
- * about. */
+ * about.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_two_contexts(const char *base) {
 	char dir_a[PATH_LEN], dir_b[PATH_LEN];
 	if (scenario_dir(base, "two-a", dir_a, sizeof dir_a) != 0 ||
@@ -710,8 +782,11 @@ static void scenario_two_contexts(const char *base) {
 	      "each close handed over its own log's file");
 }
 
-/* The queries beyond writing and reading: identifiers, metadata,
- * segment headers, and the text forms of identifiers and timestamps. */
+/** The queries beyond writing and reading: identifiers, metadata,
+ * segment headers, and the text forms of identifiers and timestamps.
+ *
+ * @param base  The directory in which the scenario makes its own
+ *              subdirectory. */
 static void scenario_queries(const char *base) {
 	char dir[PATH_LEN];
 	if (scenario_dir(base, "queries", dir, sizeof dir) != 0) {
@@ -833,7 +908,7 @@ static void scenario_queries(const char *base) {
 	tcslog_read_close(r);
 }
 
-/* Arguments the binding has to refuse rather than dereference. */
+/** Arguments the binding has to refuse rather than dereference. */
 static void scenario_null_arguments(void) {
 	printf("-- null arguments\n");
 
@@ -876,6 +951,13 @@ static void scenario_null_arguments(void) {
 	check(1, "closing null does nothing");
 }
 
+/** Runs every scenario and reports whether every check passed.
+ *
+ * @param argc  The number of arguments, which must be 2.
+ * @param argv  The program's name and an existing directory in which
+ *              each scenario makes its own subdirectory.
+ * @return      Zero if every check passed, 1 if any failed, or 2 for a
+ *              usage error. */
 int main(int argc, char **argv) {
 	if (argc != 2) {
 		fprintf(stderr, "usage: %s <directory>\n", argv[0]);

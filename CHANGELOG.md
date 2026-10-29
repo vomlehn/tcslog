@@ -22,6 +22,10 @@ log written by an earlier release is refused with `VersionMismatch`.
 
 ### Changed
 
+- Every non-trivial function, in every language, is documented with its
+  parameters and what it returns. In `tcslog.h` these are Doxygen
+  `@param` and `@return` commands, which `make header` writes from the
+  Rust doc comments' `# Arguments` and `# Returns` sections.
 - A `VariableTsRc` record's count is stored in 32 bits rather than 64, so
   its data header is 16 bytes rather than 20. `RecordCount` is still a u64
   in memory, and the new `RECORD_COUNT_MAX` (`TCSLOG_RECORD_COUNT_MAX` in

@@ -147,6 +147,14 @@ pub trait WriteCallbacks {
     /// rather than something a default does quietly. Where that really
     /// is wanted, `()` implements this trait and says so.
     ///
+    /// # Arguments
+    ///
+    /// * `path` - The path of the closed segment file being handed over.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once the file has been taken out of the log's keeping.
+    ///
     /// # Errors
     ///
     /// Whatever the implementation reports. A failure here means the
@@ -351,22 +359,28 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// and `suffix` is handed to [`WriteCallbacks::send`] before this
     /// session's first segment file is created.
     ///
-    /// * `dir` -- directory to hold the segment files. It must already
-    ///   exist; this function does not create it.
-    /// * `prefix` -- first part of every segment file name. Must hold no
-    ///   path separator.
-    /// * `suffix` -- last part of every segment file name. Must hold no
-    ///   path separator.
-    /// * `seg_size_max` -- largest a segment file may grow, in bytes.
-    ///   Must be strictly greater than the segment file header plus one
-    ///   data header for `format`: a file that could not hold a single
-    ///   data header would leave the writer nowhere to put a record.
-    /// * `format` -- how data records are to be laid out.
-    /// * `callbacks` -- functions to invoke as segment files fill and
-    ///   records complete.
+    /// # Arguments
     ///
-    /// Returns the new writer, with its first segment file created and
-    /// its header written.
+    /// * `dir`          - The directory to hold the segment files. It
+    ///                    must already exist; this function does not
+    ///                    create it.
+    /// * `prefix`       - The first part of every segment file name.
+    ///                    Must hold no path separator.
+    /// * `suffix`       - The last part of every segment file name. Must
+    ///                    hold no path separator.
+    /// * `seg_size_max` - The largest a segment file may grow, in bytes.
+    ///                    Must be strictly greater than the segment file
+    ///                    header plus one data header for `format`: a
+    ///                    file that could not hold a single data header
+    ///                    would leave the writer nowhere to put a record.
+    /// * `format`       - How data records are to be laid out.
+    /// * `handler`      - The callbacks to invoke as segment files fill
+    ///                    and records complete.
+    ///
+    /// # Returns
+    ///
+    /// The new writer, with its first segment file created and its
+    /// header written.
     ///
     /// # Errors
     ///
@@ -530,10 +544,14 @@ impl<H: WriteCallbacks> LogWrite<H> {
 
     /// Writes the UTF-8 bytes of a string as one data record.
     ///
-    /// * `msg` -- the text to store.
+    /// # Arguments
     ///
-    /// Returns what [`write`](Self::write) returns: the total bytes
-    /// written, data header included.
+    /// * `msg` - The text to store.
+    ///
+    /// # Returns
+    ///
+    /// What [`write`](Self::write) returns: the total bytes written,
+    /// data header included.
     ///
     /// # Errors
     ///
@@ -562,10 +580,14 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// [`WriteCallbacks::record_complete`] is invoked once every byte
     /// has been written.
     ///
-    /// * `msg` -- the payload bytes to store.
+    /// # Arguments
     ///
-    /// Returns the total number of bytes written, counting the
-    /// per-record data header as well as the payload.
+    /// * `msg` - The payload bytes to store.
+    ///
+    /// # Returns
+    ///
+    /// The total number of bytes written, counting the per-record data
+    /// header as well as the payload.
     ///
     /// # Errors
     ///
@@ -635,7 +657,11 @@ impl<H: WriteCallbacks> LogWrite<H> {
 
     /// Flushes buffered data for the current segment file to storage.
     ///
-    /// Returns nothing on success, and nothing to do when there is no
+    /// There is nothing to do when there is no current segment file.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once the data is flushed, or at once when there is no
     /// current segment file.
     ///
     /// # Errors
@@ -672,7 +698,9 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// reader must report as that many segment files lost -- a log
     /// emptied deliberately would come back as one damaged by a fault.
     ///
-    /// Returns nothing on success.
+    /// # Returns
+    ///
+    /// `Ok(())` once every segment file of the log has been removed.
     ///
     /// # Errors
     ///
@@ -693,8 +721,16 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// Hands every pre-existing segment file of this log to the `send`
     /// callback.
     ///
-    /// Returns the highest identifier those files carried, which is what
+    /// # Returns
+    ///
+    /// The highest identifier those files carried, which is what
     /// [`Clock::advance_past`] needs, or `None` if there were none.
+    ///
+    /// # Errors
+    ///
+    /// The same errors as
+    /// [`for_each_segment_file`](Self::for_each_segment_file), the
+    /// action's being the `send` callback's.
     fn send_existing(&mut self) -> Result<Option<SegId>, LogError> {
         self.for_each_segment_file(WriteCallbacks::send)
     }
@@ -707,10 +743,23 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// does allocate. The steady-state paths -- `write` and everything
     /// under it -- do not.
     ///
-    /// Returns the highest identifier found, or `None` for a directory
-    /// holding no segment file of this log. It is taken from the scan
-    /// before `action` runs, so it is still reported for files the action
-    /// goes on to remove or rename.
+    /// # Arguments
+    ///
+    /// * `action` - What to do with each file, given the handler and the
+    ///              file's path.
+    ///
+    /// # Returns
+    ///
+    /// The highest identifier found, or `None` for a directory holding
+    /// no segment file of this log. It is taken from the scan before
+    /// `action` runs, so it is still reported for files the action goes
+    /// on to remove or rename.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::IoError`] if the directory cannot be
+    /// enumerated or `action` fails; the files after the one it failed
+    /// on are left alone.
     fn for_each_segment_file(
         &mut self,
         mut action: impl FnMut(&mut H, &Path) -> std::io::Result<()>,
@@ -733,6 +782,14 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// The session identifier is that file's own segment ID, which is
     /// what lets a reader recognize the start of a session by comparing
     /// the two fields.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once the session's first segment file is current.
+    ///
+    /// # Errors
+    ///
+    /// The same errors as [`create_segment`](Self::create_segment).
     fn start_session(&mut self) -> Result<(), LogError> {
         self.record_count = 0;
         self.sequence = SeqId::ZERO;
@@ -742,8 +799,21 @@ impl<H: WriteCallbacks> LogWrite<H> {
 
     /// Creates the next segment file and writes its header.
     ///
-    /// * `opens_session` -- true when this file begins a session, in
-    ///   which case its own identifier becomes the session identifier.
+    /// # Arguments
+    ///
+    /// * `opens_session` - True when this file begins a session, in which
+    ///                     case its own identifier becomes the session
+    ///                     identifier.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once the new file is current, its header written.
+    ///
+    /// # Errors
+    ///
+    /// The same errors as
+    /// [`create_unique_file`](Self::create_unique_file), and
+    /// [`LogError::IoError`] if writing the header fails.
     fn create_segment(&mut self, opens_session: bool) -> Result<(), LogError> {
         // The buffer the segment file just closed was named in, so that
         // a roll allocates nothing.
@@ -802,8 +872,19 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// Doubling cannot rescue a resolution of zero, which stays zero;
     /// [`new`](Self::new) refuses that value outright.
     ///
-    /// * `buf` -- a path buffer to build the name in, so that creating a
-    ///   segment file need not allocate one.
+    /// # Arguments
+    ///
+    /// * `buf` - A path buffer to build the name in, so that creating a
+    ///           segment file need not allocate one.
+    ///
+    /// # Returns
+    ///
+    /// The new file's segment ID, its path (in `buf`), and the file.
+    ///
+    /// # Errors
+    ///
+    /// The same errors as
+    /// [`create_unique_file_with`](Self::create_unique_file_with).
     fn create_unique_file(
         &mut self,
         buf: PathBuf,
@@ -824,11 +905,23 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// run of names ahead of a running writer and timing a roll into it
     /// -- is slow, platform-tuned and flaky.
     ///
-    /// * `buf` -- a path buffer to build the name in, so that creating a
-    ///   segment file need not allocate one.
-    /// * `attempt` -- creates the file at the path it is given, or says
-    ///   why not. [`ErrorKind::AlreadyExists`] is what drives the retry;
-    ///   every other error ends it.
+    /// # Arguments
+    ///
+    /// * `buf`     - A path buffer to build the name in, so that creating
+    ///               a segment file need not allocate one.
+    /// * `attempt` - Creates the file at the path it is given, or says
+    ///               why not. [`ErrorKind::AlreadyExists`] is what drives
+    ///               the retry; every other error ends it.
+    ///
+    /// # Returns
+    ///
+    /// The new file's segment ID, its path (in `buf`), and the file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::TimestampOverflow`] once the clock is past
+    /// what a segment ID holds, and [`LogError::IoError`] for any error
+    /// from `attempt` other than [`ErrorKind::AlreadyExists`].
     fn create_unique_file_with(
         &mut self,
         mut buf: PathBuf,
@@ -854,17 +947,22 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// Takes account of a collision and says how long to wait before
     /// trying again.
     ///
-    /// * `collided_before` -- whether naming this file had already
-    ///   collided once, a second collision being what says the
-    ///   resolution is too small.
-    ///
-    /// Returns the sleep to take. Widens
-    /// [`timer_resolution`](Self::timer_resolution) and reports the new
-    /// value through the callback when, and only when, the value
+    /// Widens [`timer_resolution`](Self::timer_resolution) and reports
+    /// the new value through the callback when, and only when, the value
     /// actually changed: not for a first collision, which leaves it
     /// alone, and not for a doubling that saturated, which would
     /// otherwise report the same figure for as long as the collisions
     /// lasted.
+    ///
+    /// # Arguments
+    ///
+    /// * `collided_before` - Whether naming this file had already
+    ///                       collided once, a second collision being
+    ///                       what says the resolution is too small.
+    ///
+    /// # Returns
+    ///
+    /// The sleep to take.
     fn note_collision(&mut self, collided_before: bool) -> Duration {
         let wider = widened(self.timer_resolution, collided_before);
         if wider != self.timer_resolution {
@@ -911,8 +1009,24 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// Builds the data header for a record of `payload_len` bytes into
     /// the reusable buffer.
     ///
-    /// Returns the number of header bytes built and the metadata the
-    /// header carries.
+    /// For `VariableTsRc` this takes the record's timestamp and advances
+    /// the record count.
+    ///
+    /// # Arguments
+    ///
+    /// * `payload_len` - The record's payload length in bytes.
+    ///
+    /// # Returns
+    ///
+    /// The number of header bytes built and the metadata the header
+    /// carries.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::PayloadTooLarge`] if `payload_len` exceeds
+    /// [`RecSize::MAX`](crate::RecSize), and
+    /// [`LogError::TimestampOverflow`] once the clock is past what a
+    /// [`Timestamp`] holds.
     fn build_data_header(
         &mut self,
         payload_len: usize,
@@ -956,6 +1070,21 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// Nothing is padded, because nothing needs to be: the writer stops
     /// at `seg_size_max` exactly and continues the record in the next
     /// file.
+    ///
+    /// # Arguments
+    ///
+    /// * `data` - The bytes to append.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once every byte is written.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::IoError`] if a write fails, in which case the
+    /// segment file is abandoned for a fresh one, or the error from
+    /// [`abandon_after_error`](Self::abandon_after_error) if opening
+    /// that fails; and whatever [`roll`](Self::roll) reports.
     fn write_bytes(&mut self, data: &[u8]) -> Result<(), LogError> {
         let mut off = 0usize;
         while off < data.len() {
@@ -1000,6 +1129,16 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// The path buffer is kept for the next segment file however this
     /// turns out, so that a writer that has met an error still rolls
     /// without allocating.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once the file is handed over, or at once when there is no
+    /// current segment file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LogError::IoError`] if the flush or the `send` callback
+    /// fails; `send` is not called after a failed flush.
     fn close_and_send(&mut self) -> Result<(), LogError> {
         let Some(current) = self.current.take() else {
             return Ok(());
@@ -1020,6 +1159,15 @@ impl<H: WriteCallbacks> LogWrite<H> {
     /// The record in progress is abandoned, so the new file's
     /// `remaining` field is zero: the next write starts a record at the
     /// beginning of its data section.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once the fresh segment file is current.
+    ///
+    /// # Errors
+    ///
+    /// The same errors as [`create_segment`](Self::create_segment). A
+    /// failure to close the abandoned file is ignored.
     fn abandon_after_error(&mut self) -> Result<(), LogError> {
         self.record_bytes_left = 0;
         // A close that also fails must not mask the write error, and the
@@ -1058,10 +1206,18 @@ impl<H: WriteCallbacks> Drop for LogWrite<H> {
 /// This is the attempt [`LogWrite::create_unique_file`] makes, named so
 /// that the loop under it can be handed a different one by a test.
 ///
-/// * `path` -- where the segment file is to be created.
+/// # Arguments
 ///
-/// Returns the open file, or [`ErrorKind::AlreadyExists`] when the name
-/// is taken, which is what drives the retry.
+/// * `path` - Where the segment file is to be created.
+///
+/// # Returns
+///
+/// The open file, writable.
+///
+/// # Errors
+///
+/// [`ErrorKind::AlreadyExists`] when the name is taken, which is what
+/// drives the retry, and whatever else opening the file reports.
 fn create_new(path: &Path) -> std::io::Result<File> {
     OpenOptions::new().write(true).create_new(true).open(path)
 }
@@ -1071,21 +1227,29 @@ fn create_new(path: &Path) -> std::io::Result<File> {
 /// Twice the resolution, so that the next reading is past the tick the
 /// collision happened in rather than merely at its edge.
 ///
-/// * `resolution` -- how finely the clock is believed to advance, in
-///   nanoseconds.
+/// # Arguments
 ///
-/// Returns the sleep to take before the next attempt.
+/// * `resolution` - How finely the clock is believed to advance, in
+///                  nanoseconds.
+///
+/// # Returns
+///
+/// The sleep to take before the next attempt.
 fn nap_for(resolution: u64) -> Duration {
     Duration::from_nanos(resolution.saturating_mul(2))
 }
 
 /// The resolution to carry forward after a collision.
 ///
-/// * `resolution` -- the resolution in force, in nanoseconds.
-/// * `collided_before` -- whether this attempt to name a file had
-///   already collided once.
+/// # Arguments
 ///
-/// Returns `resolution` unchanged for a first collision, which is what
+/// * `resolution`      - The resolution in force, in nanoseconds.
+/// * `collided_before` - Whether this attempt to name a file had already
+///                       collided once.
+///
+/// # Returns
+///
+/// `resolution` unchanged for a first collision, which is what
 /// the resolution exists to resolve, and twice it for any after that,
 /// a second collision being evidence that the value is too small. The
 /// doubling saturates: a resolution a `u64` of nanoseconds cannot hold
@@ -1137,6 +1301,10 @@ impl Clock {
     /// Pairs the real-time clock with the monotonic one, fixing the
     /// epoch every later reading is measured from.
     ///
+    /// # Returns
+    ///
+    /// The clock, reading the current time.
+    ///
     /// # Errors
     ///
     /// Returns [`LogError::ClockError`] if the real-time clock does not
@@ -1163,9 +1331,15 @@ impl Clock {
     /// system clock, and the reading this takes is the whole of what
     /// `new` decides on.
     ///
-    /// * `since_epoch` -- how far the real-time clock reads past the
-    ///   UNIX epoch.
-    /// * `mono` -- the monotonic reading taken alongside it.
+    /// # Arguments
+    ///
+    /// * `since_epoch` - How far the real-time clock reads past the UNIX
+    ///                   epoch.
+    /// * `mono`        - The monotonic reading taken alongside it.
+    ///
+    /// # Returns
+    ///
+    /// The clock, reading `since_epoch` at the moment `mono` was taken.
     ///
     /// # Errors
     ///
@@ -1187,6 +1361,14 @@ impl Clock {
     /// all ones is kept back as the moment it ends, so that a time the
     /// clock cannot represent is an error rather than a timestamp that
     /// stops advancing.
+    ///
+    /// # Arguments
+    ///
+    /// * `ns` - The count of nanoseconds since the UNIX epoch.
+    ///
+    /// # Returns
+    ///
+    /// `ns` as a [`Timestamp`].
     ///
     /// # Errors
     ///
@@ -1242,8 +1424,14 @@ impl Clock {
     /// Ordering is what a reader depends on and accuracy is not, so that
     /// is the direction to err in, but it is a trade and not a free win.
     ///
-    /// * `id` -- the highest identifier the log's directory already
-    ///   holds.
+    /// # Arguments
+    ///
+    /// * `id` - The highest identifier the log's directory already
+    ///          holds.
+    ///
+    /// # Returns
+    ///
+    /// `Ok(())` once the clock reads past `id`.
     ///
     /// # Errors
     ///
@@ -1297,9 +1485,17 @@ mod tests {
     /// A writer on a fresh directory, reporting resolution changes
     /// through `adjusted`.
     ///
-    /// * `adjusted` -- the function to report to.
+    /// # Arguments
     ///
-    /// Returns the writer and the directory, which must outlive it.
+    /// * `adjusted` - The function to report to.
+    ///
+    /// # Returns
+    ///
+    /// The writer and the directory, which must outlive it.
+    ///
+    /// # Panics
+    ///
+    /// If the temporary directory or the writer cannot be created.
     fn writer_with(
         adjusted: fn(u64),
     ) -> (LogWrite<Adjusted>, tempfile::TempDir) {
@@ -1360,9 +1556,13 @@ mod tests {
     /// An attempt that reports the name taken `n` times over, then
     /// creates the file for real.
     ///
-    /// * `n` -- how many collisions to stage.
+    /// # Arguments
     ///
-    /// Returns the attempt, for [`LogWrite::create_unique_file_with`].
+    /// * `n` - How many collisions to stage.
+    ///
+    /// # Returns
+    ///
+    /// The attempt, for [`LogWrite::create_unique_file_with`].
     fn taken_times(n: usize) -> impl FnMut(&Path) -> std::io::Result<File> {
         let mut left = n;
         move |path| {

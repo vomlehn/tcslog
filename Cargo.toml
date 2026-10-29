@@ -28,3 +28,7 @@ rust_2018_idioms = { level = "warn", priority = -1 }
 
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
+# Each argument in a doc comment's # Arguments list continues in its
+# description's column, as the TCS projects' documentation rule has it,
+# which is deeper than this lint's two spaces.
+doc_overindented_list_items = "allow"

@@ -27,7 +27,11 @@ pub enum RecordFormatSpec {
 }
 
 impl RecordFormatSpec {
-    /// On-disk [`Format`] variant.
+    /// Returns the on-disk [`Format`] variant.
+    ///
+    /// # Returns
+    ///
+    /// The format, with the record length for `Fixed`.
     #[must_use]
     pub fn format(self) -> Format {
         match self {
@@ -37,7 +41,11 @@ impl RecordFormatSpec {
         }
     }
 
-    /// Minimum payload size the generator will produce.
+    /// Returns the minimum payload size the generator will produce.
+    ///
+    /// # Returns
+    ///
+    /// The size in bytes: `n` for `Fixed(n)`, `min` otherwise.
     #[must_use]
     pub fn min_size(self) -> RecSize {
         match self {
@@ -47,7 +55,11 @@ impl RecordFormatSpec {
         }
     }
 
-    /// Maximum payload size the generator will produce.
+    /// Returns the maximum payload size the generator will produce.
+    ///
+    /// # Returns
+    ///
+    /// The size in bytes: `n` for `Fixed(n)`, `max` otherwise.
     #[must_use]
     pub fn max_size(self) -> RecSize {
         match self {
@@ -143,6 +155,22 @@ impl FromStr for RecordFormatSpec {
     }
 }
 
+/// Parses the length part of a variable `--format` value, either one
+/// length or `MIN..MAX`.
+///
+/// # Arguments
+///
+/// * `spec` - The text after the colon.
+/// * `kind` - The format kind, for error messages.
+///
+/// # Returns
+///
+/// The least and greatest payload lengths, equal for a single length.
+///
+/// # Errors
+///
+/// [`RecordFormatSpecError`] if a length is missing or not a number
+/// that fits a [`RecSize`], or if the minimum exceeds the maximum.
 fn parse_range(
     spec: &str,
     kind: &str,
@@ -163,6 +191,21 @@ fn parse_range(
     }
 }
 
+/// Parses one payload length from a `--format` value.
+///
+/// # Arguments
+///
+/// * `s`    - The length's text, which may have surrounding white space.
+/// * `kind` - The format kind, for error messages.
+///
+/// # Returns
+///
+/// The length in bytes.
+///
+/// # Errors
+///
+/// [`RecordFormatSpecError`] if the text is empty or not a number that
+/// fits a [`RecSize`].
 fn parse_len(s: &str, kind: &str) -> Result<RecSize, RecordFormatSpecError> {
     let trimmed = s.trim();
     if trimmed.is_empty() {
@@ -209,8 +252,22 @@ impl WriteCallbacks for Announce {
     }
 }
 
-/// Creates a log chain in `dir_name` using the given file-name `prefix`
-/// and `suffix`, with each data record shaped according to `spec`.
+/// Creates a log chain, with each data record shaped according to a
+/// format specification, and prints each record as it is written.
+///
+/// # Arguments
+///
+/// * `dir_name`  - The directory to create the log in, which must exist.
+/// * `prefix`    - The first part of every segment file name.
+/// * `suffix`    - The last part of every segment file name.
+/// * `spec`      - The record format and payload-length range.
+/// * `data_size` - The bytes in each segment file's data section.
+/// * `count`     - How many records to write.
+/// * `verbose`   - Whether to print the format and sizes first.
+///
+/// # Returns
+///
+/// The root segment file's name and the number of records written.
 ///
 /// # Errors
 ///
@@ -273,6 +330,19 @@ pub fn create_log(
     })
 }
 
+/// Builds one record's payload: `#N ` followed by repeated `123456789 `,
+/// cut to a length in the specification's range.
+///
+/// # Arguments
+///
+/// * `spec`  - The payload-length range.
+/// * `index` - The record's zero-based position, rendered one-based.
+/// * `rng`   - The generator that picks a length when the range has more
+///             than one.
+///
+/// # Returns
+///
+/// The payload.
 fn build_payload(
     spec: RecordFormatSpec,
     index: u64,
@@ -311,6 +381,11 @@ impl SplitMix64 {
         Self { state: seed }
     }
 
+    /// Advances the generator.
+    ///
+    /// # Returns
+    ///
+    /// The next pseudo-random value.
     fn next_u64(&mut self) -> u64 {
         self.state = self.state.wrapping_add(0x9e37_79b9_7f4a_7c15);
         let mut z = self.state;

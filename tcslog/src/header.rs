@@ -83,21 +83,29 @@ pub struct SegmentHeader {
 }
 
 impl SegmentHeader {
-    /// The number of bytes of a segment file that hold data records.
+    /// Returns the number of bytes of a segment file that hold data
+    /// records.
     ///
-    /// * `max_size` -- the maximum segment file size, as stored in the
-    ///   header's max size field.
+    /// # Arguments
     ///
-    /// Returns `max_size` less the header length, saturating at zero so
-    /// that a nonsensical stored value cannot underflow.
+    /// * `max_size` - The maximum segment file size, as stored in the
+    ///                header's max size field.
+    ///
+    /// # Returns
+    ///
+    /// `max_size` less the header length, saturating at zero so that a
+    /// nonsensical stored value cannot underflow.
     #[must_use]
     pub const fn data_section_len(max_size: u32) -> u32 {
         max_size.saturating_sub(SEGMENT_FILE_HEADER_LEN)
     }
 
-    /// The data section length of the file this header came from.
+    /// Returns the data section length of the file this header came
+    /// from.
     ///
-    /// Returns the length implied by this header's max size field.
+    /// # Returns
+    ///
+    /// The length implied by this header's max size field.
     #[must_use]
     pub const fn data_len(&self) -> u32 {
         Self::data_section_len(self.max_size)
@@ -105,9 +113,10 @@ impl SegmentHeader {
 
     /// Encodes the header in its on-disk form.
     ///
-    /// Returns the [`SEGMENT_FILE_HEADER_LEN`] bytes that open a segment
-    /// file, with the type and version fields set from this build's
-    /// constants.
+    /// # Returns
+    ///
+    /// The [`SEGMENT_FILE_HEADER_LEN`] bytes that open a segment file,
+    /// with the type and version fields set from this build's constants.
     #[must_use]
     pub fn to_bytes(&self) -> [u8; HEADER_LEN] {
         let mut out = [0u8; HEADER_LEN];
@@ -131,10 +140,14 @@ impl SegmentHeader {
 
     /// Decodes a header from its on-disk form.
     ///
-    /// * `bytes` -- at least [`SEGMENT_FILE_HEADER_LEN`] bytes read from
-    ///   the start of a segment file.
+    /// # Arguments
     ///
-    /// Returns the decoded header.
+    /// * `bytes` - At least [`SEGMENT_FILE_HEADER_LEN`] bytes read from
+    ///             the start of a segment file.
+    ///
+    /// # Returns
+    ///
+    /// The decoded header.
     ///
     /// # Errors
     ///
@@ -173,10 +186,14 @@ impl SegmentHeader {
     /// more than that is read, so this works on a pipe whose writer is
     /// still running.
     ///
-    /// * `src` -- the stream to read from, positioned at the start of a
-    ///   segment file.
+    /// # Arguments
     ///
-    /// Returns the decoded header.
+    /// * `src` - The stream to read from, positioned at the start of a
+    ///           segment file.
+    ///
+    /// # Returns
+    ///
+    /// The decoded header.
     ///
     /// # Errors
     ///
@@ -191,10 +208,14 @@ impl SegmentHeader {
 
     /// Encodes the header and writes it to a stream.
     ///
-    /// * `dst` -- the stream to write to, positioned at the start of a
-    ///   segment file.
+    /// # Arguments
     ///
-    /// Returns nothing on success.
+    /// * `dst` - The stream to write to, positioned at the start of a
+    ///           segment file.
+    ///
+    /// # Returns
+    ///
+    /// Nothing on success.
     ///
     /// # Errors
     ///
@@ -208,8 +229,12 @@ impl SegmentHeader {
     }
 }
 
-/// The four version characters this build writes: two digits of major,
-/// one of minor, one of patch.
+/// Renders the version field this build writes.
+///
+/// # Returns
+///
+/// The four version characters: two digits of major, one of minor, one
+/// of patch.
 fn version_bytes() -> [u8; 4] {
     [
         b'0' + u8::try_from(VERSION_MAJOR / 10).unwrap_or(0),
@@ -227,6 +252,19 @@ fn version_bytes() -> [u8; 4] {
 /// a greater one may use something unknown here. The patch takes no
 /// part. A character outside `'0'` to `'9'` anywhere in the field is
 /// refused as well: a field that does not parse cannot be compared.
+///
+/// # Arguments
+///
+/// * `field` - The four bytes of a header's version field.
+///
+/// # Returns
+///
+/// Nothing when the version is readable.
+///
+/// # Errors
+///
+/// [`LogError::VersionMismatch`] if the field is not four ASCII digits,
+/// its major differs from this build's, or its minor is greater.
 fn check_version(field: &[u8]) -> Result<(), LogError> {
     if field.len() != 4 || field.iter().any(|b| !b.is_ascii_digit()) {
         return Err(LogError::VersionMismatch);
@@ -245,14 +283,40 @@ fn check_version(field: &[u8]) -> Result<(), LogError> {
     }
 }
 
-/// Copies four bytes out of a header buffer at `off`.
+/// Copies four bytes out of a header buffer.
+///
+/// # Arguments
+///
+/// * `bytes` - The header buffer.
+/// * `off`   - Where the four bytes start in it.
+///
+/// # Returns
+///
+/// The four bytes.
+///
+/// # Panics
+///
+/// If `bytes` is shorter than `off` + 4.
 fn take4(bytes: &[u8], off: usize) -> [u8; 4] {
     let mut out = [0u8; 4];
     out.copy_from_slice(&bytes[off..off + 4]);
     out
 }
 
-/// Copies eight bytes out of a header buffer at `off`.
+/// Copies eight bytes out of a header buffer.
+///
+/// # Arguments
+///
+/// * `bytes` - The header buffer.
+/// * `off`   - Where the eight bytes start in it.
+///
+/// # Returns
+///
+/// The eight bytes.
+///
+/// # Panics
+///
+/// If `bytes` is shorter than `off` + 8.
 fn take8(bytes: &[u8], off: usize) -> [u8; 8] {
     let mut out = [0u8; 8];
     out.copy_from_slice(&bytes[off..off + 8]);
@@ -263,6 +327,11 @@ fn take8(bytes: &[u8], off: usize) -> [u8; 8] {
 mod tests {
     use super::*;
 
+    /// Builds a header with a distinct, recognizable value in every field.
+    ///
+    /// # Returns
+    ///
+    /// The header.
     fn sample() -> SegmentHeader {
         SegmentHeader {
             segment_id: SegId::from_u64(0x1122_3344_5566_7788),

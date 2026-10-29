@@ -136,6 +136,13 @@ _ITER_BUF_LEN = 64 * 1024
 
 
 def _lib_name() -> str:
+    """Names the shared library tcslog-c builds on this platform.
+
+    Returns:
+        Its file name: ``libtcslog_c.dylib`` on macOS, ``tcslog_c.dll``
+        on Windows and ``libtcslog_c.so`` elsewhere.
+
+    """
     if sys.platform == "darwin":
         return "libtcslog_c.dylib"
     if sys.platform == "win32":
@@ -144,6 +151,20 @@ def _lib_name() -> str:
 
 
 def _load() -> ctypes.CDLL:
+    """Loads the shared library, from the first place that has it.
+
+    Looks in turn at the path in ``TCSLOG_LIB``, beside this module,
+    wherever the loader finds ``tcslog_c``, and in the release and then
+    the debug build directory of the repository this module is in.
+
+    Returns:
+        The loaded library.
+
+    Raises:
+        OSError: If ``TCSLOG_LIB`` names a library that cannot be loaded,
+                 or no place has it.
+
+    """
     env = os.environ.get("TCSLOG_LIB")
     if env:
         return ctypes.CDLL(env)
@@ -439,6 +460,13 @@ class ReadTruncated(LogError):
     status = Status.READ_TRUNCATED
 
     def __init__(self, result: ReadResult, lost: int):
+        """Makes the exception for a truncated read.
+
+        Args:
+            result: What the read placed in the buffer.
+            lost:   The number of segment files found missing.
+
+        """
         super().__init__()
         self.result = result
         self.n = result.n
@@ -596,6 +624,13 @@ class _SegmentHeaderStruct(ctypes.Structure):
     ]
 
     def value(self) -> SegmentHeader:
+        """Converts the structure C filled in to its Python form.
+
+        Returns:
+            The header, its identifiers as :class:`SegId` and its format
+            as a :class:`Format`.
+
+        """
         return SegmentHeader(
             SegId(self.segment_id),
             SegId(self.session_id),
@@ -614,6 +649,17 @@ _Status = ctypes.c_int32
 
 
 def _declare(name: str, restype: Any, *argtypes: Any) -> Any:
+    """Gives a function of the library its C signature.
+
+    Args:
+        name:      The function's name in the library.
+        restype:   The ctypes type it returns, or None for ``void``.
+        *argtypes: The ctypes types of its parameters, in order.
+
+    Returns:
+        The function, ready to call.
+
+    """
     f = getattr(_lib, name)
     f.restype = restype
     f.argtypes = argtypes
@@ -736,8 +782,12 @@ _format_timestamp = _declare(
 
 
 def format_version() -> Tuple[int, int, int]:
-    """The stored format version this build reads and writes, as
-    ``(major, minor, patch)``."""
+    """The stored format version this build reads and writes.
+
+    Returns:
+        The version as ``(major, minor, patch)``.
+
+    """
     major, minor, patch = (
         ctypes.c_uint32(),
         ctypes.c_uint32(),
@@ -770,6 +820,17 @@ def status_str(status: int) -> str:
 
 
 def _raise(status: int) -> None:
+    """Raises the exception for a status the library returned.
+
+    Args:
+        status: A ``TcslogStatus`` value.
+
+    Raises:
+        LogError: The subclass for ``status``, or :class:`LogError`
+                  itself naming a status this module does not know;
+                  nothing is raised for :attr:`Status.OK`.
+
+    """
     if status != Status.OK:
         cls = _ERRORS.get(status)
         if cls is None:
@@ -797,6 +858,14 @@ class _Pin:
     __slots__ = ("obj", "view", "ptr", "cap")
 
     def __init__(self, obj: object, mv: memoryview) -> None:
+        """Pins a buffer, taking its address unless it is empty.
+
+        Args:
+            obj: The caller's buffer, kept to recognize it when it is
+                 passed again.
+            mv:  A writable byte view of ``obj``.
+
+        """
         self.obj = obj
         self.cap: int = mv.nbytes
         self.view: Optional[ctypes.c_char] = None
@@ -807,7 +876,19 @@ class _Pin:
 
 
 def _pin_buffer(current: Optional[_Pin], obj: BytesLike) -> _Pin:
-    """The pin for ``obj``, reusing ``current`` when it is the same buffer."""
+    """The pin for ``obj``, reusing ``current`` when it is the same buffer.
+
+    Args:
+        current: The pin last made, or None if there is none.
+        obj:     The buffer the library is to be given.
+
+    Returns:
+        ``current`` if it pins ``obj``, otherwise a new pin of ``obj``.
+
+    Raises:
+        TypeError: If ``obj`` is read-only.
+
+    """
     if current is not None and current.obj is obj:
         return current
     mv = memoryview(obj).cast("B")
@@ -851,6 +932,18 @@ class WriteCallbacks:
 
 
 def _overrides(handler: WriteCallbacks, name: str) -> bool:
+    """Tells whether a handler provides its own version of a callback.
+
+    Args:
+        handler: The callbacks a writer was given.
+        name:    The callback's method name, such as ``"send"``.
+
+    Returns:
+        True if ``handler``'s class overrides the method of
+        :class:`WriteCallbacks`, or, for a name that class lacks,
+        if ``handler`` has a callable attribute of that name.
+
+    """
     method = getattr(type(handler), name, None)
     if method is None:
         return callable(getattr(handler, name, None))
@@ -867,6 +960,19 @@ class LogWrite:
 
     Close it with :meth:`close`, or use it as a context manager. A close
     flushes the segment file being written and hands it to ``send``.
+
+    Args:
+        dir:          The log's directory.
+        prefix:       What each segment file's name starts with.
+        suffix:       What each segment file's name ends with.
+        seg_size_max: The most bytes a segment file may occupy, its own
+                      header included.
+        format:       How the records are laid out.
+        handler:      The callbacks, or None for none.
+
+    Raises:
+        LogError: The subclass for whatever made the open fail.
+
     """
 
     def __init__(
@@ -917,6 +1023,17 @@ class LogWrite:
     # The three trampolines C calls. Each is installed only when the
     # handler overrides the method, so the handler is never None here.
     def _on_send(self, _ctx: Optional[int], path: bytes) -> int:
+        """Passes a segment file being handed over to the handler's send.
+
+        Args:
+            _ctx: The context pointer C passes, unused.
+            path: The segment file's path.
+
+        Returns:
+            0 on success, or 1 if ``send`` raised, the exception being
+            kept for :meth:`_check` to re-raise.
+
+        """
         try:
             assert self._handler is not None
             self._handler.send(path.decode())
@@ -926,6 +1043,17 @@ class LogWrite:
             return 1
 
     def _on_record_complete(self, _ctx: Optional[int], fd: int) -> int:
+        """Passes the end of a record to the handler's record_complete.
+
+        Args:
+            _ctx: The context pointer C passes, unused.
+            fd:   The descriptor of the segment file open, or -1.
+
+        Returns:
+            0 on success, or 1 if ``record_complete`` raised, the
+            exception being kept for :meth:`_check` to re-raise.
+
+        """
         try:
             assert self._handler is not None
             self._handler.record_complete(fd)
@@ -937,6 +1065,15 @@ class LogWrite:
     def _on_timer_resolution_adjusted(
         self, _ctx: Optional[int], resolution_ns: int
     ) -> None:
+        """Passes a widened resolution to the handler's
+        timer_resolution_adjusted, keeping any exception it raises for
+        :meth:`_check` to re-raise.
+
+        Args:
+            _ctx:          The context pointer C passes, unused.
+            resolution_ns: The resolution now in force, in nanoseconds.
+
+        """
         try:
             assert self._handler is not None
             self._handler.timer_resolution_adjusted(resolution_ns)
@@ -944,6 +1081,20 @@ class LogWrite:
             self._pending = e
 
     def _check(self, status: int) -> None:
+        """Raises what a call into C, and any callback it made, failed with.
+
+        Args:
+            status: The ``TcslogStatus`` the call returned.
+
+        Raises:
+            LogError:      The subclass for ``status``, chained from the
+                           exception a callback raised, if any.
+            BaseException: An exception a callback raised during a call
+                           that succeeded, or one, such as
+                           KeyboardInterrupt, that is not an
+                           ``Exception``.
+
+        """
         pending, self._pending = self._pending, None
         if status == Status.OK:
             if pending is not None:
@@ -971,10 +1122,21 @@ class LogWrite:
     def write(self, msg: BytesLike) -> int:
         """Writes ``msg``, any bytes-like object, as one record.
 
-        Returns the bytes the record occupied in the log, its data header
-        included. ``bytes`` and writable buffers are passed to the
-        library in place, the latter pinned as the module documentation
-        describes; any other read-only buffer is copied first.
+        ``bytes`` and writable buffers are passed to the library in
+        place, the latter pinned as the module documentation describes;
+        any other read-only buffer is copied first.
+
+        Args:
+            msg: The record's payload.
+
+        Returns:
+            The bytes the record occupied in the log, its data header
+            included.
+
+        Raises:
+            ValueError: If the writer is closed.
+            LogError:   The subclass for whatever made the write fail.
+
         """
         h = self._handle()
         data: Union[bytes, int, None]
@@ -1005,7 +1167,12 @@ class LogWrite:
         self._check(_write_clear(self._handle()))
 
     def timer_resolution(self) -> int:
-        """The timer resolution this writer is working with, in nanoseconds."""
+        """The timer resolution this writer is working with.
+
+        Returns:
+            The resolution, in nanoseconds.
+
+        """
         self._check(
             _write_timer_resolution(self._handle(), ctypes.byref(self._u64))
         )
@@ -1018,7 +1185,12 @@ class LogWrite:
         return SegId(self._u64.value)
 
     def current_segment_id(self) -> SegId:
-        """The identifier of the segment file being written."""
+        """The identifier of the segment file being written.
+
+        Returns:
+            The identifier.
+
+        """
         self._check(
             _write_current_segment_id(self._handle(), ctypes.byref(self._u64))
         )
@@ -1065,6 +1237,16 @@ class LogRead:
     Opens the log in ``dir`` whose segment files are named ``prefix`` +
     identifier + ``suffix``. Close it with :meth:`close`, or use it as a
     context manager.
+
+    Args:
+        dir:    The log's directory.
+        prefix: What each segment file's name starts with.
+        suffix: What each segment file's name ends with.
+
+    Raises:
+        LogError: The subclass for whatever made the open fail, such as
+                  :class:`NoSegmentFiles`.
+
     """
 
     def __init__(self, dir: PathArg, prefix: str, suffix: str) -> None:
@@ -1098,11 +1280,22 @@ class LogRead:
         buffer is passed or the reader is closed; see the module
         documentation.
 
-        Returns a :class:`ReadResult` whose ``n`` bytes at the front of
-        ``buf`` are the record. Raises :class:`Eof` at the end of the
-        log; :class:`SessionEnd`, :class:`ReadTruncated` and
-        :class:`ReadOverflow` are followed by reading again, and the
-        last two carry what reached ``buf``.
+        Args:
+            buf: Where the record is placed.
+
+        Returns:
+            A :class:`ReadResult` whose ``n`` bytes at the front of
+            ``buf`` are the record.
+
+        Raises:
+            Eof:        At the end of the log.
+            LogError:   :class:`SessionEnd`, :class:`ReadTruncated` and
+                        :class:`ReadOverflow` are followed by reading
+                        again, and the last two carry what reached
+                        ``buf``; any other subclass is a failure.
+            ValueError: If the reader is closed.
+            TypeError:  If ``buf`` is read-only.
+
         """
         h = self._handle()
         pin = self._pin = _pin_buffer(self._pin, buf)
@@ -1132,6 +1325,10 @@ class LogRead:
         and marks a partial record ``truncated``. Ends at the end of the
         log and also at an :class:`IoError`, which it cannot report; a
         caller that must tell the two apart uses :meth:`read`.
+
+        Yields:
+            Each remaining record, as a :class:`Record`.
+
         """
         buf = bytearray(_ITER_BUF_LEN)
         while True:
@@ -1169,7 +1366,12 @@ class LogRead:
     def current_header(self) -> Optional[SegmentHeader]:
         """The header of the segment file now open, or ``None`` when none
         is: before the first read, and after one that raised :class:`Eof`,
-        :class:`SessionEnd` or :class:`ReadTruncated`."""
+        :class:`SessionEnd` or :class:`ReadTruncated`.
+
+        Returns:
+            The header, or None.
+
+        """
         _raise(
             _read_current_header(
                 self._handle(),
@@ -1186,8 +1388,12 @@ class LogRead:
         _raise(_read_collect_opened_headers(self._handle(), 1 if enable else 0))
 
     def take_opened_headers(self) -> List[SegmentHeader]:
-        """Removes and returns the headers retained since the last call,
-        oldest first."""
+        """Removes and returns the headers retained since the last call.
+
+        Returns:
+            The headers, oldest first.
+
+        """
         h = self._handle()
         out: List[SegmentHeader] = []
         while True:

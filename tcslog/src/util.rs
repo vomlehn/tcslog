@@ -28,9 +28,13 @@ pub const PREFIX_SUFFIX_MAX_CHARS: usize = 16;
 /// of them. A prefix that could hold a separator could steer a segment
 /// file out of the directory the caller named.
 ///
-/// * `text` -- the prefix or suffix to examine.
+/// # Arguments
 ///
-/// Returns true if `text` holds a path separator.
+/// * `text` - The prefix or suffix to examine.
+///
+/// # Returns
+///
+/// True if `text` holds a path separator.
 pub(crate) fn has_path_delimiter(text: &str) -> bool {
     text.chars()
         .any(|c| c == '/' || c == '\\' || std::path::is_separator(c))
@@ -39,12 +43,16 @@ pub(crate) fn has_path_delimiter(text: &str) -> bool {
 /// Checks the arguments common to opening a log for reading and for
 /// writing.
 ///
-/// * `dir` -- directory that holds the segment files. It must already
-///   exist; neither entry point creates it.
-/// * `prefix` -- first part of every segment file name.
-/// * `suffix` -- last part of every segment file name.
+/// # Arguments
 ///
-/// Returns the directory as a [`PathBuf`].
+/// * `dir`    - Directory that holds the segment files. It must already
+///              exist; neither entry point creates it.
+/// * `prefix` - First part of every segment file name.
+/// * `suffix` - Last part of every segment file name.
+///
+/// # Returns
+///
+/// The directory as a [`PathBuf`].
 ///
 /// # Errors
 ///
@@ -78,10 +86,12 @@ pub(crate) fn check_log_location(
 /// does not allocate, which is what lets a reader honour the crate's
 /// no-allocation guarantee while walking a log.
 ///
-/// * `buf` -- the name buffer, overwritten.
-/// * `prefix` -- first part of the name.
-/// * `id` -- segment ID, rendered between the prefix and the suffix.
-/// * `suffix` -- last part of the name.
+/// # Arguments
+///
+/// * `buf`    - The name buffer, overwritten.
+/// * `prefix` - First part of the name.
+/// * `id`     - Segment ID, rendered between the prefix and the suffix.
+/// * `suffix` - Last part of the name.
 pub(crate) fn build_name(
     buf: &mut String,
     prefix: &str,
@@ -99,13 +109,17 @@ pub(crate) fn build_name(
 
 /// Extracts the segment ID from a file name built by [`build_name`].
 ///
-/// * `name` -- the file name to examine.
-/// * `prefix` -- the prefix the log's names begin with.
-/// * `suffix` -- the suffix the log's names end with.
+/// # Arguments
 ///
-/// Returns the identifier, or `None` if the name does not belong to this
-/// log. A name that does not match is not an error: a directory may hold
-/// anything at all beside a log's segment files.
+/// * `name`   - The file name to examine.
+/// * `prefix` - The prefix the log's names begin with.
+/// * `suffix` - The suffix the log's names end with.
+///
+/// # Returns
+///
+/// The identifier, or `None` if the name does not belong to this log. A
+/// name that does not match is not an error: a directory may hold anything
+/// at all beside a log's segment files.
 pub(crate) fn id_from_name(
     name: &str,
     prefix: &str,
@@ -126,12 +140,16 @@ pub(crate) fn id_from_name(
 /// same order, the identifier being fixed-width zero-filled hexadecimal,
 /// but on the parsed values the intent is visible.
 ///
-/// * `dir` -- directory to scan.
-/// * `prefix` -- first part of the names to accept.
-/// * `suffix` -- last part of the names to accept.
+/// # Arguments
 ///
-/// Returns the sorted identifiers, which is empty when the directory
-/// holds no segment file of this log.
+/// * `dir`    - Directory to scan.
+/// * `prefix` - First part of the names to accept.
+/// * `suffix` - Last part of the names to accept.
+///
+/// # Returns
+///
+/// The sorted identifiers, which is empty when the directory holds no
+/// segment file of this log.
 ///
 /// # Errors
 ///
@@ -165,9 +183,13 @@ pub(crate) fn scan_segment_ids(
 /// not for the path that writes or reads one; [`write_timestamp`] is the
 /// same rendering without the allocation.
 ///
-/// * `ts` -- nanoseconds since the UNIX epoch.
+/// # Arguments
 ///
-/// Returns the rendered string.
+/// * `ts` - Nanoseconds since the UNIX epoch.
+///
+/// # Returns
+///
+/// The rendered string.
 #[must_use]
 pub fn format_timestamp(ts: Timestamp) -> String {
     let mut s = String::with_capacity(TIMESTAMP_STR_LEN);
@@ -184,8 +206,14 @@ pub const TIMESTAMP_STR_LEN: usize = 30;
 /// Renders a timestamp as [`format_timestamp`] does, into `w`, allocating
 /// nothing.
 ///
-/// * `w` -- where to write the [`TIMESTAMP_STR_LEN`] characters.
-/// * `ts` -- nanoseconds since the UNIX epoch.
+/// # Arguments
+///
+/// * `w`  - Where to write the [`TIMESTAMP_STR_LEN`] characters.
+/// * `ts` - Nanoseconds since the UNIX epoch.
+///
+/// # Returns
+///
+/// Nothing on success.
 ///
 /// # Errors
 ///
@@ -215,9 +243,13 @@ pub fn write_timestamp<W: fmt::Write + ?Sized>(
 /// after the epoch, which is the only range a `u64` nanosecond timestamp
 /// can reach.
 ///
-/// * `days` -- days since 1970-01-01.
+/// # Arguments
 ///
-/// Returns the year, month, and day.
+/// * `days` - Days since 1970-01-01.
+///
+/// # Returns
+///
+/// The year, month, and day.
 fn civil_from_days(days: u64) -> (u64, u64, u64) {
     // Shift the epoch to 0000-03-01, which puts the leap day at the end
     // of a 400-year era and makes the arithmetic uniform.
@@ -240,10 +272,14 @@ fn civil_from_days(days: u64) -> (u64, u64, u64) {
 /// reads the same coming out of a log as it did going in. Like
 /// [`format_timestamp`], it allocates the string it returns.
 ///
-/// * `payload_len` -- number of payload bytes the record holds.
-/// * `meta` -- the metadata the record carried.
+/// # Arguments
 ///
-/// Returns the trailer, parentheses included.
+/// * `payload_len` - Number of payload bytes the record holds.
+/// * `meta`        - The metadata the record carried.
+///
+/// # Returns
+///
+/// The trailer, parentheses included.
 #[must_use]
 pub fn record_trailer(payload_len: usize, meta: Meta) -> String {
     match meta {
