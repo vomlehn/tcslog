@@ -373,69 +373,70 @@ ul.auto-toc {
 <li><a class="reference internal" href="#advantages-when-things-go-wrong" id="toc-entry-4">Advantages when things go wrong</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#concepts" id="toc-entry-5">Concepts</a></li>
-<li><a class="reference internal" href="#building-and-installation" id="toc-entry-6">Building and Installation</a><ul>
-<li><a class="reference internal" href="#prerequisites" id="toc-entry-7">Prerequisites</a></li>
-<li><a class="reference internal" href="#the-real-time-clock-must-be-set" id="toc-entry-8">The real-time clock must be set</a></li>
-<li><a class="reference internal" href="#the-timer-resolution" id="toc-entry-9">The timer resolution</a></li>
-<li><a class="reference internal" href="#building-a-program-against-the-library" id="toc-entry-10">Building a program against the library</a></li>
-<li><a class="reference internal" href="#inspecting-a-log-tcslog-tools" id="toc-entry-11">Inspecting a log: tcslog-tools</a></li>
-<li><a class="reference internal" href="#running-the-sample" id="toc-entry-12">Running the sample</a></li>
-<li><a class="reference internal" href="#callbacks-with-a-context" id="toc-entry-13">Callbacks with a context</a><ul>
-<li><a class="reference internal" href="#handing-the-handler-over-or-lending-it" id="toc-entry-14">Handing the handler over, or lending it</a></li>
+<li><a class="reference internal" href="#limitations" id="toc-entry-5">Limitations</a></li>
+<li><a class="reference internal" href="#concepts" id="toc-entry-6">Concepts</a></li>
+<li><a class="reference internal" href="#building-and-installation" id="toc-entry-7">Building and Installation</a><ul>
+<li><a class="reference internal" href="#prerequisites" id="toc-entry-8">Prerequisites</a></li>
+<li><a class="reference internal" href="#the-real-time-clock-must-be-set" id="toc-entry-9">The real-time clock must be set</a></li>
+<li><a class="reference internal" href="#the-timer-resolution" id="toc-entry-10">The timer resolution</a></li>
+<li><a class="reference internal" href="#building-a-program-against-the-library" id="toc-entry-11">Building a program against the library</a></li>
+<li><a class="reference internal" href="#inspecting-a-log-tcslog-tools" id="toc-entry-12">Inspecting a log: tcslog-tools</a></li>
+<li><a class="reference internal" href="#running-the-sample" id="toc-entry-13">Running the sample</a></li>
+<li><a class="reference internal" href="#callbacks-with-a-context" id="toc-entry-14">Callbacks with a context</a><ul>
+<li><a class="reference internal" href="#handing-the-handler-over-or-lending-it" id="toc-entry-15">Handing the handler over, or lending it</a></li>
 </ul>
 </li>
 </ul>
 </li>
-<li><a class="reference internal" href="#record-formats" id="toc-entry-15">Record Formats</a><ul>
-<li><a class="reference internal" href="#choosing-a-segment-file-size" id="toc-entry-16">Choosing a segment file size</a></li>
+<li><a class="reference internal" href="#record-formats" id="toc-entry-16">Record Formats</a><ul>
+<li><a class="reference internal" href="#choosing-a-segment-file-size" id="toc-entry-17">Choosing a segment file size</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#functions" id="toc-entry-17">Functions</a><ul>
-<li><a class="reference internal" href="#writing-logwrite" id="toc-entry-18">Writing: LogWrite</a></li>
-<li><a class="reference internal" href="#reading-logread" id="toc-entry-19">Reading: LogRead</a></li>
-<li><a class="reference internal" href="#callbacks-writecallbacks" id="toc-entry-20">Callbacks: WriteCallbacks</a></li>
-<li><a class="reference internal" href="#results-and-errors" id="toc-entry-21">Results and errors</a></li>
+<li><a class="reference internal" href="#functions" id="toc-entry-18">Functions</a><ul>
+<li><a class="reference internal" href="#writing-logwrite" id="toc-entry-19">Writing: LogWrite</a></li>
+<li><a class="reference internal" href="#reading-logread" id="toc-entry-20">Reading: LogRead</a></li>
+<li><a class="reference internal" href="#callbacks-writecallbacks" id="toc-entry-21">Callbacks: WriteCallbacks</a></li>
+<li><a class="reference internal" href="#results-and-errors" id="toc-entry-22">Results and errors</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#calling-from-c-c" id="toc-entry-22">Calling From C/C++</a><ul>
-<li><a class="reference internal" href="#installing" id="toc-entry-23">Installing</a></li>
-<li><a class="reference internal" href="#how-the-interface-is-shaped" id="toc-entry-24">How the interface is shaped</a></li>
-<li><a class="reference internal" href="#writing" id="toc-entry-25">Writing</a></li>
-<li><a class="reference internal" href="#reading" id="toc-entry-26">Reading</a></li>
-<li><a class="reference internal" href="#callbacks-from-c-c" id="toc-entry-27">Callbacks from C/C++</a></li>
-<li><a class="reference internal" href="#the-c-interface-tcslog-hpp" id="toc-entry-28">The C++ interface: tcslog.hpp</a></li>
-<li><a class="reference internal" href="#allocation-in-the-c-c-binding" id="toc-entry-29">Allocation in the C/C++ binding</a></li>
-<li><a class="reference internal" href="#panics-do-not-cross-the-boundary" id="toc-entry-30">Panics do not cross the boundary</a></li>
-<li><a class="reference internal" href="#a-complete-program" id="toc-entry-31">A complete program</a></li>
+<li><a class="reference internal" href="#calling-from-c-c" id="toc-entry-23">Calling From C/C++</a><ul>
+<li><a class="reference internal" href="#installing" id="toc-entry-24">Installing</a></li>
+<li><a class="reference internal" href="#how-the-interface-is-shaped" id="toc-entry-25">How the interface is shaped</a></li>
+<li><a class="reference internal" href="#writing" id="toc-entry-26">Writing</a></li>
+<li><a class="reference internal" href="#reading" id="toc-entry-27">Reading</a></li>
+<li><a class="reference internal" href="#callbacks-from-c-c" id="toc-entry-28">Callbacks from C/C++</a></li>
+<li><a class="reference internal" href="#the-c-interface-tcslog-hpp" id="toc-entry-29">The C++ interface: tcslog.hpp</a></li>
+<li><a class="reference internal" href="#allocation-in-the-c-c-binding" id="toc-entry-30">Allocation in the C/C++ binding</a></li>
+<li><a class="reference internal" href="#panics-do-not-cross-the-boundary" id="toc-entry-31">Panics do not cross the boundary</a></li>
+<li><a class="reference internal" href="#a-complete-program" id="toc-entry-32">A complete program</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#calling-from-python-3" id="toc-entry-32">Calling From Python 3</a><ul>
-<li><a class="reference internal" href="#installing-the-package" id="toc-entry-33">Installing the package</a></li>
-<li><a class="reference internal" href="#how-the-python-interface-is-shaped" id="toc-entry-34">How the Python interface is shaped</a></li>
-<li><a class="reference internal" href="#callbacks-from-python" id="toc-entry-35">Callbacks from Python</a></li>
-<li><a class="reference internal" href="#allocation-in-python" id="toc-entry-36">Allocation in Python</a></li>
-<li><a class="reference internal" href="#a-complete-python-program" id="toc-entry-37">A complete Python program</a></li>
+<li><a class="reference internal" href="#calling-from-python-3" id="toc-entry-33">Calling From Python 3</a><ul>
+<li><a class="reference internal" href="#installing-the-package" id="toc-entry-34">Installing the package</a></li>
+<li><a class="reference internal" href="#how-the-python-interface-is-shaped" id="toc-entry-35">How the Python interface is shaped</a></li>
+<li><a class="reference internal" href="#callbacks-from-python" id="toc-entry-36">Callbacks from Python</a></li>
+<li><a class="reference internal" href="#allocation-in-python" id="toc-entry-37">Allocation in Python</a></li>
+<li><a class="reference internal" href="#a-complete-python-program" id="toc-entry-38">A complete Python program</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#theory-of-operation" id="toc-entry-38">Theory of Operation</a><ul>
-<li><a class="reference internal" href="#what-a-segment-file-carries" id="toc-entry-39">What a segment file carries</a></li>
-<li><a class="reference internal" href="#the-writer" id="toc-entry-40">The writer</a></li>
-<li><a class="reference internal" href="#the-clock-a-writer-keeps" id="toc-entry-41">The clock a writer keeps</a></li>
-<li><a class="reference internal" href="#learning-the-timer-resolution" id="toc-entry-42">Learning the timer resolution</a></li>
-<li><a class="reference internal" href="#the-cost-of-filling-every-file" id="toc-entry-43">The cost of filling every file</a></li>
-<li><a class="reference internal" href="#when-a-write-fails" id="toc-entry-44">When a write fails</a></li>
-<li><a class="reference internal" href="#the-reader" id="toc-entry-45">The reader</a></li>
-<li><a class="reference internal" href="#before-a-segment-file-may-be-used" id="toc-entry-46">Before a segment file may be used</a></li>
-<li><a class="reference internal" href="#crossing-from-one-segment-file-into-the-next" id="toc-entry-47">Crossing from one segment file into the next</a></li>
-<li><a class="reference internal" href="#losses-ahead-of-a-session" id="toc-entry-48">Losses ahead of a session</a></li>
-<li><a class="reference internal" href="#resynchronizing" id="toc-entry-49">Resynchronizing</a></li>
-<li><a class="reference internal" href="#recovering-a-record-whose-bookkeeping-was-lost" id="toc-entry-50">Recovering a record whose bookkeeping was lost</a></li>
-<li><a class="reference internal" href="#progress-is-guaranteed" id="toc-entry-51">Progress is guaranteed</a></li>
+<li><a class="reference internal" href="#theory-of-operation" id="toc-entry-39">Theory of Operation</a><ul>
+<li><a class="reference internal" href="#what-a-segment-file-carries" id="toc-entry-40">What a segment file carries</a></li>
+<li><a class="reference internal" href="#the-writer" id="toc-entry-41">The writer</a></li>
+<li><a class="reference internal" href="#the-clock-a-writer-keeps" id="toc-entry-42">The clock a writer keeps</a></li>
+<li><a class="reference internal" href="#learning-the-timer-resolution" id="toc-entry-43">Learning the timer resolution</a></li>
+<li><a class="reference internal" href="#the-cost-of-filling-every-file" id="toc-entry-44">The cost of filling every file</a></li>
+<li><a class="reference internal" href="#when-a-write-fails" id="toc-entry-45">When a write fails</a></li>
+<li><a class="reference internal" href="#the-reader" id="toc-entry-46">The reader</a></li>
+<li><a class="reference internal" href="#before-a-segment-file-may-be-used" id="toc-entry-47">Before a segment file may be used</a></li>
+<li><a class="reference internal" href="#crossing-from-one-segment-file-into-the-next" id="toc-entry-48">Crossing from one segment file into the next</a></li>
+<li><a class="reference internal" href="#losses-ahead-of-a-session" id="toc-entry-49">Losses ahead of a session</a></li>
+<li><a class="reference internal" href="#resynchronizing" id="toc-entry-50">Resynchronizing</a></li>
+<li><a class="reference internal" href="#recovering-a-record-whose-bookkeeping-was-lost" id="toc-entry-51">Recovering a record whose bookkeeping was lost</a></li>
+<li><a class="reference internal" href="#progress-is-guaranteed" id="toc-entry-52">Progress is guaranteed</a></li>
 </ul>
 </li>
-<li><a class="reference internal" href="#what-a-caller-should-do-with-each-outcome" id="toc-entry-52">What a caller should do with each outcome</a></li>
-<li><a class="reference internal" href="#see-also" id="toc-entry-53">See Also</a></li>
+<li><a class="reference internal" href="#what-a-caller-should-do-with-each-outcome" id="toc-entry-53">What a caller should do with each outcome</a></li>
+<li><a class="reference internal" href="#see-also" id="toc-entry-54">See Also</a></li>
 </ul>
 </div>
 <div class="section" id="introduction">
@@ -567,8 +568,58 @@ carries its own identity, so a file that has been renamed, or copied out
 of its directory, can still be identified and its contents examined.</p>
 </div>
 </div>
+<div class="section" id="limitations">
+<h1><a class="toc-backref" href="#toc-entry-5">Limitations</a></h1>
+<dl class="docutils">
+<dt>Record size</dt>
+<dd>A <tt class="docutils literal">Fixed(n)</tt> record's payload is exactly <tt class="docutils literal">n</tt> bytes, and <tt class="docutils literal">n</tt> is
+from 1 to 4294967295. A payload and its data header together fit in
+32 bits, so a <tt class="docutils literal">VariableSimple</tt> payload is 0 to 4294967291 bytes and
+a <tt class="docutils literal">VariableTsRc</tt> one 0 to 4294967275. A longer payload is refused
+with <tt class="docutils literal">PayloadTooLarge</tt>, and a <tt class="docutils literal">Fixed</tt> payload of any other length
+with <tt class="docutils literal">FixedLenMismatch</tt>. A record may be larger than a segment
+file: it continues into the next one.</dd>
+<dt>Segment file size</dt>
+<dd><tt class="docutils literal">seg_size_max</tt> is 32 bits, so a segment file is at most 4294967295
+bytes, its 53-byte header included. It must be more than the header
+and one data header: at least 54 bytes for <tt class="docutils literal">Fixed</tt>, 58 for
+<tt class="docutils literal">VariableSimple</tt> and 74 for <tt class="docutils literal">VariableTsRc</tt>. See <a class="reference internal" href="#choosing-a-segment-file-size">Choosing a
+segment file size</a>.</dd>
+<dt>Dates</dt>
+<dd>Timestamps and segment file identifiers are 64-bit unsigned counts of
+nanoseconds since the UNIX epoch, 1970-01-01T00:00:00Z. The latest
+they can hold is 2554-07-21T23:34:33.709551615Z. A writer refuses a
+real-time clock that reads the epoch itself with <tt class="docutils literal">ClockError</tt>.
+Past the latest date the clock stays at that value rather than
+wrapping, and Tcslog does not report it.</dd>
+<dt>Record count</dt>
+<dd>A <tt class="docutils literal">VariableTsRc</tt> record's count is a 64-bit unsigned number that
+starts at 1 in each session, so a session can count up to
+18446744073709551615 records. Nothing checks for more: at a million
+records a second, reaching it would take over 580,000 years. The
+sequence number of a session's segment files is also 64 bits, and
+stops at its largest value rather than wrapping.</dd>
+<dt>Reading</dt>
+<dd>The record iterator reads into a 64 KiB buffer, and returns a longer
+record cut short and marked as truncated; <tt class="docutils literal">read</tt> with a caller's
+buffer reports <tt class="docutils literal">ReadOverflow</tt> instead. A reader lists the log's
+files once, when it is opened, so it doesn't see files written after
+that.</dd>
+<dt>One writer per log</dt>
+<dd>Nothing locks a log. A new <tt class="docutils literal">LogWrite</tt> first hands every segment
+file already in the log to <tt class="docutils literal">send</tt>, so a second writer on the same
+directory, prefix and suffix would send away the files of the first.</dd>
+<dt>File names</dt>
+<dd>A segment file's name is the prefix, a 19-character identifier and
+the suffix, and the whole name must fit the file system's limit on
+names (255 bytes on most). A prefix or suffix may not contain <tt class="docutils literal">/</tt>
+or <tt class="docutils literal">\</tt>; one that does is refused with <tt class="docutils literal">PathDelimiterNotAllowed</tt>.
+The file system must be able to create a file only if it doesn't
+already exist, as Tcslog names new files that way.</dd>
+</dl>
+</div>
 <div class="section" id="concepts">
-<h1><a class="toc-backref" href="#toc-entry-5">Concepts</a></h1>
+<h1><a class="toc-backref" href="#toc-entry-6">Concepts</a></h1>
 <dl class="docutils">
 <dt>Segment file</dt>
 <dd>One file of a log. It holds a header followed by records. At most
@@ -596,15 +647,15 @@ would appear to hand back two records with the same number.</p>
 </dl>
 </div>
 <div class="section" id="building-and-installation">
-<h1><a class="toc-backref" href="#toc-entry-6">Building and Installation</a></h1>
+<h1><a class="toc-backref" href="#toc-entry-7">Building and Installation</a></h1>
 <div class="section" id="prerequisites">
-<h2><a class="toc-backref" href="#toc-entry-7">Prerequisites</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-8">Prerequisites</a></h2>
 <p>A Rust toolchain of version 1.75 or later. Tcslog depends on nothing
 outside the standard library except a small error-handling helper, so
 there is nothing else to install.</p>
 </div>
 <div class="section" id="the-real-time-clock-must-be-set">
-<h2><a class="toc-backref" href="#toc-entry-8">The real-time clock must be set</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-9">The real-time clock must be set</a></h2>
 <p><strong>The system's real-time clock must hold the correct time before any
 Tcslog function is called.</strong> On a system that acquires the time from
 elsewhere -- a ground station, a GPS receiver, an NTP server, a
@@ -622,7 +673,7 @@ real-time clock exactly once, when it is constructed, and a correction
 arriving after that does not reach the identifiers already minted.</p>
 </div>
 <div class="section" id="the-timer-resolution">
-<h2><a class="toc-backref" href="#toc-entry-9">The timer resolution</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-10">The timer resolution</a></h2>
 <p>A segment file is identified by the time it was created, so Tcslog needs
 to know how finely the writer's clock advances: when two files are named
 within one tick of it, the writer waits for the clock to move on, and it
@@ -674,7 +725,7 @@ tcslog = { version = &quot;0.4&quot;, default-features = false }
 </pre>
 </div>
 <div class="section" id="building-a-program-against-the-library">
-<h2><a class="toc-backref" href="#toc-entry-10">Building a program against the library</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-11">Building a program against the library</a></h2>
 <p>Name the crate as a dependency:</p>
 <pre class="literal-block">
 [dependencies]
@@ -739,7 +790,7 @@ pass a handler of its own, implementing <tt class="docutils literal">send</tt>; 
 segment file</a>.</p>
 </div>
 <div class="section" id="inspecting-a-log-tcslog-tools">
-<h2><a class="toc-backref" href="#toc-entry-11">Inspecting a log: tcslog-tools</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-12">Inspecting a log: tcslog-tools</a></h2>
 <p><tt class="docutils literal"><span class="pre">tcslog-dump</span></tt> reads a whole log and prints it, and <tt class="docutils literal"><span class="pre">tcslog-dumphdr</span></tt>
 prints one segment file's header. They are a separate crate,
 <tt class="docutils literal"><span class="pre">tcslog-tools</span></tt>, in its own repository: they only read a log, so they
@@ -758,7 +809,7 @@ expects <tt class="docutils literal"><span class="pre">../tcslog-tools</span></t
 points it somewhere else.</p>
 </div>
 <div class="section" id="running-the-sample">
-<h2><a class="toc-backref" href="#toc-entry-12">Running the sample</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-13">Running the sample</a></h2>
 <p>The <tt class="docutils literal">sample</tt> example writes a small demonstration log, so that it and
 <tt class="docutils literal"><span class="pre">tcslog-dump</span></tt> form a runnable pair for someone meeting the crate for
 the first time. It is an example of the library crate, so it needs no
@@ -781,7 +832,7 @@ complete illustration of the writing side: the segment size it picks,
 the callbacks it supplies, and what it does with the session ID.</p>
 </div>
 <div class="section" id="callbacks-with-a-context">
-<h2><a class="toc-backref" href="#toc-entry-13">Callbacks with a context</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-14">Callbacks with a context</a></h2>
 <p>Because <tt class="docutils literal">WriteCallbacks</tt> is a trait, the callbacks reach whatever the
 implementation holds -- a radio handle, a queue of files awaiting a
 downlink pass, a counter. That is the usual reason to implement it on
@@ -818,7 +869,7 @@ something other than a unit struct:</p>
 above: in particular <tt class="docutils literal">send</tt> must leave no file at the path it was
 given.</p>
 <div class="section" id="handing-the-handler-over-or-lending-it">
-<h3><a class="toc-backref" href="#toc-entry-14">Handing the handler over, or lending it</a></h3>
+<h3><a class="toc-backref" href="#toc-entry-15">Handing the handler over, or lending it</a></h3>
 <p>Passing the handler by value gives it to the writer, which lends it
 back through <tt class="docutils literal"><span class="pre">LogWrite::handler</span></tt> and <tt class="docutils literal"><span class="pre">LogWrite::handler_mut</span></tt>.
 Passing <tt class="docutils literal">&amp;mut handler</tt> instead leaves it with the caller:</p>
@@ -845,7 +896,7 @@ no callbacks.</p>
 </div>
 </div>
 <div class="section" id="record-formats">
-<h1><a class="toc-backref" href="#toc-entry-15">Record Formats</a></h1>
+<h1><a class="toc-backref" href="#toc-entry-16">Record Formats</a></h1>
 <p>The format is chosen when a log is created and cannot change within it.
 It fixes what each record may hold and how much every record costs
 beyond its payload.</p>
@@ -900,7 +951,7 @@ including an empty one, is refused.</td>
 Simple</tt></td>
 <td><p class="first">0 to
 <tt class="docutils literal">RecSize::
-MAX</tt>.</p>
+MAX</tt> - 4.</p>
 <p class="last">Empty records
 are allowed.</p>
 </td>
@@ -921,7 +972,7 @@ choice when records vary in size.</td>
 TsRc</tt></td>
 <td><p class="first">0 to
 <tt class="docutils literal">RecSize::
-MAX</tt>.</p>
+MAX</tt> - 20.</p>
 <p class="last">Empty records
 are allowed.</p>
 </td>
@@ -955,7 +1006,7 @@ bookkeeping.</td>
 </tbody>
 </table>
 <div class="section" id="choosing-a-segment-file-size">
-<h2><a class="toc-backref" href="#toc-entry-16">Choosing a segment file size</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-17">Choosing a segment file size</a></h2>
 <p><tt class="docutils literal">seg_size_max</tt> must be strictly greater than
 <tt class="docutils literal">SEGMENT_FILE_HEADER_LEN</tt> plus one data header for the format in use; a
 file that could not hold a single data header would leave the writer
@@ -974,12 +1025,12 @@ particular amount of telemetry per file adds the two.</p>
 </div>
 </div>
 <div class="section" id="functions">
-<h1><a class="toc-backref" href="#toc-entry-17">Functions</a></h1>
+<h1><a class="toc-backref" href="#toc-entry-18">Functions</a></h1>
 <p>Everything below is reached through the crate root, for example
 <tt class="docutils literal">use <span class="pre">tcslog::LogWrite;</span></tt>. Reading and writing both advance internal
 state, so those methods take <tt class="docutils literal">&amp;mut self</tt>.</p>
 <div class="section" id="writing-logwrite">
-<h2><a class="toc-backref" href="#toc-entry-18">Writing: LogWrite</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-19">Writing: LogWrite</a></h2>
 <dl class="docutils">
 <dt><tt class="docutils literal"><span class="pre">LogWrite::new(dir,</span> prefix, suffix, seg_size_max, format, handler) <span class="pre">-&gt;</span> Result&lt;LogWrite&lt;H&gt;, LogError&gt;</tt></dt>
 <dd><p class="first">Begins writing a log, in a new session. Every segment file already in
@@ -1111,7 +1162,7 @@ know.</dd>
 </dl>
 </div>
 <div class="section" id="reading-logread">
-<h2><a class="toc-backref" href="#toc-entry-19">Reading: LogRead</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-20">Reading: LogRead</a></h2>
 <dl class="docutils">
 <dt><tt class="docutils literal"><span class="pre">LogRead::new(dir,</span> prefix, suffix) <span class="pre">-&gt;</span> Result&lt;LogRead, LogError&gt;</tt></dt>
 <dd><p class="first">Opens an existing log for reading. No segment file is opened yet: the
@@ -1211,7 +1262,7 @@ read that ended the log still report the files it opened.</dd>
 </dl>
 </div>
 <div class="section" id="callbacks-writecallbacks">
-<h2><a class="toc-backref" href="#toc-entry-20">Callbacks: WriteCallbacks</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-21">Callbacks: WriteCallbacks</a></h2>
 <p>A trait, implemented on whatever the callbacks need to reach. The
 writer is generic over the implementation, so it sits inside the
 <tt class="docutils literal">LogWrite</tt> with no allocation and no dynamic dispatch, and a call
@@ -1320,7 +1371,7 @@ is the contract working as intended rather than something lost: once
 <tt class="docutils literal">send</tt> has taken a file, the library accounts for it no further.</p>
 </div>
 <div class="section" id="results-and-errors">
-<h2><a class="toc-backref" href="#toc-entry-21">Results and errors</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-22">Results and errors</a></h2>
 <dl class="docutils">
 <dt><tt class="docutils literal">ReadResult</tt></dt>
 <dd>What one successful read produced. <tt class="docutils literal">n</tt> is the number of payload
@@ -1471,7 +1522,7 @@ this build cannot read.</dd>
 </div>
 </div>
 <div class="section" id="calling-from-c-c">
-<h1><a class="toc-backref" href="#toc-entry-22">Calling From C/C++</a></h1>
+<h1><a class="toc-backref" href="#toc-entry-23">Calling From C/C++</a></h1>
 <p>The code producing telemetry on a flight system is often C or C++, and
 a library that code cannot call is one that does not get used where the
 data is. So a C or C++ program reaches the same two interfaces through
@@ -1492,7 +1543,7 @@ exactly as a C program does. <tt class="docutils literal">make <span class="pre"
 smoke test once as C11 and once as C++11 and runs both, so a header
 that only one of the two compilers accepted would fail the tests.</p>
 <div class="section" id="installing">
-<h2><a class="toc-backref" href="#toc-entry-23">Installing</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-24">Installing</a></h2>
 <p>From the repository root:</p>
 <pre class="literal-block">
 make install
@@ -1516,7 +1567,7 @@ fixed when the library is built and a C caller cannot supply it. See
 reports <tt class="docutils literal">TCSLOG_STATUS_TIMER_RESOLUTION_ZERO</tt> when a writer is opened.</p>
 </div>
 <div class="section" id="how-the-interface-is-shaped">
-<h2><a class="toc-backref" href="#toc-entry-24">How the interface is shaped</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-25">How the interface is shaped</a></h2>
 <p>Every function returns a <tt class="docutils literal">TcslogStatus</tt>, and everything the caller
 wants back is written through a pointer argument. That is what lets a C
 caller check an outcome without ambiguity: no status can be confused
@@ -1571,7 +1622,7 @@ recognize, so a program compiled against an older header still prints
 something.</p>
 </div>
 <div class="section" id="writing">
-<h2><a class="toc-backref" href="#toc-entry-25">Writing</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-26">Writing</a></h2>
 <dl class="docutils">
 <dt><tt class="docutils literal">tcslog_write_open(dir, prefix, suffix, seg_size_max, format_tag, fixed_len, cb, out)</tt></dt>
 <dd>Begins writing, as <tt class="docutils literal"><span class="pre">LogWrite::new</span></tt> does and with the same
@@ -1617,7 +1668,7 @@ report.</p>
 </dl>
 </div>
 <div class="section" id="reading">
-<h2><a class="toc-backref" href="#toc-entry-26">Reading</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-27">Reading</a></h2>
 <dl class="docutils">
 <dt><tt class="docutils literal">tcslog_read_open(dir, prefix, suffix, out)</tt></dt>
 <dd>Begins reading, as <tt class="docutils literal"><span class="pre">LogRead::new</span></tt> does.</dd>
@@ -1681,7 +1732,7 @@ this one. A buffer that overflowed once is too small for the log, and
 the remedy is a bigger buffer next time rather than a retry now.</p>
 </div>
 <div class="section" id="callbacks-from-c-c">
-<h2><a class="toc-backref" href="#toc-entry-27">Callbacks from C/C++</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-28">Callbacks from C/C++</a></h2>
 <p>A writer is given its callbacks when it is opened, in a
 <tt class="docutils literal">TcslogCallbacks</tt> that also carries the context they are handed back:</p>
 <pre class="literal-block">
@@ -1735,7 +1786,7 @@ there must be no file at the path it was given and none matching the
 log's naming pattern. See <a class="reference internal" href="#callbacks-writecallbacks">Callbacks: WriteCallbacks</a>.</p>
 </div>
 <div class="section" id="the-c-interface-tcslog-hpp">
-<h2><a class="toc-backref" href="#toc-entry-28">The C++ interface: tcslog.hpp</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-29">The C++ interface: tcslog.hpp</a></h2>
 <p>A C++ program may call the C functions above directly, and everything in
 this chapter applies to it. <tt class="docutils literal">tcslog.hpp</tt>, installed beside
 <tt class="docutils literal">tcslog.h</tt>, is the alternative: the same interface in classes named
@@ -1793,7 +1844,7 @@ which is built with those flags and replaces the global <tt class="docutils lite
 with one that counts, and checks that the count stays at zero.</p>
 </div>
 <div class="section" id="allocation-in-the-c-c-binding">
-<h2><a class="toc-backref" href="#toc-entry-29">Allocation in the C/C++ binding</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-30">Allocation in the C/C++ binding</a></h2>
 <p>Writing, reading, flushing, and the queries allocate nothing, as in the
 library: a record is read into the caller's buffer, and the path handed
 to <tt class="docutils literal">send</tt> is built in a buffer the writer reserved when it was opened.
@@ -1816,7 +1867,7 @@ failure does not allocate.</li>
 address sanitizer, which checks that every handle opened is freed.</p>
 </div>
 <div class="section" id="panics-do-not-cross-the-boundary">
-<h2><a class="toc-backref" href="#toc-entry-30">Panics do not cross the boundary</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-31">Panics do not cross the boundary</a></h2>
 <p>Letting a panic unwind out of a C or C++ function is undefined behaviour, so
 every function catches one and reports <tt class="docutils literal">TCSLOG_STATUS_PANIC</tt> instead.
 A caller that sees it should treat the handle as unusable: the panic
@@ -1824,7 +1875,7 @@ happened part way through an operation and the binding cannot say how
 far.</p>
 </div>
 <div class="section" id="a-complete-program">
-<h2><a class="toc-backref" href="#toc-entry-31">A complete program</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-32">A complete program</a></h2>
 <p>Writing a log and reading it back:</p>
 <pre class="code c literal-block">
 <span class="comment preproc">#include</span><span class="whitespace"> </span><span class="comment preprocfile">&lt;stdio.h&gt;</span><span class="comment preproc">
@@ -1926,7 +1977,7 @@ C and C++, which costs only an explicit cast from <tt class="docutils literal">v
 </div>
 </div>
 <div class="section" id="calling-from-python-3">
-<h1><a class="toc-backref" href="#toc-entry-32">Calling From Python 3</a></h1>
+<h1><a class="toc-backref" href="#toc-entry-33">Calling From Python 3</a></h1>
 <p>A Python 3 program reaches the same two interfaces through the
 <tt class="docutils literal">tcslog</tt> package in <tt class="docutils literal"><span class="pre">tcslog-py</span></tt>. It is pure Python over <tt class="docutils literal">ctypes</tt>,
 calling the very functions of the C ABI a C or C++ program calls, so it
@@ -1934,7 +1985,7 @@ needs nothing compiled beyond that library and has no dependencies
 outside the standard library. A log written from Python is read from
 Rust or C/C++, and the other way round.</p>
 <div class="section" id="installing-the-package">
-<h2><a class="toc-backref" href="#toc-entry-33">Installing the package</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-34">Installing the package</a></h2>
 <p><tt class="docutils literal">make install</tt>, described under <a class="reference internal" href="#installing">Installing</a> in <a class="reference internal" href="#calling-from-c-c">Calling From
 C/C++</a>, installs the package along with the header and libraries.
 Under the default <tt class="docutils literal">PREFIX</tt> it goes to the user site directory, which
@@ -1956,7 +2007,7 @@ install</tt> puts a link to the installed library beside the package, so
 an installed package needs neither variable.</p>
 </div>
 <div class="section" id="how-the-python-interface-is-shaped">
-<h2><a class="toc-backref" href="#toc-entry-34">How the Python interface is shaped</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-35">How the Python interface is shaped</a></h2>
 <p>The names are the Rust crate's, with Python's conventions where the two
 differ:</p>
 <table border="1" class="docutils">
@@ -2142,7 +2193,7 @@ object and returns the bytes the record occupied, its data header
 included.</p>
 </div>
 <div class="section" id="callbacks-from-python">
-<h2><a class="toc-backref" href="#toc-entry-35">Callbacks from Python</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-36">Callbacks from Python</a></h2>
 <p>A writer's callbacks are the methods of a <tt class="docutils literal">tcslog.WriteCallbacks</tt>
 subclass, passed as the last argument when it is opened:</p>
 <pre class="literal-block">
@@ -2175,7 +2226,7 @@ handed the descriptor of a file the library still owns, as in C/C++,
 and must not close it.</p>
 </div>
 <div class="section" id="allocation-in-python">
-<h2><a class="toc-backref" href="#toc-entry-36">Allocation in Python</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-37">Allocation in Python</a></h2>
 <p>The library underneath allocates nothing to write or read a record,
 and the package keeps to that as far as Python allows. <tt class="docutils literal">LogRead.read</tt>
 places the record in the caller's buffer rather than returning a new
@@ -2205,7 +2256,7 @@ per iterator, as <tt class="docutils literal"><span class="pre">LogRead::iter</s
 </ul>
 </div>
 <div class="section" id="a-complete-python-program">
-<h2><a class="toc-backref" href="#toc-entry-37">A complete Python program</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-38">A complete Python program</a></h2>
 <p>Writing a log and reading it back:</p>
 <pre class="code python literal-block">
 <span class="keyword namespace">import</span><span class="whitespace"> </span><span class="name namespace">tempfile</span><span class="whitespace">
@@ -2249,9 +2300,9 @@ drives the binding through.</p>
 </div>
 </div>
 <div class="section" id="theory-of-operation">
-<h1><a class="toc-backref" href="#toc-entry-38">Theory of Operation</a></h1>
+<h1><a class="toc-backref" href="#toc-entry-39">Theory of Operation</a></h1>
 <div class="section" id="what-a-segment-file-carries">
-<h2><a class="toc-backref" href="#toc-entry-39">What a segment file carries</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-40">What a segment file carries</a></h2>
 <p>Everything in this section rests on three things each segment file
 records about itself, beyond the telemetry:</p>
 <dl class="docutils">
@@ -2274,7 +2325,7 @@ the unusable front of one.</dd>
 </dl>
 </div>
 <div class="section" id="the-writer">
-<h2><a class="toc-backref" href="#toc-entry-40">The writer</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-41">The writer</a></h2>
 <p><tt class="docutils literal"><span class="pre">LogWrite::new</span></tt> hands over whatever segment files it finds, so the
 library stops accounting for their storage, and then starts a session by
 creating that session's first segment file. Each new file is named for
@@ -2305,7 +2356,7 @@ owed. A record spanning several files therefore rolls several times, and
 stranded in a file nobody was told about.</p>
 </div>
 <div class="section" id="the-clock-a-writer-keeps">
-<h2><a class="toc-backref" href="#toc-entry-41">The clock a writer keeps</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-42">The clock a writer keeps</a></h2>
 <p>A segment file's identifier is the time it was created, in nanoseconds
 since the UNIX epoch, and a reader relies on those identifiers sorting
 into the order the files were written: it collects the files by name,
@@ -2374,7 +2425,7 @@ however long it lasted; the standard library exposes no clock that counts
 suspended time.</p>
 </div>
 <div class="section" id="learning-the-timer-resolution">
-<h2><a class="toc-backref" href="#toc-entry-42">Learning the timer resolution</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-43">Learning the timer resolution</a></h2>
 <p>The retry above rests on the supplied <tt class="docutils literal">TIMER_RESOLUTION</tt> really being as
 coarse as the clock. That figure is awkward to establish: it is a property
 of the machine, the standard library does not report it, and the sleep it
@@ -2410,7 +2461,7 @@ discover that it cannot widen its way out -- and why an unset
 than corrected here.</p>
 </div>
 <div class="section" id="the-cost-of-filling-every-file">
-<h2><a class="toc-backref" href="#toc-entry-43">The cost of filling every file</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-44">The cost of filling every file</a></h2>
 <p>Letting a record begin wherever there is room means a record's
 bookkeeping can straddle a boundary, with its payload length split across
 two files. This is a deliberate trade, and it has a price worth stating
@@ -2428,7 +2479,7 @@ unambiguous evidence of damage rather than something the writer does in
 the ordinary course of events.</p>
 </div>
 <div class="section" id="when-a-write-fails">
-<h2><a class="toc-backref" href="#toc-entry-44">When a write fails</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-45">When a write fails</a></h2>
 <p>If writing to a segment file fails, the file is given up rather than
 retried: its contents can no longer be trusted. It is closed and handed
 to <tt class="docutils literal">send</tt>, a fresh file is opened so the next write has somewhere to
@@ -2441,7 +2492,7 @@ log. The error says that record did not make it; the next call carries
 on.</p>
 </div>
 <div class="section" id="the-reader">
-<h2><a class="toc-backref" href="#toc-entry-45">The reader</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-46">The reader</a></h2>
 <p><tt class="docutils literal"><span class="pre">LogRead::new</span></tt> lists the directory, keeps the files whose names match
 the prefix and suffix, and sorts them by the identifiers in those names.
 Since an identifier is the time the file was created, that sorts them
@@ -2465,7 +2516,7 @@ that the next read starts at the following record.</li>
 </ol>
 </div>
 <div class="section" id="before-a-segment-file-may-be-used">
-<h2><a class="toc-backref" href="#toc-entry-46">Before a segment file may be used</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-47">Before a segment file may be used</a></h2>
 <p>A file must satisfy all of the following, or it is passed over:</p>
 <ul class="simple">
 <li>it opens, and its length can be obtained;</li>
@@ -2486,7 +2537,7 @@ file and a missing one are therefore reported alike, which is the
 behaviour a caller can actually rely on.</p>
 </div>
 <div class="section" id="crossing-from-one-segment-file-into-the-next">
-<h2><a class="toc-backref" href="#toc-entry-47">Crossing from one segment file into the next</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-48">Crossing from one segment file into the next</a></h2>
 <p>A record may span files, so mid-record the reader crosses into the next
 one. Before consuming a single byte of it, three things must hold.</p>
 <p><strong>The new file must owe exactly what is outstanding.</strong> If the reader has
@@ -2542,7 +2593,7 @@ the resynchronize flag, and reports <tt class="docutils literal">ReadTruncated</
 files missing and the number of payload bytes that did reach the caller.</p>
 </div>
 <div class="section" id="losses-ahead-of-a-session">
-<h2><a class="toc-backref" href="#toc-entry-48">Losses ahead of a session</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-49">Losses ahead of a session</a></h2>
 <p>Both checks above happen at a crossing, so neither can see files lost
 <em>before</em> the first surviving file of a session: nothing crosses into it,
 and what it says it is owed describes a record whose opening files are
@@ -2555,7 +2606,7 @@ did survive are still returned by later reads.</p>
 lost would begin part way through it and report nothing at all.</p>
 </div>
 <div class="section" id="resynchronizing">
-<h2><a class="toc-backref" href="#toc-entry-49">Resynchronizing</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-50">Resynchronizing</a></h2>
 <p>With the flag set, the next read finds the start of the next whole
 record. It opens segment files in turn until one offers a record
 boundary:</p>
@@ -2576,7 +2627,7 @@ still to come, but not where the record started, and without its
 bookkeeping a whole payload cannot be told from the tail of one.</p>
 </div>
 <div class="section" id="recovering-a-record-whose-bookkeeping-was-lost">
-<h2><a class="toc-backref" href="#toc-entry-50">Recovering a record whose bookkeeping was lost</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-51">Recovering a record whose bookkeeping was lost</a></h2>
 <p>There is one case where arithmetic settles it, and the reader tries it
 before giving up. Suppose exactly one segment file is missing, the file
 after it continues a record, and that record's length was known before
@@ -2609,7 +2660,7 @@ cannot be reconstructed, and <tt class="docutils literal">Fixed</tt> has no per-
 a gap to swallow.</p>
 </div>
 <div class="section" id="progress-is-guaranteed">
-<h2><a class="toc-backref" href="#toc-entry-51">Progress is guaranteed</a></h2>
+<h2><a class="toc-backref" href="#toc-entry-52">Progress is guaranteed</a></h2>
 <p>Wherever the reader arms the resynchronize flag, the next read makes
 progress. Finding the next record start either opens a file successfully,
 clearing the flag and yielding the next record, or runs out of files and
@@ -2621,7 +2672,7 @@ the reader, and simply read again.</p>
 </div>
 </div>
 <div class="section" id="what-a-caller-should-do-with-each-outcome">
-<h1><a class="toc-backref" href="#toc-entry-52">What a caller should do with each outcome</a></h1>
+<h1><a class="toc-backref" href="#toc-entry-53">What a caller should do with each outcome</a></h1>
 <p>Reading a log produces one of six outcomes. What each asks of a caller
 follows; that the reader is always fit to continue is the subject of
 <a class="reference internal" href="#progress-is-guaranteed">Progress is guaranteed</a>.</p>
@@ -2658,7 +2709,7 @@ that reads until the log is finished and treats everything else as an
 annotation on the records it got.</p>
 </div>
 <div class="section" id="see-also">
-<h1><a class="toc-backref" href="#toc-entry-53">See Also</a></h1>
+<h1><a class="toc-backref" href="#toc-entry-54">See Also</a></h1>
 <dl class="docutils">
 <dt><a class="reference external" href="https://vomlehn.github.io/tcslog/docs/design.html">Tcslog design</a></dt>
 <dd>The Tcslog specification: the on-disk format, the public interfaces,

@@ -154,6 +154,61 @@ whole one.
 carries its own identity, so a file that has been renamed, or copied out
 of its directory, can still be identified and its contents examined.
 
+Limitations
+===========
+
+Record size
+    A ``Fixed(n)`` record's payload is exactly ``n`` bytes, and ``n`` is
+    from 1 to 4294967295. A payload and its data header together fit in
+    32 bits, so a ``VariableSimple`` payload is 0 to 4294967291 bytes and
+    a ``VariableTsRc`` one 0 to 4294967275. A longer payload is refused
+    with ``PayloadTooLarge``, and a ``Fixed`` payload of any other length
+    with ``FixedLenMismatch``. A record may be larger than a segment
+    file: it continues into the next one.
+
+Segment file size
+    ``seg_size_max`` is 32 bits, so a segment file is at most 4294967295
+    bytes, its 53-byte header included. It must be more than the header
+    and one data header: at least 54 bytes for ``Fixed``, 58 for
+    ``VariableSimple`` and 74 for ``VariableTsRc``. See `Choosing a
+    segment file size`_.
+
+Dates
+    Timestamps and segment file identifiers are 64-bit unsigned counts of
+    nanoseconds since the UNIX epoch, 1970-01-01T00:00:00Z. The latest
+    they can hold is 2554-07-21T23:34:33.709551615Z. A writer refuses a
+    real-time clock that reads the epoch itself with ``ClockError``.
+    Past the latest date the clock stays at that value rather than
+    wrapping, and Tcslog does not report it.
+
+Record count
+    A ``VariableTsRc`` record's count is a 64-bit unsigned number that
+    starts at 1 in each session, so a session can count up to
+    18446744073709551615 records. Nothing checks for more: at a million
+    records a second, reaching it would take over 580,000 years. The
+    sequence number of a session's segment files is also 64 bits, and
+    stops at its largest value rather than wrapping.
+
+Reading
+    The record iterator reads into a 64 KiB buffer, and returns a longer
+    record cut short and marked as truncated; ``read`` with a caller's
+    buffer reports ``ReadOverflow`` instead. A reader lists the log's
+    files once, when it is opened, so it doesn't see files written after
+    that.
+
+One writer per log
+    Nothing locks a log. A new ``LogWrite`` first hands every segment
+    file already in the log to ``send``, so a second writer on the same
+    directory, prefix and suffix would send away the files of the first.
+
+File names
+    A segment file's name is the prefix, a 19-character identifier and
+    the suffix, and the whole name must fit the file system's limit on
+    names (255 bytes on most). A prefix or suffix may not contain ``/``
+    or ``\``; one that does is refused with ``PathDelimiterNotAllowed``.
+    The file system must be able to create a file only if it doesn't
+    already exist, as Tcslog names new files that way.
+
 Concepts
 ========
 
@@ -491,7 +546,7 @@ integers.
    +----------------+----------------+---------------------------------+----------------------------------------+
    | ``Variable     | 0 to           | ``n``: ``RecSize``. The number  | Telemetry of varying size that         |
    | Simple``       | ``RecSize::    | of payload bytes in this        | already carries its own timestamp:     |
-   |                | MAX``.         | record.                         | text messages, packets from a bus      |
+   |                | MAX`` - 4.     | record.                         | text messages, packets from a bus      |
    |                |                |                                 | that stamps them, anything already     |
    |                | Empty records  | **4 bytes per record.**         | timed upstream. Pays for a length      |
    |                | are allowed.   |                                 | and nothing else. This is the usual    |
@@ -499,7 +554,7 @@ integers.
    +----------------+----------------+---------------------------------+----------------------------------------+
    | ``Variable     | 0 to           | ``n``: ``RecSize``. The number  | Telemetry that must be dated and       |
    | TsRc``         | ``RecSize::    | of payload bytes in this        | counted by the logger rather than by   |
-   |                | MAX``.         | record.                         | its source: sensors that report no     |
+   |                | MAX`` - 20.    | record.                         | its source: sensors that report no     |
    |                |                |                                 | time of their own, or a log that must  |
    |                | Empty records  | ``timestamp``: ``Timestamp``.   | show the order and spacing of what it  |
    |                | are allowed.   | When the record was written, as | received. The record count also        |
