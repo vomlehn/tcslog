@@ -587,11 +587,30 @@ with <tt class="docutils literal">PayloadTooLarge</tt>, and a <tt class="docutil
 with <tt class="docutils literal">FixedLenMismatch</tt>. A record may be larger than a segment
 file: it continues into the next one.</dd>
 <dt>Segment file size</dt>
-<dd><tt class="docutils literal">seg_size_max</tt> is 32 bits, so a segment file is at most 4294967295
+<dd><p class="first"><tt class="docutils literal">seg_size_max</tt> is 32 bits, so a segment file is at most 4294967295
 bytes, its 53-byte header included. It must be more than the header
 and one data header: at least 54 bytes for <tt class="docutils literal">Fixed</tt>, 58 for
 <tt class="docutils literal">VariableSimple</tt> and 74 for <tt class="docutils literal">VariableTsRc</tt>. See <a class="reference internal" href="#choosing-a-segment-file-size">Choosing a
-segment file size</a>.</dd>
+segment file size</a>.</p>
+<p>The header's length is fixed by the on-disk format's version, of
+which only the major and minor numbers matter here:</p>
+<table border="1" class="last docutils">
+<colgroup>
+<col width="37%" />
+<col width="63%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">Version</th>
+<th class="head">Header bytes</th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>1.0</td>
+<td>53</td>
+</tr>
+</tbody>
+</table>
+</dd>
 <dt>Dates</dt>
 <dd>Timestamps and segment file identifiers are 64-bit unsigned counts of
 nanoseconds since the UNIX epoch, 1970-01-01T00:00:00Z. The latest

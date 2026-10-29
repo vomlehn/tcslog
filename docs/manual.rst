@@ -181,6 +181,15 @@ Segment file size
     ``VariableSimple`` and 74 for ``VariableTsRc``. See `Choosing a
     segment file size`_.
 
+    The header's length is fixed by the on-disk format's version, of
+    which only the major and minor numbers matter here:
+
+    =======  ============
+    Version  Header bytes
+    =======  ============
+    1.0      53
+    =======  ============
+
 Dates
     Timestamps and segment file identifiers are 64-bit unsigned counts of
     nanoseconds since the UNIX epoch, 1970-01-01T00:00:00Z. The latest
