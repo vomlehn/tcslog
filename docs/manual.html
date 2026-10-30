@@ -489,6 +489,22 @@ time, as each one fills, rather than as one growing file that must be
 sent whole. A pass over a ground station that is too short for the whole
 log is still long enough for some of it, and what has already gone down
 is a set of files that can simply be skipped.</p>
+<p><strong>Storage can be freed a piece at a time.</strong> If storage starts to run
+low, part of a log can be deleted without deleting all of it: each
+segment file is a file of its own, and the rest of the log still reads
+without it. A segment file's name says when it was created -- its
+identifier is the creation time in nanoseconds since the UNIX epoch, as
+four groups of four lower-case hexadecimal digits, so the names sort in
+the order the files were made -- which makes it easy to choose what
+goes: the oldest data, the newest, or files picked at random from all
+through the log, thinning it evenly rather than cutting off one end. A
+reader treats a deleted file as a lost one (see <a class="reference internal" href="#advantages-when-things-go-wrong">Advantages when things
+go wrong</a>): it reports the gap and carries on, and what goes is that
+file's records and at most one more that straddled its boundary. It can
+only report what it can see, though: files deleted from before or
+between the surviving files of a session are counted, but a session's
+last files, or a whole session, may go without a trace. Leave alone the
+file the writer has open, which while it runs is the newest one.</p>
 <p><strong>No allocation once running.</strong> Writing a record and reading a record
 allocate nothing, so a Tcslog log can be written and read on a system
 with a fixed memory budget and no heap to grow. Records are read into a
