@@ -2167,6 +2167,10 @@ to it: the library crate itself contains none.</p>
 source by <tt class="docutils literal">cbindgen</tt> and is not written by hand. <tt class="docutils literal">make header</tt>
 regenerates it and <tt class="docutils literal">make check</tt> fails if it is out of date, so a
 header that no longer describes the binding cannot reach a caller.</p>
+<p>cbindgen copies each function's doc comment as rustdoc has it, so
+<tt class="docutils literal"><span class="pre">tcslog-c/rustdoc_to_doxygen.py</span></tt> rewrites the comments' <tt class="docutils literal"># Arguments</tt>
+and <tt class="docutils literal"># Returns</tt> sections as Doxygen <tt class="docutils literal">&#64;param</tt> and <tt class="docutils literal">&#64;return</tt>
+commands, which is what a C or C++ reader's tools understand.</p>
 <p>The header must compile as C11 and as C++11 and mean the same in both:
 its functions are declared inside <tt class="docutils literal">extern &quot;C&quot;</tt> when compiled as C++,
 and its enums are given a fixed underlying type there, so a C++ caller
