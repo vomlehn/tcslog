@@ -154,6 +154,37 @@ whole one.
 carries its own identity, so a file that has been renamed, or copied out
 of its directory, can still be identified and its contents examined.
 
+Alternatives
+============
+
+The main alternative is Linux's ``logrotate``: a program writes one
+growing log file, and ``logrotate``, run periodically, renames it once it
+passes a size or an age and starts a fresh one, keeping a set number of
+old ones. For a program that only ever runs on Linux, and whose log is
+only ever read on the machine that wrote it, that is often enough.
+Tcslog is for when it is not.
+
+**It is Linux only.** ``logrotate`` is part of Linux distributions, and
+the other operating systems a vehicle's computers may run, such as
+real-time operating systems, do not offer it. Tcslog is a library linked
+into the program that writes the log, so it goes wherever the program
+goes.
+
+**Its control of storage space is not deterministic.** ``logrotate``
+looks at a log only when it runs, so between runs the file grows without
+bound: a burst of telemetry can fill the storage before the next run
+comes. When it does rotate, the old file is whatever size it had reached.
+Tcslog rolls at the moment a segment file reaches its maximum, and every
+file but the one being written is exactly that size, so the space a log
+occupies is known in advance. See `Advantages in normal operation`_.
+
+**It does not handle segments lost on the vehicle.** A rotated file
+holds no record of which file it is or what came before it, so a reader
+cannot tell that one has gone missing, nor whether the first line of the
+next one is whole. Tcslog's segment files say where they belong, and its
+reader finds a lost file, says how much was lost, and carries on from the
+next whole record. See `Advantages when things go wrong`_.
+
 Limitations
 ===========
 
