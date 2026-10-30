@@ -861,6 +861,8 @@ from the registry:</p>
 <pre class="literal-block">
 cargo install tcslog-tools
 </pre>
+<p>or as the <tt class="docutils literal"><span class="pre">tcslog-tools</span></tt> package, which <tt class="docutils literal">make deb</tt> and <tt class="docutils literal">make rpm</tt>
+in that repository build, installing both under <tt class="docutils literal">/opt/tcs/bin</tt>.</p>
 <p>Their own documentation -- installing them, their arguments, and their
 options -- is <tt class="docutils literal"><span class="pre">docs/tcslog-tools.rst</span></tt> in the <a class="reference external" href="https://github.com/vomlehn/tcslog-tools">tcslog-tools repository</a>.</p>
 <p>The error-recovery suite under <tt class="docutils literal">test/</tt> drives both tools, so it needs
@@ -1617,23 +1619,132 @@ smoke test once as C11 and once as C++11 and runs both, so a header
 that only one of the two compilers accepted would fail the tests.</p>
 <div class="section" id="installing">
 <h2><a class="toc-backref" href="#toc-entry-25">Installing</a></h2>
-<p>From the repository root:</p>
+<p>Everything installs under <tt class="docutils literal">/opt/tcs</tt>, the tree the TCS packages share,
+which is FHS 3.0's <tt class="docutils literal"><span class="pre">/opt/&lt;package&gt;</span></tt>:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="61%" />
+<col width="39%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><tt class="docutils literal"><span class="pre">bin/tcslog-gen</span></tt></td>
+<td>writes test logs</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sbin/tcslog-links</span></tt></td>
+<td>links the programs into
+<tt class="docutils literal">/usr/local/bin</tt></td>
+</tr>
+<tr><td><tt class="docutils literal">include/tcslog.h</tt>, <tt class="docutils literal">tcslog.hpp</tt></td>
+<td>the C and C++ headers</td>
+</tr>
+<tr><td><tt class="docutils literal">lib/libtcslog.so.1</tt></td>
+<td>the shared library, with
+<tt class="docutils literal">libtcslog.so</tt> linked to it</td>
+</tr>
+<tr><td><tt class="docutils literal">lib/libtcslog.a</tt></td>
+<td>the static library</td>
+</tr>
+<tr><td><tt class="docutils literal">lib/pkgconfig/tcslog.pc</tt></td>
+<td>its pkg-config file</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">lib/python3/site-packages/tcslog/</span></tt></td>
+<td>the Python 3 package</td>
+</tr>
+<tr><td><tt class="docutils literal">share/doc/tcslog/</tt></td>
+<td>this manual, the design,
+README, licences, changelog</td>
+</tr>
+<tr><td><tt class="docutils literal">share/examples/tcslog/</tt></td>
+<td>the examples</td>
+</tr>
+</tbody>
+</table>
+<p>The shared library's soname is <tt class="docutils literal">libtcslog.so.1</tt>. The <tt class="docutils literal">1</tt> is the
+ABI's version, not the package's: it is the whole number in
+<tt class="docutils literal"><span class="pre">tcslog-c/abi-version</span></tt>, from which <tt class="docutils literal"><span class="pre">tcslog-c/build.rs</span></tt> sets the
+soname and the Makefile the installed names, so the two cannot
+disagree. It is bumped only when the ABI changes incompatibly -- when a
+function's signature or behaviour changes incompatibly, or a function is
+removed, or a struct or enum the header exposes changes its layout or
+its values -- and then a program built against the old ABI is refused
+by the loader rather than started against the new one. Adding a
+function, or a status after the last, changes nothing a built program
+relies on and does not bump it. In this repository the libraries cargo builds
+keep the crate's name, <tt class="docutils literal">libtcslog_c</tt>, which is what the tests and
+examples here link; only an install renames them.</p>
+<p><tt class="docutils literal">make deb</tt> and <tt class="docutils literal">make rpm</tt> build a package of all of it in
+<tt class="docutils literal">build/packages</tt>, <tt class="docutils literal"><span class="pre">tcslog_&lt;version&gt;-1_&lt;arch&gt;.deb</span></tt> and
+<tt class="docutils literal"><span class="pre">tcslog-&lt;version&gt;-1.&lt;arch&gt;.rpm</span></tt>, and <tt class="docutils literal">make packages</tt> builds both.
+The <tt class="docutils literal">1</tt> is the package's release, for a package rebuilt from the same
+source; <tt class="docutils literal">DEB_REVISION</tt> sets it for the .deb. The two are made from one
+install into <tt class="docutils literal">build/stage/tcslog</tt> (<tt class="docutils literal">make stage</tt>), so they hold the
+same files. Building them needs, besides cargo and <tt class="docutils literal">cbindgen</tt>,
+Python's <tt class="docutils literal">pip</tt> and <tt class="docutils literal">setuptools</tt>, <tt class="docutils literal">rst2html</tt> from docutils, and
+<tt class="docutils literal"><span class="pre">dpkg-shlibdeps</span></tt> from dpkg-dev. <tt class="docutils literal">make rpm</tt> needs <tt class="docutils literal">rpmbuild</tt>,
+which Debian has as <tt class="docutils literal">sudo apt install rpm</tt>; where it is missing it
+says so and builds nothing, without failing.</p>
+<p>That install strips what it installs, unless <tt class="docutils literal">STRIP=0</tt>: <tt class="docutils literal"><span class="pre">tcslog-gen</span></tt>
+and the shared library with <tt class="docutils literal">strip <span class="pre">--strip-unneeded</span></tt>, which leaves
+only the symbols a program is linked against, and the static library
+with <tt class="docutils literal">strip <span class="pre">--strip-debug</span></tt>, which removes only debugging information,
+since a program linking it needs the rest. The RPM is kept from
+stripping on its own, so that it and the .deb hold the same bytes.
+<tt class="docutils literal">make packages STRIP=0</tt> builds both unstripped, for a debugger: about
+25 MB installed rather than 16.</p>
+<p>A package also installs three files outside <tt class="docutils literal">/opt/tcs</tt>, each named
+after it so that no two TCS packages own one:</p>
+<ul class="simple">
+<li><tt class="docutils literal">/etc/ld.so.conf.d/tcslog.conf</tt>, so the loader finds the library;</li>
+<li><tt class="docutils literal">/etc/profile.d/tcslog.sh</tt>, which adds <tt class="docutils literal">/opt/tcs/bin</tt> to <tt class="docutils literal">PATH</tt>
+and <tt class="docutils literal">/opt/tcs/lib/pkgconfig</tt> to <tt class="docutils literal">PKG_CONFIG_PATH</tt>, unless they are
+there already; and</li>
+<li><tt class="docutils literal">tcslog.pth</tt> in the system Python's own directory, which puts
+<tt class="docutils literal"><span class="pre">/opt/tcs/lib/python3/site-packages</span></tt> on Python's path: in
+<tt class="docutils literal"><span class="pre">/usr/lib/python3/dist-packages</span></tt> for the .deb, and for the RPM in
+<tt class="docutils literal"><span class="pre">/usr/lib/python3.X/site-packages</span></tt> of the Python it was built with,
+which it therefore recommends.</li>
+</ul>
+<p>Login shells find <tt class="docutils literal">/opt/tcs/bin</tt> through
+<tt class="docutils literal">/etc/profile.d/tcslog.sh</tt>, but sudo, cron and other minimal
+environments do not read it, and so do not find the programs. To make
+them available everywhere, link them into <tt class="docutils literal">/usr/local/bin</tt>, which is
+on every one of those paths, sudo's <tt class="docutils literal">secure_path</tt> included:</p>
 <pre class="literal-block">
-make install
+sudo /opt/tcs/sbin/tcslog-links            # link them
+sudo /opt/tcs/sbin/tcslog-links --remove   # undo it
 </pre>
-<p>The header goes to <tt class="docutils literal">$HOME/include/tcslog.h</tt> and both libraries to
-<tt class="docutils literal">$HOME/lib</tt>. <tt class="docutils literal">make install <span class="pre">PREFIX=/usr/local</span></tt> chooses somewhere
-else, <tt class="docutils literal">DESTDIR</tt> stages the install for packaging, and <tt class="docutils literal">make
-uninstall</tt> removes them again, honouring both variables. Then compile
-against it, from C or from C++:</p>
+<p><tt class="docutils literal"><span class="pre">--dir</span></tt> names another directory, such as <tt class="docutils literal">/opt/bin</tt>. It links only
+this package's own programs, written into it when it was installed, so
+it never touches another TCS package's; it leaves anything already in
+the way alone, says so, and exits 1 once it has linked the rest. It is
+never run for you: removing the package removes its links, from
+<tt class="docutils literal">/usr/local/bin</tt> and <tt class="docutils literal">/opt/bin</tt>, but installing it makes none, the
+choice being the administrator's. After <tt class="docutils literal">make install</tt>, <tt class="docutils literal">sudo make
+links</tt> and <tt class="docutils literal">sudo make unlinks</tt> do the same, with <tt class="docutils literal">LINKDIR</tt> naming
+the directory.</p>
+<p>Or install straight from the repository root:</p>
 <pre class="literal-block">
-cc  prog.c   -I$HOME/include -L$HOME/lib -ltcslog_c
-c++ prog.cpp -I$HOME/include -L$HOME/lib -ltcslog_c
+sudo make install                   # under /opt/tcs, nothing in /etc
+sudo make install HOOKS=1           # with the three files above
+make install PREFIX=$HOME/tcs       # somewhere of your own
 </pre>
-<p>Both a static and a shared library are installed, so either kind of
-link works. Neither a pkg-config file nor the Rust library is
-installed: a consumer needs <tt class="docutils literal"><span class="pre">-ltcslog_c</span></tt> and nothing a pkg-config
-file would add.</p>
+<p><tt class="docutils literal">DESTDIR</tt> stages the install, and <tt class="docutils literal">make uninstall</tt> removes it again,
+honouring the same variables. <tt class="docutils literal">make install</tt> strips as the packages
+do, and <tt class="docutils literal">STRIP=0</tt> keeps it from doing so. The hooks are left out
+unless <tt class="docutils literal">HOOKS=1</tt> asks for them, so that an install touches nothing in
+<tt class="docutils literal">/etc</tt> its installer did not mean it to, and they need the default
+<tt class="docutils literal">PREFIX</tt>, since they name <tt class="docutils literal">/opt/tcs</tt>. Then compile against it, from
+C or from C++:</p>
+<pre class="literal-block">
+#include &quot;tcslog.h&quot;             /* or &quot;tcslog.hpp&quot; */
+
+cc  prog.c   $(pkg-config --cflags --libs tcslog)
+c++ prog.cpp $(pkg-config --cflags --libs tcslog)
+</pre>
+<p>with <tt class="docutils literal"><span class="pre">PKG_CONFIG_PATH=/opt/tcs/lib/pkgconfig</span></tt> if the hooks are not
+installed, and <tt class="docutils literal"><span class="pre">LD_LIBRARY_PATH=/opt/tcs/lib</span></tt> to run the program.
+<tt class="docutils literal"><span class="pre">pkg-config</span> <span class="pre">--static</span> <span class="pre">--libs</span> tcslog</tt> adds what a program linking the
+static library needs besides it.</p>
 <p><tt class="docutils literal">TIMER_RESOLUTION</tt> is a build-time value of the Rust library, so it is
 fixed when the library is built and a C caller cannot supply it. See
 <a class="reference internal" href="#the-timer-resolution">The timer resolution</a>; a library built without it
@@ -2060,24 +2171,23 @@ Rust or C/C++, and the other way round.</p>
 <div class="section" id="installing-the-package">
 <h2><a class="toc-backref" href="#toc-entry-35">Installing the package</a></h2>
 <p><tt class="docutils literal">make install</tt>, described under <a class="reference internal" href="#installing">Installing</a> in <a class="reference internal" href="#calling-from-c-c">Calling From
-C/C++</a>, installs the package along with the header and libraries.
-Under the default <tt class="docutils literal">PREFIX</tt> it goes to the user site directory, which
-Python searches without being told; under any other it goes to that
-prefix's <tt class="docutils literal"><span class="pre">site-packages</span></tt>, and the install says so if that is not on
-Python's path and needs adding to <tt class="docutils literal">PYTHONPATH</tt>. <tt class="docutils literal">PYDIR</tt> chooses
-somewhere else, and <tt class="docutils literal">make uninstall</tt> removes it.</p>
-<p>The install uses no <tt class="docutils literal">pip</tt>. A Python that is externally managed (PEP
-668) refuses <tt class="docutils literal">pip install</tt> outside a virtual environment, but not a
-package placed where it already looks. Inside a virtual environment,
-<tt class="docutils literal">pip install <span class="pre">./tcslog-py</span></tt> works as well, though it then finds the
-library only through the search below.</p>
+C/C++</a>, installs the package along with the header and libraries, into
+<tt class="docutils literal"><span class="pre">lib/python3/site-packages</span></tt> under the <tt class="docutils literal">PREFIX</tt>: a path with no
+Python minor version in it, so that it survives an upgrade of Python.
+It uses <tt class="docutils literal">pip install <span class="pre">--target</span></tt> on a copy of <tt class="docutils literal"><span class="pre">tcslog-py</span></tt>, which works
+on a Python that is externally managed (PEP 668) as well. Python
+searches there once told to, by <tt class="docutils literal">PYTHONPATH</tt> or by the <tt class="docutils literal">tcslog.pth</tt>
+a package installs. <tt class="docutils literal">PYDIR</tt> chooses somewhere else, and <tt class="docutils literal">make
+uninstall</tt> removes it. Inside a virtual environment, <tt class="docutils literal">pip install
+<span class="pre">./tcslog-py</span></tt> installs the package alone, which then finds the library
+only through the search below.</p>
 <p>The package finds the library by looking, in order, at the
 <tt class="docutils literal">TCSLOG_LIB</tt> environment variable, which names the file; beside the
-package; on the system loader's search path, which
-<tt class="docutils literal">LD_LIBRARY_PATH</tt> extends; and in <tt class="docutils literal">target/release</tt> then
-<tt class="docutils literal">target/debug</tt> of the repository the package sits in. <tt class="docutils literal">make
-install</tt> puts a link to the installed library beside the package, so
-an installed package needs neither variable.</p>
+package; as <tt class="docutils literal">libtcslog.so.1</tt> in the <tt class="docutils literal">lib</tt> directory of the tree the
+package was installed into, three directories up from it; on the system
+loader's search path, which <tt class="docutils literal">LD_LIBRARY_PATH</tt> extends; and in
+<tt class="docutils literal">target/release</tt> then <tt class="docutils literal">target/debug</tt> of the repository the package
+sits in. So an installed package needs neither variable.</p>
 </div>
 <div class="section" id="how-the-python-interface-is-shaped">
 <h2><a class="toc-backref" href="#toc-entry-36">How the Python interface is shaped</a></h2>

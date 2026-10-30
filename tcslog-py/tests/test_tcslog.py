@@ -7,8 +7,12 @@ TCSLOG_LIB at the library cargo just built.
 """
 
 import os
+import shutil
+import subprocess
+import sys
 import tempfile
 import unittest
+from pathlib import Path
 from typing import List
 
 import tcslog
@@ -442,6 +446,53 @@ class Scenarios(unittest.TestCase):
         r.close()
         with self.assertRaises(ValueError):
             r.read(bytearray(8))
+
+
+@unittest.skipIf(
+    sys.platform in ("darwin", "win32") or not os.environ.get("TCSLOG_LIB"),
+    "the installed layout is ELF's, and needs TCSLOG_LIB to copy from",
+)
+class InstalledLayout(unittest.TestCase):
+    """The package finds the library in the tree `make install` made."""
+
+    def test_finds_library_three_directories_up(self) -> None:
+        # The tree make install makes under its PREFIX, built in a
+        # temporary directory: the package in lib/python3/site-packages
+        # and the library in lib under its soname. Nothing tells the
+        # copy where the library is, so finding it is the package's own
+        # doing.
+        with tempfile.TemporaryDirectory(prefix="tcslog-py-") as d:
+            lib = Path(d) / "lib"
+            site = lib / "python3" / "site-packages"
+            package = Path(tcslog.__file__).resolve().parent
+            shutil.copytree(
+                package,
+                site / "tcslog",
+                ignore=shutil.ignore_patterns("__pycache__"),
+            )
+            installed = lib / tcslog._INSTALLED_NAME
+            shutil.copy(os.environ["TCSLOG_LIB"], installed)
+            env = {
+                k: v
+                for k, v in os.environ.items()
+                if k not in ("TCSLOG_LIB", "LD_LIBRARY_PATH")
+            }
+            out = subprocess.run(
+                [
+                    sys.executable,
+                    "-I",
+                    "-c",
+                    "import sys; sys.path.insert(0, sys.argv[1]); "
+                    "import tcslog; print(tcslog._lib._name)",
+                    str(site),
+                ],
+                env=env,
+                cwd=d,
+                check=True,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+            self.assertEqual(out, str(installed))
 
 
 if __name__ == "__main__":

@@ -14,18 +14,67 @@ RMDIR   := rm -rf
 # Extra flags for `cargo build`; `make release` sets it to --release.
 RELEASE =
 
-# Where `make install` puts the C binding. Defaults to $HOME, as the
-# tcslog-tools Makefile does for its binaries; override PREFIX for
-# somewhere else and DESTDIR to stage the install for packaging.
-PREFIX  ?= $(HOME)
+# The version, from the workspace's Cargo.toml, which every crate here
+# and the packages take.
+VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
+# The C ABI's version, which is not the package's: a whole number in
+# tcslog-c/abi-version, from which tcslog-c/build.rs sets the shared
+# library's soname, so that the soname and the installed names cannot
+# disagree. Bump it only when the ABI changes incompatibly -- a
+# function's signature or behaviour changed incompatibly or a function
+# removed, or a struct or enum the header exposes changed in layout or
+# values -- as build.rs says at more length.
+ABI     := $(strip $(file < tcslog-c/abi-version))
+SONAME  := libtcslog.so.$(ABI)
+
+# Where `make install` puts everything: /opt/tcs, the tree the TCS
+# packages share under FHS 3.0's /opt/<package>, so that one PATH entry
+# and one loader directory serve them all. DESTDIR stages the install
+# for packaging. A developer installing somewhere of their own sets
+# PREFIX, such as PREFIX=$HOME.
+PREFIX  ?= /opt/tcs
 DESTDIR ?=
+# Whether install also writes the hooks outside $(PREFIX) that make an
+# installed /opt/tcs usable without being told where it is: the loader's
+# directory in /etc/ld.so.conf.d, PATH and PKG_CONFIG_PATH in
+# /etc/profile.d, and Python's path in a .pth file. Off unless asked
+# for, so that an install touches nothing in /etc or /usr that its
+# installer did not mean it to; `make stage` asks, the packages being
+# where these belong. Each is named after this package, so no two TCS
+# packages own the same file.
+HOOKS   ?= 0
+# Whether install strips what it installs; see install below.
+STRIP   ?= 1
+BINDIR  := $(DESTDIR)$(PREFIX)/bin
+SBINDIR := $(DESTDIR)$(PREFIX)/sbin
 INCDIR  := $(DESTDIR)$(PREFIX)/include
 LIBDIR  := $(DESTDIR)$(PREFIX)/lib
-# What install puts there: the generated header, and both libraries, so
-# a consumer can link either statically or dynamically.
-# The generated C header, and the C++ one written over it by hand.
+PCDIR   := $(LIBDIR)/pkgconfig
+DOCDIR  := $(DESTDIR)$(PREFIX)/share/doc/tcslog
+EXDIR   := $(DESTDIR)$(PREFIX)/share/examples/tcslog
+# What install puts there: the generated header and the C++ one written
+# over it by hand, both libraries, so a consumer can link either
+# statically or dynamically, and the documents a reader of the installed
+# tree needs. Cargo names the libraries after the crate, libtcslog_c;
+# they are installed as libtcslog, the name tcslog-c/build.rs gives the
+# shared one's soname.
 CAPI_HEADERS := tcslog-c/include/tcslog.h tcslog-c/include/tcslog.hpp
-CAPI_LIBS   := libtcslog_c.a libtcslog_c.so
+# The programs a person runs, in bin. They are also what tcslog-links
+# links into /usr/local/bin, written into it as it is installed, so that
+# it never touches another TCS package's programs in the same bin.
+PROGRAMS := tcslog-gen
+DOCS     := README.md LICENSE-APACHE LICENSE-MIT CHANGELOG.md \
+	docs/manual.html docs/design.html
+EXAMPLES := tcslog-c/examples/downlink.c tcslog-c/examples/wrapper.cpp \
+	tcslog-py/examples/downlink.py tcslog/examples/sample.rs
+# The hooks HOOKS=1 installs name /opt/tcs, so they are refused with any
+# other PREFIX rather than installed pointing at the wrong tree.
+ifeq ($(HOOKS),1)
+ifneq ($(PREFIX),/opt/tcs)
+$(error HOOKS=1 installs files that name /opt/tcs; give PREFIX=/opt/tcs \
+	or leave HOOKS unset)
+endif
+endif
 
 # The Python 3 interpreter, for the package's tests and its install,
 # and the linter and type checker `make check` holds the package to.
@@ -33,20 +82,11 @@ CAPI_LIBS   := libtcslog_c.a libtcslog_c.so
 PYTHON := python3
 RUFF   := ruff
 MYPY   := mypy
-# Where `make install` puts the Python 3 package. Under the default
-# PREFIX that is the user site directory, which Python searches without
-# being told and which needs no pip -- an externally managed Python
-# (PEP 668) refuses `pip install` outside a virtual environment, but
-# not a package placed where it already looks. Under any other PREFIX
-# it is that prefix's site-packages, which may need adding to
-# PYTHONPATH; install says so when it does. Evaluated only when used,
-# so a build without Python never runs it.
-PYDIR ?= $(shell $(PYTHON) -c 'import os, site, sysconfig; \
-	print(site.getusersitepackages() \
-	if os.path.realpath("$(PREFIX)") \
-	== os.path.realpath(os.path.expanduser("~")) \
-	else sysconfig.get_path("purelib", "posix_prefix", \
-	vars={"base": "$(PREFIX)", "platbase": "$(PREFIX)"}))')
+# Where `make install` puts the Python 3 package: the same directory
+# for every Python 3, so the path has no minor version in it to go
+# stale when Python is upgraded. Python does not search it unless told
+# to, by PYTHONPATH or by the .pth file HOOKS=1 installs.
+PYDIR ?= $(PREFIX)/lib/python3/site-packages
 
 # The C and C++ compilers for the binding's smoke test, and the warnings
 # it is held to. -Werror because a warning in a 180-line test is a
@@ -202,59 +242,224 @@ header:			## Regenerate the C header from tcslog-c/src/lib.rs
 		&& rm include/tcslog.h.tmp
 	@echo "[OK] tcslog-c/include/tcslog.h regenerated"
 
-# Install the C binding: the header and both libraries. The Rust
-# library is not installed, having no use outside cargo, and neither is
-# a pkg-config file -- a consumer needs -ltcslog_c and nothing else, so
-# there is nothing for one to say that -L and -l do not.
+# The hooks HOOKS=1 installs, outside $(PREFIX). The .pth file goes
+# where Debian's python3 looks; `make rpm` moves it to where the RPM's
+# Python looks.
+LDCONF  := $(DESTDIR)/etc/ld.so.conf.d/tcslog.conf
+PROFILE := $(DESTDIR)/etc/profile.d/tcslog.sh
+PTH     := $(DESTDIR)/usr/lib/python3/dist-packages/tcslog.pth
+
+# Install everything under $(PREFIX), built for release: tcslog-gen;
+# the headers in include; the shared library under its soname, with its
+# development name linked to it, and the static one; a pkg-config file
+# naming the real prefix; the Python 3 package; and the documents and
+# examples. The Rust library is not installed, a Rust program taking it
+# through cargo.
 #
-# Built with $(RELEASE) honoured, so `make release install` installs the
-# optimized libraries; CARGO_TARGET_DIR says which directory those
-# landed in.
+# Under STRIP=1, the default, what is installed is stripped as it is
+# installed: the program and the shared library of every symbol nothing
+# links against, and the static library of its debugging information
+# alone, since a program linking it still needs its symbols. That takes
+# the packages, which are cut from an install, from tens of megabytes to
+# a few. STRIP=0 keeps everything as cargo built it, for a debugger.
+#
+# The Python package goes in with pip, so that it has the metadata pip
+# and importlib.metadata read, but from a copy of tcslog-py made for
+# the purpose: pip builds in the directory it is given, and a build left
+# in the source tree by `sudo make install` would be root's. --no-index
+# keeps it off the network, and --target puts it in $(PYDIR) whatever
+# Python the build machine has. The direct_url.json pip writes would name
+# that copy, which is gone by then, so it is removed.
 .PHONY: install
-install: header		## Install the header, libraries, and Python 3 package
-	@echo "Installing the C binding to $(DESTDIR)$(PREFIX)..."
-	cargo build $(RELEASE) -p tcslog-c
-	install -d $(INCDIR) $(LIBDIR)
-	install -m 644 $(CAPI_HEADERS) $(INCDIR)/
-	for lib in $(CAPI_LIBS); do \
-		install -m 644 $(CARGO_TARGET_DIR)/$$lib $(LIBDIR)/; \
-	done
-	@echo "[OK] Installed $(CAPI_HEADERS) to $(INCDIR)/"
-	@echo "[OK] Installed $(CAPI_LIBS) to $(LIBDIR)/"
-	# The package, and beside it a link to the shared library just
-	# installed, which is the first place the package looks after
-	# TCSLOG_LIB -- so it finds the library with no LD_LIBRARY_PATH.
-	# The link names the library's final path, not the DESTDIR one.
-	install -d $(DESTDIR)$(PYDIR)/tcslog
-	install -m 644 tcslog-py/tcslog/*.py tcslog-py/tcslog/py.typed \
-		$(DESTDIR)$(PYDIR)/tcslog/
-	ln -sf $(PREFIX)/lib/libtcslog_c.so \
-		$(DESTDIR)$(PYDIR)/tcslog/libtcslog_c.so
-	@echo "[OK] Installed the Python 3 package to" \
-		"$(DESTDIR)$(PYDIR)/tcslog/"
+install: header docs	## Build, strip (STRIP=0: don't), install under PREFIX
+	@echo "Installing tcslog $(VERSION) to $(DESTDIR)$(PREFIX)..."
+	cargo build --release -p tcslog-c -p tcslog-gen
+	install -D -m 755 -t $(BINDIR) $(addprefix target/release/,$(PROGRAMS))
+	install -d $(SBINDIR)
+	sed -e 's|@PACKAGE@|tcslog|g' -e 's|@PREFIX@|$(PREFIX)|g' \
+		-e 's|@PROGRAMS@|$(PROGRAMS)|g' packaging/hooks/links.sh.in \
+		> $(SBINDIR)/tcslog-links
+	chmod 755 $(SBINDIR)/tcslog-links
+	install -D -m 644 -t $(INCDIR) $(CAPI_HEADERS)
+	install -D -m 644 target/release/libtcslog_c.so $(LIBDIR)/$(SONAME)
+	ln -sf $(SONAME) $(LIBDIR)/libtcslog.so
+	install -D -m 644 target/release/libtcslog_c.a $(LIBDIR)/libtcslog.a
+	if [ "$(STRIP)" = 1 ]; then \
+		strip --strip-unneeded $(addprefix $(BINDIR)/,$(PROGRAMS)) \
+			$(LIBDIR)/$(SONAME); \
+		strip --strip-debug $(LIBDIR)/libtcslog.a; \
+	fi
+	install -d $(PCDIR)
+	sed -e 's|@PREFIX@|$(PREFIX)|' -e 's|@VERSION@|$(VERSION)|' \
+		packaging/tcslog.pc.in > $(PCDIR)/tcslog.pc
+	chmod 644 $(PCDIR)/tcslog.pc
+	tmp=$$(mktemp -d -t tcslog-py.XXXXXXXXXX); \
+	trap 'rm -rf "$$tmp"' EXIT; \
+	cp -R tcslog-py/pyproject.toml tcslog-py/tcslog $$tmp/; \
+	$(RMDIR) $$tmp/tcslog/__pycache__; \
+	$(PYTHON) -m pip install --quiet --no-deps --no-build-isolation \
+		--no-index --no-cache-dir --no-compile --upgrade \
+		--root-user-action=ignore \
+		--target $(DESTDIR)$(PYDIR) $$tmp
+	dist=$(DESTDIR)$(PYDIR)/tcslog-$(VERSION).dist-info; \
+	$(RM) $$dist/direct_url.json; \
+	sed -i '/^tcslog-[^/]*\.dist-info\/direct_url\.json,/d' $$dist/RECORD
+	install -D -m 644 -t $(DOCDIR) $(DOCS)
+	install -D -m 644 -t $(EXDIR) $(EXAMPLES)
+	if [ "$(HOOKS)" = 1 ]; then \
+		install -D -m 644 packaging/hooks/tcslog.conf $(LDCONF); \
+		install -D -m 644 packaging/hooks/tcslog.sh $(PROFILE); \
+		install -D -m 644 packaging/hooks/tcslog.pth $(PTH); \
+	fi
+	@echo "[OK] Installed under $(DESTDIR)$(PREFIX)"
 	@# Staged with DESTDIR, the path is not this machine's to check.
-	@[ -n "$(DESTDIR)" ] \
-		|| $(PYTHON) -c 'import sys; sys.exit("$(PYDIR)" in sys.path)' \
-		&& echo "     $(PYDIR) is not on Python's path;" \
-			"add it to PYTHONPATH" \
-		|| true
+	@if [ -z "$(DESTDIR)" ] && ! $(PYTHON) -c \
+		'import sys; sys.exit("$(PYDIR)" not in sys.path)'; then \
+		echo "     $(PYDIR) is not on Python's path;" \
+			"add it to PYTHONPATH"; \
+	fi
 	@echo "     Compile against it with:"
-	@echo "       cc  prog.c   -I$(PREFIX)/include" \
-		"-L$(PREFIX)/lib -ltcslog_c"
-	@echo "       c++ prog.cpp -I$(PREFIX)/include" \
-		"-L$(PREFIX)/lib -ltcslog_c"
-	@echo "     and from Python 3 with:"
+	@echo "       cc  prog.c   \$$(pkg-config --cflags --libs tcslog)"
+	@echo "       c++ prog.cpp \$$(pkg-config --cflags --libs tcslog)"
+	@echo "     with PKG_CONFIG_PATH=$(PREFIX)/lib/pkgconfig, and from"
+	@echo "     Python 3 with:"
 	@echo "       import tcslog"
 
-# Removes what install put there, honouring the same two variables.
-# Nothing else in those directories is touched.
+# Removes what install put there, honouring the same variables, HOOKS
+# included. Nothing else in those directories is touched.
+#
+# The links `make links` made in $(LINKDIR) go first, while the script
+# that knows which they are is still there, so that nothing is left
+# pointing at programs that are gone. A failure there, such as a
+# LINKDIR that does not exist, stops nothing.
 .PHONY: uninstall
-uninstall:		## Remove the header, libraries, and Python 3 package
-	@echo "Removing the C binding from $(DESTDIR)$(PREFIX)..."
+uninstall:		## Remove what install put under PREFIX
+	@echo "Removing tcslog from $(DESTDIR)$(PREFIX)..."
+	-$(SBINDIR)/tcslog-links --remove --dir $(LINKDIR)
+	$(RM) $(addprefix $(BINDIR)/,$(PROGRAMS)) $(SBINDIR)/tcslog-links
 	$(RM) $(INCDIR)/tcslog.h $(INCDIR)/tcslog.hpp
-	$(RM) $(addprefix $(LIBDIR)/,$(CAPI_LIBS))
-	$(RMDIR) $(DESTDIR)$(PYDIR)/tcslog
+	$(RM) $(LIBDIR)/$(SONAME) $(LIBDIR)/libtcslog.so \
+		$(LIBDIR)/libtcslog.a $(PCDIR)/tcslog.pc
+	$(RMDIR) $(DESTDIR)$(PYDIR)/tcslog \
+		$(DESTDIR)$(PYDIR)/tcslog-$(VERSION).dist-info
+	$(RMDIR) $(DOCDIR) $(EXDIR)
+	if [ "$(HOOKS)" = 1 ]; then \
+		$(RM) $(LDCONF) $(PROFILE) $(PTH); \
+	fi
 	@echo "[OK] Uninstalled from $(DESTDIR)$(PREFIX)"
+
+# Link the installed programs into $(LINKDIR), or take those links away
+# again, with the tcslog-links install put in sbin: what an administrator
+# does to make them available beyond login shells, to sudo and cron
+# among others. Needs root for /usr/local/bin, being root's; LINKDIR
+# names another directory, such as /opt/bin.
+LINKDIR ?= /usr/local/bin
+.PHONY: links
+links:			## Link the installed programs into LINKDIR
+	$(DESTDIR)$(PREFIX)/sbin/tcslog-links --dir $(LINKDIR)
+
+.PHONY: unlinks
+unlinks:		## Remove the links `make links` made in LINKDIR
+	$(DESTDIR)$(PREFIX)/sbin/tcslog-links --remove --dir $(LINKDIR)
+
+# Where the packages are made from and where they land, both under
+# build/, which .gitignore keeps out of the repository. The stage is one
+# directory per package, as tcspecial's is, though this repository has
+# only the one package.
+STAGE   := $(CURDIR)/build/stage
+PKGSTAGE := $(STAGE)/tcslog
+PKGOUT  := $(CURDIR)/build/packages
+
+# Install into $(PKGSTAGE) as the package installs onto a machine: under
+# /opt/tcs, with the hooks, and stripped unless STRIP=0 says otherwise,
+# which the sub-make is passed as every variable on the command line is.
+# The stage is emptied first, so that nothing a previous install left
+# behind gets into a package. Files are then made writable by their
+# owner alone, whatever the umask of whoever ran this, which is what
+# both package formats expect.
+.PHONY: stage
+stage:			## Install into build/stage/tcslog for packaging
+	$(RMDIR) $(STAGE)
+	$(MAKE) install DESTDIR=$(PKGSTAGE) PREFIX=/opt/tcs HOOKS=1
+	chmod -R u+rwX,go=rX $(PKGSTAGE)
+	@echo "[OK] Staged under $(PKGSTAGE)"
+
+# Build the .deb from the stage, with the control files in
+# packaging/deb/tcslog. dpkg-shlibdeps works out what the shared library
+# and tcslog-gen need from the libraries they link, but wants a
+# debian/control to read, so it is given a minimal one in a directory
+# of its own. The shlibs file tells dpkg-shlibdeps, building a package
+# that links libtcslog, to depend on this one at this version or later.
+#
+# DEB_REVISION is the Debian revision, for a package rebuilt from the
+# same source, as in tcspecial.
+DEB_DIR := packaging/deb/tcslog
+DEB_REVISION ?= 1
+DEB_VERSION  := $(VERSION)-$(DEB_REVISION)
+.PHONY: deb
+deb: stage		## Build the .deb in build/packages
+	root=$(CURDIR)/build/deb/tcslog; \
+	arch=$$(dpkg --print-architecture); \
+	$(RMDIR) $$root; \
+	mkdir -p $(CURDIR)/build/deb $(PKGOUT); \
+	cp -a $(PKGSTAGE) $$root; \
+	install -d -m 755 $$root/DEBIAN; \
+	shl=$(CURDIR)/build/deb/shlibdeps; \
+	$(RMDIR) $$shl; \
+	mkdir -p $$shl/debian; \
+	printf 'Source: tcslog\n\nPackage: tcslog\nArchitecture: any\n' \
+		> $$shl/debian/control; \
+	depends=$$(cd $$shl && dpkg-shlibdeps -O -l$$root/opt/tcs/lib \
+		-e$$root/opt/tcs/lib/$(SONAME) \
+		-e$$root/opt/tcs/bin/tcslog-gen 2>/dev/null \
+		| sed -n 's/^shlibs:Depends=//p'); \
+	size=$$(du -sk $$root | cut -f1); \
+	sed -e 's|@VERSION@|$(DEB_VERSION)|' -e "s|@ARCH@|$$arch|" \
+		-e "s|@SIZE@|$$size|" -e "s|@DEPENDS@|$$depends|" \
+		$(DEB_DIR)/control > $$root/DEBIAN/control; \
+	install -m 644 $(DEB_DIR)/conffiles $$root/DEBIAN/; \
+	install -m 755 $(DEB_DIR)/postinst $(DEB_DIR)/prerm $(DEB_DIR)/postrm \
+		$$root/DEBIAN/; \
+	echo "libtcslog $(ABI) tcslog (>= $(VERSION))" > $$root/DEBIAN/shlibs; \
+	chmod 644 $$root/DEBIAN/shlibs; \
+	dpkg-deb --root-owner-group --build $$root \
+		$(PKGOUT)/tcslog_$(DEB_VERSION)_$$arch.deb
+
+# Build the .rpm from the same stage, with packaging/rpm/tcslog.spec,
+# whose %install copies the stage rather than building anything. A
+# machine without rpmbuild says so and carries on, so that `make
+# packages` still makes the .deb; that is checked before staging, so as
+# not to build for nothing. rpmbuild is pointed at a database of its own
+# under build/, because a Debian host has no RPM database in /var/lib/rpm
+# to read, and rpmbuild complains at length when it finds none.
+RPM_TOP := $(CURDIR)/build/rpm
+.PHONY: rpm
+rpm:			## Build the .rpm in build/packages
+	@if ! command -v rpmbuild > /dev/null; then \
+		echo "rpmbuild is not installed, so no RPM was built;" \
+			"install it with 'sudo apt install rpm'"; \
+		exit 0; \
+	fi; \
+	$(MAKE) stage; \
+	$(RMDIR) $(RPM_TOP); \
+	mkdir -p $(PKGOUT) $(RPM_TOP)/db; \
+	rpmbuild -bb --quiet \
+		--define "_topdir $(RPM_TOP)" \
+		--define "_dbpath $(RPM_TOP)/db" \
+		--define "tcs_version $(VERSION)" \
+		--define "tcs_abi $(ABI)" \
+		--define "tcs_stage $(PKGSTAGE)" \
+		--define "tcs_pysite $$($(PYTHON) -c 'import sysconfig; \
+			print(sysconfig.get_path("purelib", "posix_prefix", \
+			vars={"base": "/usr"}))')" \
+		--define "tcs_pyversion $$($(PYTHON) -c 'import sysconfig; \
+			print(sysconfig.get_python_version())')" \
+		packaging/rpm/tcslog.spec; \
+	cp $(RPM_TOP)/RPMS/*/tcslog-$(VERSION)-*.rpm $(PKGOUT)/; \
+	echo "[OK] Built the RPM in $(PKGOUT)"
+
+.PHONY: packages
+packages: deb rpm	## Build both; STRIP=0 leaves them unstripped
 
 # Clean build artifacts
 .PHONY: clean
@@ -262,6 +467,7 @@ clean:			## Remove build artifacts
 	@echo "Cleaning build artifacts..."
 	-cargo clean
 	$(RM) build.out
+	$(RMDIR) build
 	$(RMDIR) tcslog-py/tcslog/__pycache__ tcslog-py/tests/__pycache__
 	$(MAKE) -C docs clean
 	@echo "[OK] Clean complete"
@@ -274,11 +480,6 @@ distclean: clean	## Remove build artifacts and all generated files
 	$(RMDIR) target
 	$(MAKE) -C docs distclean
 	@echo "[OK] Project reset"
-
-# There is no install target here. The only binaries worth installing,
-# tcslog-dump and tcslog-dumphdr, are the tcslog-tools crate in its own
-# repository. tcslog-gen stays uninstalled on purpose: it exists to give
-# the tests segment files to read
 
 # Check code quality
 # The library's README is generated from its own documentation, so
@@ -313,11 +514,16 @@ check:			## Run cargo check, clippy, fmt, ruff, mypy, and more
 	@echo "Checking the Python 3 package..."
 	cd tcslog-py && $(RUFF) check . && $(RUFF) format --check . && $(MYPY) .
 	@echo "Checking the Python package version matches the crates..."
-	crate=$$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml); \
 	py=$$(sed -n 's/^version = "\(.*\)"/\1/p' tcslog-py/pyproject.toml); \
-	[ "$$crate" = "$$py" ] \
+	[ "$(VERSION)" = "$$py" ] \
 		|| { echo "tcslog-py/pyproject.toml is $$py," \
-			"the crates $$crate" 1>&2; \
+			"the crates $(VERSION)" 1>&2; \
+		     exit 1; }
+	@echo "Checking the Python package loads the installed soname..."
+	grep -q '^_INSTALLED_NAME = "$(SONAME)"$$' \
+		tcslog-py/tcslog/__init__.py \
+		|| { echo "tcslog-py/tcslog/__init__.py: _INSTALLED_NAME" \
+			"is not \"$(SONAME)\"" 1>&2; \
 		     exit 1; }
 
 # Fuzz the reader: each target in fuzz/ for FUZZ_TIME seconds, starting

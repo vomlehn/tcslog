@@ -54,6 +54,113 @@ make build
 
 This compiles the library and builds the user documentation under `docs/`.
 
+Installing
+----------
+Everything installs under `/opt/tcs`, the tree the TCS packages share
+(FHS 3.0's `/opt/<package>`): `tcslog-gen`, which writes test logs, in
+`bin/`; `tcslog-links`, which links it into `/usr/local/bin`, in `sbin/`;
+the C and C++ headers, `tcslog.h` and `tcslog.hpp`, in `include/`;
+`libtcslog.so.1` (with `libtcslog.so` linked to it) and `libtcslog.a`
+in `lib/`; a pkg-config file in `lib/pkgconfig/`; the Python 3 package
+in `lib/python3/site-packages/`; and the documentation and examples
+under `share/`.
+
+As a package, built from a checkout:
+
+```sh
+make deb                # build/packages/tcslog_<version>-1_<arch>.deb
+make rpm                # build/packages/tcslog-<version>-1.<arch>.rpm
+make packages           # both
+make packages STRIP=0   # both, unstripped
+sudo apt install ./build/packages/tcslog_*.deb
+```
+
+Both are made from one install into `build/stage/tcslog` (`make stage`),
+so they hold the same files. That install strips what it installs: the
+program and shared library with `strip --strip-unneeded`, the static
+library with `strip --strip-debug`, which keeps the symbols a program
+links against. `STRIP=0` keeps everything as cargo built it, for a
+debugger: about 25 MB installed rather than 16. The `-1` is the package's
+release, `DEB_REVISION` for the .deb, for a package rebuilt from the same
+source. Building them needs, besides cargo and cbindgen, `python3-pip`,
+`python3-setuptools`, `python3-docutils` (for `rst2html`) and
+`dpkg-dev`. `make rpm` needs `rpmbuild` (`sudo apt install rpm` on
+Debian) and says so, without failing, where it is missing. A package
+also installs three files outside `/opt/tcs`, each named after it:
+`/etc/ld.so.conf.d/tcslog.conf`, so the loader finds the library;
+`/etc/profile.d/tcslog.sh`, which adds `/opt/tcs/bin` to `PATH` and
+`/opt/tcs/lib/pkgconfig` to `PKG_CONFIG_PATH`; and a `tcslog.pth` in the
+system Python's own directory (`/usr/lib/python3/dist-packages` on
+Debian, `/usr/lib/python3.X/site-packages` for the Python the RPM was
+built with), so `import tcslog` works.
+
+Login shells find `/opt/tcs/bin` through `/etc/profile.d/tcslog.sh`, but
+sudo, cron and other minimal environments do not read it, and do not
+find the programs. To make them available everywhere, link them into
+`/usr/local/bin`, which is on every one of those paths, sudo's
+`secure_path` included:
+
+```sh
+sudo /opt/tcs/sbin/tcslog-links            # link them
+sudo /opt/tcs/sbin/tcslog-links --remove   # undo it
+```
+
+`--dir` names another directory, such as `/opt/bin`. It links only this
+package's programs, leaves anything already in the way alone and says
+so, and is never run for you: removing the package removes its links,
+but installing it makes none. After `make install`, `sudo make links` and
+`sudo make unlinks` do the same, with `LINKDIR` naming the directory.
+
+Or straight from a checkout:
+
+```sh
+sudo make install                   # under /opt/tcs, nothing in /etc
+sudo make install HOOKS=1           # with the three files above
+make install PREFIX=$HOME/tcs       # somewhere of your own
+```
+
+`DESTDIR` stages the install, and `make uninstall` removes it again,
+honouring the same variables. `make install` strips as the packages do,
+and `STRIP=0` keeps it from doing so. `HOOKS=1` needs the default `PREFIX`,
+since the files it installs name `/opt/tcs`. Without the hooks, point
+the tools at the tree yourself:
+
+```sh
+export PKG_CONFIG_PATH=/opt/tcs/lib/pkgconfig
+export LD_LIBRARY_PATH=/opt/tcs/lib
+export PYTHONPATH=/opt/tcs/lib/python3/site-packages
+```
+
+The build bakes in the `TIMER_RESOLUTION` of the machine that runs it
+(see `docs/manual.rst`, "The timer resolution"); a library built without
+one refuses to open a log for writing.
+
+From C or C++, through pkg-config:
+
+```c
+#include "tcslog.h"             /* or "tcslog.hpp" from C++ */
+```
+
+```sh
+cc  prog.c   $(pkg-config --cflags --libs tcslog)
+c++ prog.cpp $(pkg-config --cflags --libs tcslog)
+```
+
+From Python 3, the package finds the library installed beside it with
+nothing set. In a virtual environment, pip installs the package alone,
+which then finds the library as *Python 3 interface* below describes:
+
+```sh
+pip install ./tcslog-py
+```
+
+From Rust, the library is the `tcslog` crate, taken from crates.io or as
+a path dependency, and `tcslog-gen` installs with cargo:
+
+```sh
+cargo install --path tcslog-gen --root /opt/tcs
+```
+
 Trying it out
 -------------
 ```sh
@@ -115,16 +222,20 @@ separate crate because a C interface has to be built as a `cdylib` and a
 `unsafe` an ABI needs is then confined to it: the library crate itself
 contains none.
 
-```sh
-make install                       # header and libraries under $HOME
-make install PREFIX=/usr/local     # somewhere else; DESTDIR stages it
-cc  prog.c   -I$HOME/include -L$HOME/lib -ltcslog_c
-c++ prog.cpp -I$HOME/include -L$HOME/lib -ltcslog_c
-```
+`make install` installs the headers and both libraries, as `libtcslog`;
+see *Installing* above. In this repository the libraries cargo builds
+keep the crate's name, `libtcslog_c`, which is what the tests and
+examples here link.
 
-`make uninstall` removes them again, honouring the same two variables.
-`make install` also installs the Python 3 package; see *Python 3
-interface* below.
+The `1` in `libtcslog.so.1` is the ABI's version, not the package's. It
+is the whole number in `tcslog-c/abi-version`, from which
+`tcslog-c/build.rs` sets the soname and the Makefile the installed
+names, and it is bumped only when the ABI changes incompatibly: when a
+function's signature or behaviour changes incompatibly, or one is
+removed, or a struct or enum the header exposes changes its layout or
+values. A program built against one ABI version is then never started
+against another. Adding a function, or a status after the last, does
+not bump it.
 
 `tcslog-c/include/tcslog.h` is generated from `tcslog-c/src/lib.rs` by
 `cbindgen` and is not written by hand: `make header` regenerates it and
@@ -185,18 +296,17 @@ variant an exception class. It is pure Python over `ctypes`, calling the
 C ABI's shared library, so it needs no compiler and nothing outside the
 standard library:
 
-`make install` installs it along with the C/C++ binding: into the user
-site directory under the default `PREFIX`, which Python searches without
-being told, and otherwise into that prefix's `site-packages`, which may
-need adding to `PYTHONPATH`. It needs no `pip`, so it works on a Python
-that refuses `pip install` outside a virtual environment (PEP 668), and
-it puts a link to the installed library beside the package, so the
-package finds it with no `LD_LIBRARY_PATH`. `PYDIR` overrides where it
-goes. In a virtual environment, `pip install ./tcslog-py` works too.
+`make install` installs it along with the C/C++ binding, into
+`$(PREFIX)/lib/python3/site-packages`, a path with no Python minor
+version in it, using `pip --target` on a copy of `tcslog-py`; `PYDIR`
+overrides where it goes. Python searches there once told to, by
+`PYTHONPATH` or by the `.pth` file a package installs. In a virtual
+environment, `pip install ./tcslog-py` works too.
 
 The package finds the library through `TCSLOG_LIB`, if set, then beside
-the package, then on the loader's path (`LD_LIBRARY_PATH`), then in this
-repository's `target/` directory.
+the package, then as `libtcslog.so.1` in the `lib/` of the tree it was
+installed into, then on the loader's path (`LD_LIBRARY_PATH`), then in
+this repository's `target/` directory.
 
 ```sh
 ./bin/run-python-example

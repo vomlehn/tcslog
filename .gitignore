@@ -23,6 +23,9 @@ target
 #.idea/
 build.out
 
+# What `make stage`, `make deb` and `make rpm` make
+/build/
+
 # Ad-hoc developer scratch drivers and their captured output
 /t
 /t.sh

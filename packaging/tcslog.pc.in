@@ -1,0 +1,16 @@
+# The C/C++ binding to tcslog, installed by `make install` with @PREFIX@
+# replaced by the prefix it installed under. Libs.private is what rustc
+# says a program linking the static library needs besides it (its
+# --print native-static-libs), which `pkg-config --static` adds.
+prefix=@PREFIX@
+exec_prefix=${prefix}
+libdir=${exec_prefix}/lib
+includedir=${prefix}/include
+
+Name: tcslog
+Description: Segmented telemetry log for storage-bounded systems (C/C++)
+URL: https://github.com/vomlehn/tcslog
+Version: @VERSION@
+Libs: -L${libdir} -ltcslog
+Libs.private: -lgcc_s -lutil -lrt -lpthread -lm -ldl -lc
+Cflags: -I${includedir}

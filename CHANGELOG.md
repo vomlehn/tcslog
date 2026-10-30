@@ -22,6 +22,16 @@ log written by an earlier release is refused with `VersionMismatch`.
 
 ### Changed
 
+- `make install` installs under `/opt/tcs` by default rather than `$HOME`,
+  always builds for release, and installs the libraries as `libtcslog`
+  (`libtcslog.so.1`, with `libtcslog.so` linked to it, and
+  `libtcslog.a`). Link with `-ltcslog`, or `pkg-config --libs tcslog`,
+  where it was `-ltcslog_c`. The headers are still installed in
+  `include/`. The Python package goes
+  to `lib/python3/site-packages` under the prefix, by `pip --target`,
+  with no link to the library beside it. `HOOKS=1` also installs the
+  files outside the prefix that a package does.
+
 - Every non-trivial function, in every language, is documented with its
   parameters and what it returns. In `tcslog.h` these are Doxygen
   `@param` and `@return` commands, which `make header` writes from the
@@ -41,6 +51,28 @@ log written by an earlier release is refused with `VersionMismatch`.
   status 21).
 
 ### Added
+
+- Packages: `make deb` and `make rpm` build a `tcslog` .deb and RPM, and
+  `make packages` both, from one install into `build/stage/tcslog`
+  (`make stage`), as `tcslog_<version>-1_<arch>.deb` and
+  `tcslog-<version>-1.<arch>.rpm`. What they ship is stripped unless
+  `STRIP=0`, as is what `make install` installs. They install under
+  `/opt/tcs`, with
+  `/etc/ld.so.conf.d/tcslog.conf`, `/etc/profile.d/tcslog.sh` and a
+  `tcslog.pth` so that the loader, the shell, pkg-config and Python find
+  what is there.
+- A pkg-config file, `tcslog.pc`, and `tcslog-gen` are installed.
+- `/opt/tcs/sbin/tcslog-links` links `tcslog-gen` into `/usr/local/bin`,
+  or `--dir`, for sudo, cron and other environments that do not read
+  `/etc/profile.d`, and `--remove` takes the links away; `make links` and
+  `make unlinks` run it after `make install`. Removing the package
+  removes its links; installing it makes none.
+- The shared library has the soname `libtcslog.so.1`. The `1` is the ABI
+  version in `tcslog-c/abi-version`, kept apart from the package version
+  and bumped only for an incompatible change to the ABI; `tcslog-c/build.rs`
+  sets the soname from it and the Makefile the installed names.
+- The Python package finds `libtcslog.so.1` in the `lib/` of the tree it
+  is installed in, three directories up from it.
 
 - A Limitations section in the manual, and a See Also section in the manual
   and the design.

@@ -1,0 +1,19 @@
+Package: tcslog
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: David VomLehn <dvomlehn@gmail.com>
+Installed-Size: @SIZE@
+Depends: @DEPENDS@
+Recommends: python3
+Section: libs
+Priority: optional
+Homepage: https://github.com/vomlehn/tcslog
+Description: segmented telemetry log for storage-bounded systems
+ Tcslog is flight software that logs telemetry into a directory of
+ fixed-size segment files and reads it back, recovering from segment
+ files that were lost or damaged, for vehicles whose contact with the
+ ground is intermittent.
+ .
+ This package holds the C/C++ library (shared and static), its headers
+ and pkg-config file, the Python 3 package over it, tcslog-gen, and the
+ documentation, all under /opt/tcs.

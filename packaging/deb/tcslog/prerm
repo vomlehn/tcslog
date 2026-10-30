@@ -1,0 +1,14 @@
+#!/bin/sh
+# Takes away the links tcslog-links made, in either directory it is
+# meant for, before the programs they point at go, so that removing the
+# package leaves none dangling. In prerm rather than postrm because by
+# postrm dpkg has already removed tcslog-links itself. Not on an
+# upgrade, which keeps the programs, and never failing the removal: a
+# directory that is not there has no links in it.
+set -e
+if [ "$1" = remove ]; then
+	for dir in /usr/local/bin /opt/bin; do
+		/opt/tcs/sbin/tcslog-links --remove --dir "$dir" \
+			> /dev/null 2>&1 || true
+	done
+fi

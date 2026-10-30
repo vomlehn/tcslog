@@ -58,10 +58,11 @@ rest of tcslog documents its exceptions:
   :class:`SegId` return a new ``str``.
 
 The library is found by looking, in order, at the ``TCSLOG_LIB``
-environment variable, which names the file; beside this module; on the
-system loader's search path, which ``LD_LIBRARY_PATH`` extends; and in
-``target/release`` then ``target/debug`` of the repository this module
-sits in.
+environment variable, which names the file; beside this module; in the
+``lib`` directory of the tree ``make install`` put this module in, three
+directories up as ``libtcslog.so.1``; on the system loader's search
+path, which ``LD_LIBRARY_PATH`` extends; and in ``target/release`` then
+``target/debug`` of the repository this module sits in.
 """
 
 import ctypes
@@ -134,6 +135,13 @@ __all__ = [
 # Size of the buffer LogRead.iter reads into, as in the Rust crate.
 _ITER_BUF_LEN = 64 * 1024
 
+# The name the library is installed under on an ELF platform, which is
+# its soname, set by tcslog-c/build.rs: `make install` puts this module
+# in lib/python3/site-packages/tcslog/ and the library in lib/ of the
+# same tree. `make check` holds the 1 to tcslog-c/abi-version, the ABI
+# version this module is written against.
+_INSTALLED_NAME = "libtcslog.so.1"
+
 
 def _lib_name() -> str:
     """Names the shared library tcslog-c builds on this platform.
@@ -153,9 +161,11 @@ def _lib_name() -> str:
 def _load() -> ctypes.CDLL:
     """Loads the shared library, from the first place that has it.
 
-    Looks in turn at the path in ``TCSLOG_LIB``, beside this module,
-    wherever the loader finds ``tcslog_c``, and in the release and then
-    the debug build directory of the repository this module is in.
+    Looks in turn at the path in ``TCSLOG_LIB``, beside this module, in
+    the ``lib`` directory of the installed tree this module is in,
+    wherever the loader finds ``libtcslog.so.1`` or ``tcslog_c``, and in
+    the release and then the debug build directory of the repository
+    this module is in.
 
     Returns:
         The loaded library.
@@ -173,6 +183,19 @@ def _load() -> ctypes.CDLL:
     beside = here / name
     if beside.exists():
         return ctypes.CDLL(str(beside))
+    elf = sys.platform not in ("darwin", "win32")
+    # lib/python3/site-packages/tcslog/__init__.py, so lib is three up.
+    # Looked for before the loader's path, so that an installed package
+    # takes the library installed with it rather than another one the
+    # loader happens to find first.
+    installed = here.parent.parent.parent / _INSTALLED_NAME
+    if elf and installed.exists():
+        return ctypes.CDLL(str(installed))
+    if elf:
+        try:
+            return ctypes.CDLL(_INSTALLED_NAME)
+        except OSError:
+            pass
     try:
         return ctypes.CDLL(ctypes.util.find_library("tcslog_c") or name)
     except OSError:

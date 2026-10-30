@@ -9,7 +9,8 @@
  * what tcslog.h documents: opening a log, clearing one, and retaining
  * segment headers when asked to.
  *
- * Header-only and C++11. Link against libtcslog_c as for tcslog.h.
+ * Header-only and C++11. Link against libtcslog as for tcslog.h:
+ * -ltcslog, or `pkg-config --libs tcslog`, once installed.
  */
 
 #ifndef TCSLOG_HPP
