@@ -207,7 +207,7 @@ take the crate without its default features:
 
 ```toml
 [dependencies]
-tcslog = { version = "0.4", default-features = false }
+tcslog = { version = "0.5", default-features = false }
 ```
 
 ```rust
