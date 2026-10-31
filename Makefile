@@ -395,8 +395,20 @@ LINT_SCRIPTS := bin/make-releases
 ifneq ($(wildcard $(TCS_HELPERS)/packaging/packaging.mk),)
 include $(TCS_HELPERS)/packaging/packaging.mk
 else
-.PHONY: stage deb rpm packages lint-packages links unlinks
-stage deb rpm packages lint-packages links unlinks: tcs-helpers
+.PHONY: stage
+stage: tcs-helpers
+.PHONY: deb
+deb: tcs-helpers
+.PHONY: rpm
+rpm: tcs-helpers
+.PHONY: packages
+packages: tcs-helpers
+.PHONY: lint-packages
+lint-packages: tcs-helpers
+.PHONY: links
+links: tcs-helpers
+.PHONY: unlinks
+unlinks: tcs-helpers
 endif
 
 # Clean build artifacts
