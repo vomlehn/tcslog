@@ -1331,6 +1331,26 @@ after it so that no two TCS packages own one:
   ``/usr/lib/python3.X/site-packages`` of the Python it was built with,
   which it therefore recommends.
 
+The .deb also carries what Debian expects of every package, outside
+``/opt/tcs`` as those files are: ``/usr/share/doc/tcslog/copyright``,
+in Debian's machine-readable format, and ``changelog.Debian.gz``, both
+made as the package is built, from ``LICENSE-MIT`` and the version;
+lintian's overrides, in ``/usr/share/lintian/overrides/tcslog``; and a
+trigger that has dpkg run ``ldconfig`` once the library is installed or
+removed. The RPM says the same in its own ``License``, ``%changelog``,
+``%post`` and ``%postun``. An example that is a script, starting with
+``#!``, is installed executable.
+
+``make lint-packages`` checks the packages ``make packages`` built with
+lintian and rpmlint, and the shell scripts they run or install with
+shellcheck: the hooks and ``tcslog-links`` as the stage has them, the
+.deb's maintainer scripts, the packaging scripts and
+``bin/make-releases``. It skips, in a line, any of the three that is
+not installed, and fails on any finding that is not overridden. What is
+overridden is intended, and says why: for lintian in
+``packaging/deb/tcslog/lintian-overrides``, which the .deb carries, and
+for rpmlint in ``packaging/rpm/rpmlint.toml``, which is not shipped.
+
 Login shells find ``/opt/tcs/bin`` through
 ``/etc/profile.d/tcslog.sh``, but sudo, cron and other minimal
 environments do not read it, and so do not find the programs. To make

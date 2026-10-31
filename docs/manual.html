@@ -1720,6 +1720,24 @@ there already; and</li>
 <tt class="docutils literal"><span class="pre">/usr/lib/python3.X/site-packages</span></tt> of the Python it was built with,
 which it therefore recommends.</li>
 </ul>
+<p>The .deb also carries what Debian expects of every package, outside
+<tt class="docutils literal">/opt/tcs</tt> as those files are: <tt class="docutils literal">/usr/share/doc/tcslog/copyright</tt>,
+in Debian's machine-readable format, and <tt class="docutils literal">changelog.Debian.gz</tt>, both
+made as the package is built, from <tt class="docutils literal"><span class="pre">LICENSE-MIT</span></tt> and the version;
+lintian's overrides, in <tt class="docutils literal">/usr/share/lintian/overrides/tcslog</tt>; and a
+trigger that has dpkg run <tt class="docutils literal">ldconfig</tt> once the library is installed or
+removed. The RPM says the same in its own <tt class="docutils literal">License</tt>, <tt class="docutils literal">%changelog</tt>,
+<tt class="docutils literal">%post</tt> and <tt class="docutils literal">%postun</tt>. An example that is a script, starting with
+<tt class="docutils literal">#!</tt>, is installed executable.</p>
+<p><tt class="docutils literal">make <span class="pre">lint-packages</span></tt> checks the packages <tt class="docutils literal">make packages</tt> built with
+lintian and rpmlint, and the shell scripts they run or install with
+shellcheck: the hooks and <tt class="docutils literal"><span class="pre">tcslog-links</span></tt> as the stage has them, the
+.deb's maintainer scripts, the packaging scripts and
+<tt class="docutils literal"><span class="pre">bin/make-releases</span></tt>. It skips, in a line, any of the three that is
+not installed, and fails on any finding that is not overridden. What is
+overridden is intended, and says why: for lintian in
+<tt class="docutils literal"><span class="pre">packaging/deb/tcslog/lintian-overrides</span></tt>, which the .deb carries, and
+for rpmlint in <tt class="docutils literal">packaging/rpm/rpmlint.toml</tt>, which is not shipped.</p>
 <p>Login shells find <tt class="docutils literal">/opt/tcs/bin</tt> through
 <tt class="docutils literal">/etc/profile.d/tcslog.sh</tt>, but sudo, cron and other minimal
 environments do not read it, and so do not find the programs. To make

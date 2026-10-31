@@ -15,6 +15,26 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged.
+
+### Added
+
+- `make lint-packages` checks the packages with lintian and rpmlint, and
+  their shell scripts with shellcheck, and fails on any finding not
+  overridden with its reason.
+- The .deb carries `/usr/share/doc/tcslog/copyright`, in Debian's
+  machine-readable format, `changelog.Debian.gz` and lintian overrides,
+  and the RPM a `%changelog` and a `Group`, all made from the version as
+  the package is built.
+
+### Changed
+
+- The .deb has dpkg's `ldconfig` trigger run the loader's cache rather
+  than its `postinst` and `postrm`, which are gone.
+- `downlink.py`, an example that is a script, is installed executable.
+
 ## [0.5.0] - 2026-10-30
 
 Stored format: 1.0.0, which this release cannot read alongside 0.1.0: a
@@ -979,6 +999,7 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
+[Unreleased]: https://github.com/vomlehn/tcslog/compare/v0.5.0...HEAD
 [0.5.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.5.0
 [0.4.3]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.3
 [0.4.2]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.2

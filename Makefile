@@ -254,7 +254,8 @@ PTH     := $(DESTDIR)/usr/lib/python3/dist-packages/tcslog.pth
 # development name linked to it, and the static one; a pkg-config file
 # naming the real prefix; the Python 3 package; and the documents and
 # examples. The Rust library is not installed, a Rust program taking it
-# through cargo.
+# through cargo. An example that starts with "#!" is a script to run, so
+# it is installed executable and the rest are not.
 #
 # Under STRIP=1, the default, what is installed is stripped as it is
 # installed: the program and the shared library of every symbol nothing
@@ -305,7 +306,11 @@ install: header docs	## Build, strip (STRIP=0: don't), install under PREFIX
 	$(RM) $$dist/direct_url.json; \
 	sed -i '/^tcslog-[^/]*\.dist-info\/direct_url\.json,/d' $$dist/RECORD
 	install -D -m 644 -t $(DOCDIR) $(DOCS)
-	install -D -m 644 -t $(EXDIR) $(EXAMPLES)
+	for f in $(EXAMPLES); do \
+		mode=644; \
+		[ "$$(head -c 2 $$f)" != '#!' ] || mode=755; \
+		install -D -m $$mode -t $(EXDIR) $$f; \
+	done
 	if [ "$(HOOKS)" = 1 ]; then \
 		install -D -m 644 packaging/hooks/tcslog.conf $(LDCONF); \
 		install -D -m 644 packaging/hooks/tcslog.sh $(PROFILE); \
@@ -384,12 +389,25 @@ stage:			## Install into build/stage/tcslog for packaging
 	chmod -R u+rwX,go=rX $(PKGSTAGE)
 	@echo "[OK] Staged under $(PKGSTAGE)"
 
+# The release's time, which dates the changelog entry each package
+# carries: that of the commit being built, so that building the same
+# commit again makes the same entry, or now outside a git clone. The
+# name is the one reproducible builds give it, so that a builder's own
+# SOURCE_DATE_EPOCH is taken. Worked out once, so that the .deb and the
+# .rpm are dated alike.
+ifndef SOURCE_DATE_EPOCH
+SOURCE_DATE_EPOCH := $(shell git log -1 --format=%ct 2>/dev/null || date +%s)
+endif
+
 # Build the .deb from the stage, with the control files in
 # packaging/deb/tcslog. dpkg-shlibdeps works out what the shared library
 # and tcslog-gen need from the libraries they link, but wants a
 # debian/control to read, so it is given a minimal one in a directory
 # of its own. The shlibs file tells dpkg-shlibdeps, building a package
 # that links libtcslog, to depend on this one at this version or later.
+# packaging/deb/debian-files.sh then adds what Debian expects outside
+# /opt/tcs and the RPM does not have: the copyright file, the Debian
+# changelog, the lintian overrides and the trigger that runs ldconfig.
 #
 # DEB_REVISION is the Debian revision, for a package rebuilt from the
 # same source, as in tcspecial.
@@ -418,10 +436,11 @@ deb: stage		## Build the .deb in build/packages
 		-e "s|@SIZE@|$$size|" -e "s|@DEPENDS@|$$depends|" \
 		$(DEB_DIR)/control > $$root/DEBIAN/control; \
 	install -m 644 $(DEB_DIR)/conffiles $$root/DEBIAN/; \
-	install -m 755 $(DEB_DIR)/postinst $(DEB_DIR)/prerm $(DEB_DIR)/postrm \
-		$$root/DEBIAN/; \
+	install -m 755 $(DEB_DIR)/prerm $$root/DEBIAN/; \
 	echo "libtcslog $(ABI) tcslog (>= $(VERSION))" > $$root/DEBIAN/shlibs; \
 	chmod 644 $$root/DEBIAN/shlibs; \
+	packaging/deb/debian-files.sh tcslog tcslog $$root $(DEB_VERSION) \
+		$(SOURCE_DATE_EPOCH); \
 	dpkg-deb --root-owner-group --build $$root \
 		$(PKGOUT)/tcslog_$(DEB_VERSION)_$$arch.deb
 
@@ -447,6 +466,8 @@ rpm:			## Build the .rpm in build/packages
 		--define "_topdir $(RPM_TOP)" \
 		--define "_dbpath $(RPM_TOP)/db" \
 		--define "tcs_version $(VERSION)" \
+		--define "tcs_date $$(date -u -d @$(SOURCE_DATE_EPOCH) \
+			'+%a %b %d %Y')" \
 		--define "tcs_abi $(ABI)" \
 		--define "tcs_stage $(PKGSTAGE)" \
 		--define "tcs_pysite $$($(PYTHON) -c 'import sysconfig; \
@@ -460,6 +481,25 @@ rpm:			## Build the .rpm in build/packages
 
 .PHONY: packages
 packages: deb rpm	## Build both; STRIP=0 leaves them unstripped
+
+# Check the packages `make packages` built, and the shell scripts they
+# run or install, with lintian, rpmlint and shellcheck, any of which is
+# skipped in a line if it is not installed: see
+# packaging/lint-packages.sh. rpmlint is given packaging/rpm/rpmlint.toml,
+# which says why each finding it accepts is intended; the .deb carries
+# its own lintian overrides. The links script and the profile.d hook are
+# checked as the stage has them, with their placeholders filled in.
+.PHONY: lint-packages
+lint-packages:		## Lint the packages and their shell scripts
+	packaging/lint-packages.sh packaging/rpm/rpmlint.toml \
+		$(wildcard $(PKGOUT)/tcslog_$(DEB_VERSION)_*.deb \
+			$(PKGOUT)/tcslog-$(VERSION)-*.rpm) \
+		-- $(wildcard $(PKGSTAGE)/opt/tcs/sbin/*-links \
+			$(PKGSTAGE)/etc/profile.d/*.sh) \
+		$(wildcard $(addprefix $(DEB_DIR)/,preinst postinst prerm \
+			postrm)) \
+		packaging/deb/debian-files.sh packaging/lint-packages.sh \
+		bin/make-releases
 
 # Clean build artifacts
 .PHONY: clean

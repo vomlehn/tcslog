@@ -1,7 +1,0 @@
-#!/bin/sh
-# Rebuilds the loader's cache without the library just removed, so that
-# it does not go on naming a file that is no longer there.
-set -e
-if [ "$1" = remove ]; then
-	ldconfig
-fi

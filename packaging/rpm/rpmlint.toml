@@ -1,0 +1,38 @@
+# What rpmlint is to accept in the tcslog RPM, read by `make
+# lint-packages` and never shipped. Each filter is a finding that is
+# intended, with why; anything else rpmlint reports is to be fixed.
+
+# Debian's rpmlint, unlike Fedora's, comes with no list of licences it
+# knows, and so calls every one invalid. rpmlint splits the SPDX
+# expression "MIT OR Apache-2.0" into its two licences itself; these are
+# the two.
+ValidLicenses = ["MIT", "Apache-2.0"]
+
+Filters = [
+	# An add-on package lives under /opt/<package>, as FHS 3.0 section
+	# 3.13 lays it out, and /opt/tcs is the tree every TCS package
+	# shares.
+	' dir-or-file-in-opt ',
+	# One package holds the library and what is built against it, the
+	# headers, pkg-config file and static library, by design: there is
+	# no -devel package for them to go in. The Python package and the
+	# documents beside the library are not named for its version either.
+	' non-versioned-file-in-library-package ',
+	' devel-file-in-non-devel-package ',
+	# With STRIP=1, the default, the static library is stripped of its
+	# debugging information on purpose, keeping the symbols a link needs.
+	' static-library-without-debuginfo /opt/tcs/lib/libtcslog\.a$',
+	# The library is linked with the GNU hash section alone, the modern
+	# default, and not the old SysV one as well.
+	' missing-hash-section /opt/tcs/lib/libtcslog\.so\.',
+	# Words of the trade that rpmlint's dictionary does not have.
+	" spelling-error \\('config',",
+	# An example script finds python3 on the path of whoever runs it, so
+	# that it runs as well in a virtual environment as with the system's.
+	' env-script-interpreter /opt/tcs/share/examples/tcslog/',
+	# The packages are not signed.
+	' no-signature',
+	# python-base is openSUSE's name; Fedora's python3 is depended on
+	# through python(abi), which the package recommends.
+	' no-dependency-on python-base ',
+]

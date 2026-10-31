@@ -94,6 +94,20 @@ system Python's own directory (`/usr/lib/python3/dist-packages` on
 Debian, `/usr/lib/python3.X/site-packages` for the Python the RPM was
 built with), so `import tcslog` works.
 
+The .deb also carries what Debian expects of every package, outside
+`/opt/tcs` as the hooks are: `/usr/share/doc/tcslog/copyright`, in
+Debian's machine-readable format, and `changelog.Debian.gz`, both made
+as the package is built from `LICENSE-MIT` and the version; lintian's
+overrides in `/usr/share/lintian/overrides/tcslog`; and a trigger that
+has dpkg run `ldconfig` once the library is installed or removed. The
+RPM says the same in its own `License`, `%changelog`, `%post` and
+`%postun`. `make lint-packages` checks the packages that `make packages`
+built with lintian and rpmlint, and their shell scripts with shellcheck.
+It skips, in a line, any of the three that is not installed, and fails
+on any finding that is not overridden; each override says why it is
+intended, in `packaging/deb/tcslog/lintian-overrides` and
+`packaging/rpm/rpmlint.toml`.
+
 Login shells find `/opt/tcs/bin` through `/etc/profile.d/tcslog.sh`, but
 sudo, cron and other minimal environments do not read it, and do not
 find the programs. To make them available everywhere, link them into

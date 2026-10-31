@@ -1,0 +1,18 @@
+# This is an add-on package, not one of the distribution's, so it lives
+# under /opt/tcs, as FHS 3.0 section 3.13 lays out /opt/<package>; every
+# TCS package shares the one tree.
+tcslog: dir-or-file-in-opt
+
+# /etc/ld.so.conf.d/tcslog.conf is how the loader finds /opt/tcs/lib,
+# which is not on its path otherwise.
+tcslog: package-modifies-ld.so-search-path
+
+# lintian looks for a library only in the directories ldconfig searches
+# by default, so it does not see that this one, in /opt/tcs/lib, is found
+# through the ld.so.conf.d file above; the trigger is what has ldconfig
+# read that file and the library.
+tcslog: package-has-unnecessary-activation-of-ldconfig-trigger
+
+# The package is not uploaded to Debian, so its first changelog entry has
+# no bug asking for it to close.
+tcslog: initial-upload-closes-no-bugs
