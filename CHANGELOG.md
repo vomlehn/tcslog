@@ -15,7 +15,7 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
-## [Unreleased]
+## [0.6.0] - 2026-10-30
 
 Stored format: 1.1.0, which still reads 1.0.
 
@@ -24,7 +24,6 @@ Stored format: 1.1.0, which still reads 1.0.
 - `SegmentHeader::version_minor`, the minor number of the stored format a
   file was written in, and `Format::data_header_len_in`, a data header's
   length in a file of that version.
-
 - `make lint-packages` checks the packages with lintian and rpmlint, and
   their shell scripts with shellcheck, and fails on any finding not
   overridden with its reason.
@@ -1010,7 +1009,8 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
-[Unreleased]: https://github.com/vomlehn/tcslog/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/vomlehn/tcslog/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.6.0
 [0.5.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.5.0
 [0.4.3]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.3
 [0.4.2]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.2

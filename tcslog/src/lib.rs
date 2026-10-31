@@ -207,7 +207,7 @@
 //!
 //! ```toml
 //! [dependencies]
-//! tcslog = { version = "0.5", default-features = false }
+//! tcslog = { version = "0.6", default-features = false }
 //! ```
 //!
 //! ```no_run
