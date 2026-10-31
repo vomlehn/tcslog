@@ -268,8 +268,8 @@ static void scenario_round_trip(const char *base) {
 		s = tcslog_write_record(w, (const uint8_t *)msgs[i],
 		                        strlen(msgs[i]), &written);
 		check_status(s, TCSLOG_STATUS_OK, "a record is written");
-		/* A VariableTsRc record carries a sixteen-byte data header. */
-		check(written == strlen(msgs[i]) + 16,
+		/* A VariableTsRc record carries an eighteen-byte data header. */
+		check(written == strlen(msgs[i]) + 18,
 		      "the record occupied its payload plus a header");
 	}
 

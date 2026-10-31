@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::error::LogError;
 use crate::format::{Format, Meta};
-use crate::header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN};
+use crate::header::{SegmentHeader, SEGMENT_FILE_HEADER_LEN, VERSION_MINOR};
 use crate::segid::SegId;
 use crate::seq_id::SeqId;
 use crate::util::{build_name, check_log_location, scan_segment_ids};
@@ -19,7 +19,7 @@ include!(concat!(env!("OUT_DIR"), "/timer_resolution.rs"));
 /// Largest data header this crate has, which is
 /// [`Format::VariableTsRc`]'s. A buffer of this size holds any format's
 /// data header, so building one allocates nothing.
-const MAX_DATA_HEADER_LEN: usize = 16;
+const MAX_DATA_HEADER_LEN: usize = 18;
 
 /// What a [`LogWrite`] calls as it works, and the context it calls them
 /// with.
@@ -621,9 +621,10 @@ impl<H: WriteCallbacks> LogWrite<H> {
         } else if self.format == Format::VariableTsRc
             && self.record_count >= RECORD_COUNT_MAX
         {
-            // A data header holds a count of 32 bits, which a busy log
-            // can exhaust: at a million records a second, in about 72
-            // minutes. Wrapping would number two records of one session
+            // A data header holds a count of 48 bits, which a log could
+            // in principle exhaust, though at 100,000 records a second it
+            // would take about 89 years. Wrapping would number two
+            // records of one session
             // alike, and a reader takes the count's restarting at one to
             // mean a new session. So the record after the last count
             // begins a new session, which a reader reports as a boundary
@@ -835,6 +836,7 @@ impl<H: WriteCallbacks> LogWrite<H> {
             remaining: self.record_bytes_left,
             format: self.format,
             sequence: self.sequence,
+            version_minor: VERSION_MINOR,
         };
         let mut current = Current {
             id,
@@ -1045,10 +1047,10 @@ impl<H: WriteCallbacks> LogWrite<H> {
                 let rc = self.record_count;
                 self.header_buf[0..4].copy_from_slice(&n.to_le_bytes());
                 self.header_buf[4..12].copy_from_slice(&ts.to_le_bytes());
-                // The low four bytes: a session never counts past
+                // The low six bytes: a session never counts past
                 // RECORD_COUNT_MAX, which `write` sees to.
-                self.header_buf[12..16].copy_from_slice(&rc.to_le_bytes()[..4]);
-                Ok((16, Meta::VariableTsRc(ts, rc)))
+                self.header_buf[12..18].copy_from_slice(&rc.to_le_bytes()[..6]);
+                Ok((18, Meta::VariableTsRc(ts, rc)))
             }
         }
     }
@@ -1057,7 +1059,7 @@ impl<H: WriteCallbacks> LogWrite<H> {
     ///
     /// The buffer is a field of `self`, which the byte writer also
     /// borrows, so the bytes are copied to the stack first. A data
-    /// header is at most sixteen bytes, so the copy is free.
+    /// header is at most eighteen bytes, so the copy is free.
     fn write_bytes_from_header(&mut self, len: usize) -> Result<(), LogError> {
         let mut scratch = [0u8; MAX_DATA_HEADER_LEN];
         scratch[..len].copy_from_slice(&self.header_buf[..len]);

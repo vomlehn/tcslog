@@ -325,9 +325,9 @@ impl LogRead {
         // Both paths above leave a segment file open: the branch that
         // resynchronized succeeded, and the branch that did not was
         // entered only because one was already open.
-        let Some(format) =
-            self.current.as_ref().map(|segment| segment.header.format)
-        else {
+        let Some((format, minor)) = self.current.as_ref().map(|segment| {
+            (segment.header.format, segment.header.version_minor)
+        }) else {
             return Err(self.lose_position(LogError::Eof));
         };
 
@@ -341,10 +341,12 @@ impl LogRead {
                 cursor.total = Some(cursor.consumed + u64::from(n));
                 (n, Meta::VariableSimple)
             }
-            Start::Fresh => match self.read_data_header(&mut cursor, format) {
-                Ok(decoded) => decoded,
-                Err(e) => return Err(self.lose_position(e)),
-            },
+            Start::Fresh => {
+                match self.read_data_header(&mut cursor, format, minor) {
+                    Ok(decoded) => decoded,
+                    Err(e) => return Err(self.lose_position(e)),
+                }
+            }
         };
         self.last_meta = meta;
 
@@ -550,6 +552,9 @@ impl LogRead {
     ///
     /// * `cursor` - The read position within the record being read.
     /// * `format` - The data record layout of the current segment file.
+    /// * `minor`  - The current segment file's minor format version,
+    ///              which decides the width of a `VariableTsRc` record
+    ///              count: 32 bits in version 1.0, 48 since.
     ///
     /// # Returns
     ///
@@ -566,6 +571,7 @@ impl LogRead {
         &mut self,
         cursor: &mut Cursor,
         format: Format,
+        minor: u32,
     ) -> Result<(RecSize, Meta), LogError> {
         match format {
             Format::Fixed(n) => {
@@ -582,8 +588,10 @@ impl LogRead {
                 Ok((n, Meta::VariableSimple))
             }
             Format::VariableTsRc => {
-                let mut head = [0u8; 16];
-                self.fill(cursor, &mut head)?;
+                let len = format.data_header_len_in(minor);
+                let mut head = [0u8; 18];
+                let head = &mut head[..len as usize];
+                self.fill(cursor, head)?;
                 let mut four = [0u8; 4];
                 let mut eight = [0u8; 8];
                 four.copy_from_slice(&head[0..4]);
@@ -591,10 +599,12 @@ impl LogRead {
                     .settle_payload_len(cursor, RecSize::from_le_bytes(four))?;
                 eight.copy_from_slice(&head[4..12]);
                 let ts = Timestamp::from_le_bytes(eight);
-                four.copy_from_slice(&head[12..16]);
-                let rc = RecordCount::from(u32::from_le_bytes(four));
-                cursor.total =
-                    Some(u64::from(format.data_header_len()) + u64::from(n));
+                // The count fills the rest of the header, little-endian:
+                // four bytes in version 1.0 and six since.
+                let mut count = [0u8; 8];
+                count[..head.len() - 12].copy_from_slice(&head[12..]);
+                let rc = RecordCount::from_le_bytes(count);
+                cursor.total = Some(u64::from(len) + u64::from(n));
                 Ok((n, Meta::VariableTsRc(ts, rc)))
             }
         }
@@ -895,7 +905,12 @@ impl LogRead {
                     segment.id,
                     segment.header.remaining,
                     segment.header.sequence,
-                    u64::from(segment.header.format.data_header_len()),
+                    u64::from(
+                        segment
+                            .header
+                            .format
+                            .data_header_len_in(segment.header.version_minor),
+                    ),
                 )
             })
         else {

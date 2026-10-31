@@ -1,9 +1,9 @@
 #!/bin/bash
 #
-# Reads variable-tsrc records larger than tcslog-dump's fixed 256-byte
+# Reads variable-tsrc records larger than a 256-byte tcslog-dump
 # buffer. The overflow count covers payload only, so the reader must
 # report the same 256 bytes captured here as in the variable-simple
-# case, with the 16-byte data header accounted for separately rather
+# case, with the 18-byte data header accounted for separately rather
 # than charged against the caller's buffer.
 #
 # No segment file is damaged: the recovery being checked is the one a
@@ -25,4 +25,5 @@ $bin/error-recovery-common \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \
     -n "$NUMBER" \
+    -R 256 \
     "$@"

@@ -5,9 +5,9 @@
 # arithmetic settles where the next record's payload begins -- in the
 # format that still cannot use it.
 #
-# Records are 8 payload bytes plus a 16-byte data header, so 24 bytes
-# against a 20-byte data section. Record 1 therefore owes 4 bytes of
-# file 2, leaving exactly 16: record 2's data header fills the rest of
+# Records are 8 payload bytes plus an 18-byte data header, so 26 bytes
+# against a 22-byte data section. Record 1 therefore owes 4 bytes of
+# file 2, leaving exactly 18: record 2's data header fills the rest of
 # that file and its payload begins at the first byte of file 3. That is
 # the geometry combined_12-10 recovers from in variable-simple, where
 # the surviving file's `remaining` field is the whole of the lost data
@@ -27,12 +27,12 @@ SFX=.log
 bin="$(dirname "$0")/../bin"
 
 FORMAT="variable-tsrc:8"
-DATA_SIZE="20"
+DATA_SIZE="22"
 NUMBER="6"
 DELETE="2"
 
 $bin/error-recovery-common \
-    -e "tsrc-lost-header_8-20.expected" \
+    -e "tsrc-lost-header_8-22.expected" \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \
     -n "$NUMBER" \

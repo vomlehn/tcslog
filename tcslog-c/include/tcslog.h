@@ -18,10 +18,10 @@
 #define TCSLOG_TIMESTAMP_STR_LEN 30
 
 /**
- * The largest record count a data header holds, 2^32 - 1. The record
+ * The largest record count a data header holds, 2^48 - 1. The record
  * after a session's last count begins a new session.
  */
-#define TCSLOG_RECORD_COUNT_MAX 4294967295
+#define TCSLOG_RECORD_COUNT_MAX 281474976710655
 
 /**
  * The most characters a prefix or a suffix may have.

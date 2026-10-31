@@ -334,9 +334,9 @@ pub const TCSLOG_SEG_ID_STR_LEN: usize = 19;
 /// The characters a timestamp renders as, without the NUL.
 pub const TCSLOG_TIMESTAMP_STR_LEN: usize = 30;
 
-/// The largest record count a data header holds, 2^32 - 1. The record
+/// The largest record count a data header holds, 2^48 - 1. The record
 /// after a session's last count begins a new session.
-pub const TCSLOG_RECORD_COUNT_MAX: u64 = 0xFFFF_FFFF;
+pub const TCSLOG_RECORD_COUNT_MAX: u64 = 0xFFFF_FFFF_FFFF;
 
 /// The most characters a prefix or a suffix may have.
 pub const TCSLOG_PREFIX_SUFFIX_MAX_CHARS: usize = 16;
@@ -1685,6 +1685,7 @@ pub unsafe extern "C" fn tcslog_read_take_opened_headers(
             remaining: 0,
             format: Format::VariableSimple,
             sequence: tcslog::SeqId::ZERO,
+            version_minor: 0,
         }; 16];
         let mut done = 0;
         while done < cap {

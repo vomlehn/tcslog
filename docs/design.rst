@@ -385,7 +385,8 @@ data section, in bytes, is:
 There are multiple types of data headers, depending on the format specified in
 the segment file header. Each is packed with no padding, and its fields
 appear in the order given below, so the sizes are zero bytes for
-Fixed(n), four for VariableSimple, and sixteen for VariableTsRc:
+Fixed(n), four for VariableSimple, and eighteen for VariableTsRc
+(sixteen in version 1.0 of the format, whose record count was 4 bytes):
 
     Fixed(n)
 
@@ -414,21 +415,24 @@ Fixed(n), four for VariableSimple, and sixteen for VariableTsRc:
 
             The record count is one for the first record of a session
             and increments by one for each record after it. It is of
-            type RecordCount, a u64 in memory, and is stored in 4 bytes,
-            little-endian, so it is at most RECORD_COUNT_MAX, 2^32 - 1.
+            type RecordCount, a u64 in memory, and is stored in 6 bytes,
+            little-endian, so it is at most RECORD_COUNT_MAX, 2^48 - 1.
+            Version 1.0 of the format stored it in 4 bytes, at most
+            2^32 - 1, and a reader reads such a file's counts so.
             A session that has counted that many records ends there: the
             write of the next record closes the current segment file,
             sends it as a roll does, and starts a new session, whose
             first record is counted one.
 
-            Why 32 bits, and why a new session. The count is in every
-            record, so its width is paid for by every record: 32 bits
-            rather than 64 saves four bytes of a sixteen-byte header,
+            Why 48 bits, and why a new session. The count is in every
+            record, so its width is paid for by every record: 48 bits
+            rather than 64 saves two bytes of an eighteen-byte header,
             which matters most for the short records the format is
-            used for. The cost is that a busy log reaches the end of
-            the count -- at a million records a second, in about 72
-            minutes -- so reaching it has to be an ordinary event
-            rather than an error. Wrapping the count to one, or to zero,
+            used for. Version 1.0's 32 bits saved two more, but a busy
+            log reached the end of them -- at 100,000 records a
+            second, in under 12 hours -- where 48 bits last about 89
+            years at that rate. Reaching the end is still possible,
+            so it has to be an ordinary event rather than an error. Wrapping the count to one, or to zero,
             within the session would number two records of the session
             alike, and a reader could no longer tell a repeated record
             from a new one, or see a loss as a gap in the count. A
@@ -1653,13 +1657,17 @@ Format
     single byte stored in the segment header, which is 0, 1, and 2 in
     that order; fixed_len(), the n of Fixed and zero for the others; and
     data_header_len(), the on-disk size of one data header, which is
-    zero, four, and sixteen bytes respectively.
+    zero, four, and eighteen bytes respectively; data_header_len_in(minor)
+    gives it for a file of an earlier minor format version, sixteen for a
+    VariableTsRc file of version 1.0.
 
 SegmentHeader
 -------------
     The in-memory form of a segment file header, holding segment_id,
     session_id, max_size, remaining, format, and sequence as described
-    under "Segment Header Format". It converts to and from the on-disk
+    under "Segment Header Format", and version_minor, the minor number of
+    the format version the file was written in, which decides the length
+    of its VariableTsRc data headers. It converts to and from the on-disk
     byte encoding and reads from and writes to a stream, rejecting a
     header that does not match the layout. It also reports the data
     section length implied by a given maximum size, so that callers need
@@ -1685,8 +1693,8 @@ RecSize, Timestamp, and RecordCount
     VariableTsRc metadata fields, both u64: a Timestamp is nanoseconds
     since the UNIX epoch, and a RecordCount is one for a session's first
     record and one more for each record after it. A RecordCount is
-    stored in 32 bits, and RECORD_COUNT_MAX, 2^32 - 1, is the largest;
-    see "Data Header Format".
+    stored in 48 bits (32 in version 1.0 files), and RECORD_COUNT_MAX,
+    2^48 - 1, is the largest; see "Data Header Format".
 
 WriteCallbacks
 --------------

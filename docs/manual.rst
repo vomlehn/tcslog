@@ -206,27 +206,40 @@ Limitations
 ===========
 
 Format version
-    This release writes segment files in version 1.0.0 of the stored
+    This release writes segment files in version 1.1.0 of the stored
     format (``VERSION_MAJOR``, ``VERSION_MINOR`` and ``VERSION_PATCH``),
-    and reads files whose version is 1.0.\ *x*: the same major version,
-    and a minor version no greater than its own. Any other file, among
-    them those of version 0.1.0 that tcslog 0.4.3 and earlier wrote, is
-    refused with ``VersionMismatch``.
+    and reads files whose version is 1.0.\ *x* or 1.1.\ *x*: the same
+    major version, and a minor version no greater than its own. Version
+    1.1 widened a ``VariableTsRc`` record count from 32 bits to 48 (see
+    Record count, below); a version 1.0 file, as tcslog 0.5 wrote, is read
+    with its 32-bit counts. Any other file, among them those of version
+    0.1.0 that tcslog 0.4.3 and earlier wrote, is refused with
+    ``VersionMismatch``.
 
 Record size
     A ``Fixed(n)`` record's payload is exactly ``n`` bytes, and ``n`` is
     from 1 to 4294967295. A payload and its data header together fit in
     32 bits, so a ``VariableSimple`` payload is 0 to 4294967291 bytes and
-    a ``VariableTsRc`` one 0 to 4294967279. A longer payload is refused
+    a ``VariableTsRc`` one 0 to 4294967277. A longer payload is refused
     with ``PayloadTooLarge``, and a ``Fixed`` payload of any other length
     with ``FixedLenMismatch``. A record may be larger than a segment
     file: it continues into the next one.
+
+    The bytes each record's data header takes, ahead of its payload,
+    depend on the format and on the version of the stored format:
+
+    =======  =====  ==================  ================
+    Version  Fixed  ``VariableSimple``  ``VariableTsRc``
+    =======  =====  ==================  ================
+    1.0      0      4                   16
+    1.1      0      4                   18
+    =======  =====  ==================  ================
 
 Segment file size
     ``seg_size_max`` is 32 bits, so a segment file is at most 4294967295
     bytes, its 53-byte header included. It must be more than the header
     and one data header: at least 54 bytes for ``Fixed``, 58 for
-    ``VariableSimple`` and 74 for ``VariableTsRc``. See `Choosing a
+    ``VariableSimple`` and 72 for ``VariableTsRc``. See `Choosing a
     segment file size`_.
 
     The header's length is fixed by the on-disk format's version, of
@@ -249,9 +262,11 @@ Dates
 
 Record count
     A ``VariableTsRc`` record's count starts at 1 in each session and is
-    stored in 32 bits, so a session counts at most ``RECORD_COUNT_MAX``,
-    4294967295 (2\ :sup:`32` - 1), records: at a million records a
-    second, about 72 minutes of them. The record after that begins a new
+    stored in 48 bits, so a session counts at most ``RECORD_COUNT_MAX``,
+    281474976710655 (2\ :sup:`48` - 1), records: at 100,000 records a
+    second, about 89 years of them. A version 1.0 file stores it in 32
+    bits, at most 4294967295, under 12 hours at that rate. The record
+    after the last count begins a new
     session, which counts it 1, and a reader reports the session boundary
     before it, as after any other. A wrapped count would number two
     records of one session alike; `the design
@@ -260,11 +275,15 @@ Record count
     bits, and stops at its largest value rather than wrapping.
 
 Reading
-    The record iterator reads into a 64 KiB buffer, and returns a longer
+    The record iterator reads a record's payload into a 64 KiB buffer by
+    default, its data header being read separately, and returns a longer
     record cut short and marked as truncated; ``read`` with a caller's
-    buffer reports ``ReadOverflow`` instead. A reader lists the log's
-    files once, when it is opened, so it doesn't see files written after
-    that.
+    buffer reports ``ReadOverflow`` instead. ``tcslog-dump``, in
+    tcslog-tools, reads into 64 KiB as well, and its ``--rec-size``
+    option takes an unsigned integer, at least 1, that is the largest
+    payload in bytes it reads without truncation. A reader lists the
+    log's files once, when it is opened, so it doesn't see files written
+    after that.
 
 One writer per log
     Nothing locks a log. A new ``LogWrite`` first hands every segment
@@ -629,20 +648,20 @@ integers.
    +----------------+----------------+---------------------------------+----------------------------------------+
    | ``Variable     | 0 to           | ``n``: ``RecSize``. The number  | Telemetry that must be dated and       |
    | TsRc``         | ``RecSize::    | of payload bytes in this        | counted by the logger rather than by   |
-   |                | MAX`` - 16.    | record.                         | its source: sensors that report no     |
+   |                | MAX`` - 18.    | record.                         | its source: sensors that report no     |
    |                |                |                                 | time of their own, or a log that must  |
    |                | Empty records  | ``timestamp``: ``Timestamp``.   | show the order and spacing of what it  |
    |                | are allowed.   | When the record was written, as | received. The record count also        |
    |                |                | nanoseconds since the UNIX      | reveals a gap in a session directly.   |
    |                |                | epoch. Generated by Tcslog.     | The widest data header of the three,   |
    |                |                |                                 | so the least suited to very short      |
-   |                |                | ``record count``:               | records: sixteen bytes of bookkeeping  |
+   |                |                | ``record count``:               | records: eighteen bytes of bookkeeping |
    |                |                | ``RecordCount``. This record's  | on a four-byte payload is mostly       |
    |                |                | position within its session,    | bookkeeping.                           |
    |                |                | starting at 1. Generated by     |                                        |
    |                |                | Tcslog.                         |                                        |
    |                |                |                                 |                                        |
-   |                |                | **16 bytes per record.**        |                                        |
+   |                |                | **18 bytes per record.**        |                                        |
    +----------------+----------------+---------------------------------+----------------------------------------+
 
 Choosing a segment file size
@@ -1101,7 +1120,9 @@ Results and errors
     What a segment file's header holds, as reported by
     ``LogRead::current_header`` and ``LogRead::take_opened_headers``:
     ``segment_id``, ``session_id``, ``max_size``, ``remaining``,
-    ``format``, and ``sequence``.
+    ``format``, ``sequence``, and ``version_minor``, the minor number of
+    the stored format version the file was written in, which decides how
+    long its ``VariableTsRc`` data headers are.
 
     It also converts, which is what lets a program read a segment file's
     header without opening the log it belongs to -- what
@@ -1124,7 +1145,7 @@ Results and errors
     The most characters a prefix or a suffix may have, 16.
 
 ``RECORD_COUNT_MAX``
-    The largest record count a data header holds, 2\ :sup:`32` - 1. The
+    The largest record count a data header holds, 2\ :sup:`48` - 1. The
     record after a session's last count begins a new session; see
     `Limitations`_.
 

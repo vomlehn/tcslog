@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# Reads records larger than tcslog-dump's fixed 256-byte buffer, so the
+# Reads records larger than a 256-byte tcslog-dump buffer, so the
 # reader must report the overflow, hand back the bytes it did capture,
 # and discard the remainder without losing its place in the log. No
 # segment file is damaged: the recovery being checked is the one a
@@ -22,4 +22,5 @@ $bin/error-recovery-common \
     -f "$FORMAT" \
     -s "$DATA_SIZE" \
     -n "$NUMBER" \
+    -R 256 \
     "$@"

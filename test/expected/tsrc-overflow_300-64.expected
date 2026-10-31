@@ -10,7 +10,7 @@
     segment_id: <id2>
     session_id: <id1>
     max_size:   117
-    remaining:  252
+    remaining:  254
     format:     VariableTsRc
     sequence:   1
 
@@ -18,7 +18,7 @@
     segment_id: <id3>
     session_id: <id1>
     max_size:   117
-    remaining:  188
+    remaining:  190
     format:     VariableTsRc
     sequence:   2
 
@@ -26,7 +26,7 @@
     segment_id: <id4>
     session_id: <id1>
     max_size:   117
-    remaining:  124
+    remaining:  126
     format:     VariableTsRc
     sequence:   3
 
@@ -34,7 +34,7 @@
     segment_id: <id5>
     session_id: <id1>
     max_size:   117
-    remaining:  60
+    remaining:  62
     format:     VariableTsRc
     sequence:   4
     #1 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123 (256 bytes captured, record truncated)
@@ -44,7 +44,7 @@
     segment_id: <id6>
     session_id: <id1>
     max_size:   117
-    remaining:  312
+    remaining:  316
     format:     VariableTsRc
     sequence:   5
 
@@ -52,7 +52,7 @@
     segment_id: <id7>
     session_id: <id1>
     max_size:   117
-    remaining:  248
+    remaining:  252
     format:     VariableTsRc
     sequence:   6
 
@@ -60,7 +60,7 @@
     segment_id: <id8>
     session_id: <id1>
     max_size:   117
-    remaining:  184
+    remaining:  188
     format:     VariableTsRc
     sequence:   7
 
@@ -68,7 +68,7 @@
     segment_id: <id9>
     session_id: <id1>
     max_size:   117
-    remaining:  120
+    remaining:  124
     format:     VariableTsRc
     sequence:   8
 
@@ -76,7 +76,7 @@
     segment_id: <id10>
     session_id: <id1>
     max_size:   117
-    remaining:  56
+    remaining:  60
     format:     VariableTsRc
     sequence:   9
     #2 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123 (256 bytes captured, record truncated)
@@ -86,7 +86,7 @@
     segment_id: <id11>
     session_id: <id1>
     max_size:   117
-    remaining:  308
+    remaining:  314
     format:     VariableTsRc
     sequence:   10
 
@@ -94,7 +94,7 @@
     segment_id: <id12>
     session_id: <id1>
     max_size:   117
-    remaining:  244
+    remaining:  250
     format:     VariableTsRc
     sequence:   11
 
@@ -102,7 +102,7 @@
     segment_id: <id13>
     session_id: <id1>
     max_size:   117
-    remaining:  180
+    remaining:  186
     format:     VariableTsRc
     sequence:   12
 
@@ -110,7 +110,7 @@
     segment_id: <id14>
     session_id: <id1>
     max_size:   117
-    remaining:  116
+    remaining:  122
     format:     VariableTsRc
     sequence:   13
 
@@ -118,7 +118,7 @@
     segment_id: <id15>
     session_id: <id1>
     max_size:   117
-    remaining:  52
+    remaining:  58
     format:     VariableTsRc
     sequence:   14
     #3 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123456789 123 (256 bytes captured, record truncated)

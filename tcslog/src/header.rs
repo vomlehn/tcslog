@@ -20,8 +20,10 @@ pub const VERSION_MAJOR: u32 = 1;
 
 /// Minor number of the on-disk format this build writes. A file whose
 /// minor is greater is refused, since it may use something this build
-/// does not know about; a lesser or equal one is readable.
-pub const VERSION_MINOR: u32 = 0;
+/// does not know about; a lesser or equal one is readable. Version 1.1
+/// widened a `VariableTsRc` record count from 32 bits to 48; 1.0 files
+/// are still read, with their 32-bit counts.
+pub const VERSION_MINOR: u32 = 1;
 
 /// Patch number of the on-disk format this build writes. It takes no
 /// part in the compatibility decision.
@@ -48,10 +50,11 @@ const HEADER_LEN: usize = SEGMENT_FILE_HEADER_LEN as usize;
 
 /// The header that opens every segment file.
 ///
-/// The type and version fields are not represented here: they are
-/// checked when a header is decoded and written from this build's own
-/// constants when one is encoded, so there is no state a caller could
-/// set to something the format does not allow.
+/// The type field and the version's major and patch numbers are not
+/// represented here: they are checked when a header is decoded and
+/// written from this build's own constants when one is encoded. The
+/// minor number is, as `version_minor`, because it decides how the
+/// file's data headers are laid out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SegmentHeader {
     /// Identifier of this segment file, which must match the identifier
@@ -80,6 +83,12 @@ pub struct SegmentHeader {
 
     /// Zero-based position of this segment file within its session.
     pub sequence: SeqId,
+
+    /// Minor number of the format version the file was written in, no
+    /// greater than [`VERSION_MINOR`]: what a reader uses to lay out its
+    /// data headers (see [`Format::data_header_len_in`]). A writer sets
+    /// it to [`VERSION_MINOR`].
+    pub version_minor: u32,
 }
 
 impl SegmentHeader {
@@ -116,12 +125,15 @@ impl SegmentHeader {
     /// # Returns
     ///
     /// The [`SEGMENT_FILE_HEADER_LEN`] bytes that open a segment file,
-    /// with the type and version fields set from this build's constants.
+    /// with the type field and the version's major and patch numbers set
+    /// from this build's constants, and its minor number from
+    /// `version_minor`.
     #[must_use]
     pub fn to_bytes(&self) -> [u8; HEADER_LEN] {
         let mut out = [0u8; HEADER_LEN];
         out[OFF_TYPE..OFF_TYPE + 8].copy_from_slice(TYPE_MAGIC);
-        out[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(&version_bytes());
+        out[OFF_VERSION..OFF_VERSION + 4]
+            .copy_from_slice(&version_bytes(self.version_minor));
         out[OFF_SEGMENT_ID..OFF_SEGMENT_ID + 8]
             .copy_from_slice(&self.segment_id.to_le_bytes());
         out[OFF_SESSION_ID..OFF_SESSION_ID + 8]
@@ -163,7 +175,8 @@ impl SegmentHeader {
         if &bytes[OFF_TYPE..OFF_TYPE + 8] != TYPE_MAGIC {
             return Err(LogError::InvalidHeader);
         }
-        check_version(&bytes[OFF_VERSION..OFF_VERSION + 4])?;
+        let version_minor =
+            check_version(&bytes[OFF_VERSION..OFF_VERSION + 4])?;
 
         let tag = bytes[OFF_FORMAT_TAG];
         let arg = RecSize::from_le_bytes(take4(bytes, OFF_FORMAT_ARG));
@@ -176,6 +189,7 @@ impl SegmentHeader {
             remaining: u64::from_le_bytes(take8(bytes, OFF_REMAINING)),
             format,
             sequence: SeqId::from_le_bytes(take8(bytes, OFF_SEQUENCE)),
+            version_minor,
         })
     }
 
@@ -229,17 +243,22 @@ impl SegmentHeader {
     }
 }
 
-/// Renders the version field this build writes.
+/// Renders a version field.
+///
+/// # Arguments
+///
+/// * `minor` - The minor number: [`VERSION_MINOR`] for a file this build
+///             writes.
 ///
 /// # Returns
 ///
-/// The four version characters: two digits of major, one of minor, one
-/// of patch.
-fn version_bytes() -> [u8; 4] {
+/// The four version characters: two digits of this build's major, one
+/// of `minor`, one of this build's patch.
+fn version_bytes(minor: u32) -> [u8; 4] {
     [
         b'0' + u8::try_from(VERSION_MAJOR / 10).unwrap_or(0),
         b'0' + u8::try_from(VERSION_MAJOR % 10).unwrap_or(0),
-        b'0' + u8::try_from(VERSION_MINOR % 10).unwrap_or(0),
+        b'0' + u8::try_from(minor % 10).unwrap_or(0),
         b'0' + u8::try_from(VERSION_PATCH % 10).unwrap_or(0),
     ]
 }
@@ -259,25 +278,22 @@ fn version_bytes() -> [u8; 4] {
 ///
 /// # Returns
 ///
-/// Nothing when the version is readable.
+/// The minor number, when the version is readable.
 ///
 /// # Errors
 ///
 /// [`LogError::VersionMismatch`] if the field is not four ASCII digits,
 /// its major differs from this build's, or its minor is greater.
-fn check_version(field: &[u8]) -> Result<(), LogError> {
+fn check_version(field: &[u8]) -> Result<u32, LogError> {
     if field.len() != 4 || field.iter().any(|b| !b.is_ascii_digit()) {
         return Err(LogError::VersionMismatch);
     }
     let digit = |b: u8| u32::from(b - b'0');
     let major = digit(field[0]) * 10 + digit(field[1]);
     let minor = digit(field[2]);
-    // While VERSION_MINOR is 0 the comparison is an equality, which
-    // clippy objects to; it is the rule for every minor all the same.
-    #[allow(clippy::absurd_extreme_comparisons)]
     let readable = major == VERSION_MAJOR && minor <= VERSION_MINOR;
     if readable {
-        Ok(())
+        Ok(minor)
     } else {
         Err(LogError::VersionMismatch)
     }
@@ -340,6 +356,7 @@ mod tests {
             remaining: 19,
             format: Format::Fixed(64),
             sequence: SeqId::from_u64(5),
+            version_minor: VERSION_MINOR,
         }
     }
 
@@ -354,7 +371,7 @@ mod tests {
         let h = sample();
         let b = h.to_bytes();
         assert_eq!(&b[0..8], b"tcslogsf");
-        assert_eq!(&b[8..12], b"0100");
+        assert_eq!(&b[8..12], b"0110");
         assert_eq!(&b[12..20], &h.segment_id.to_le_bytes());
         assert_eq!(&b[20..28], &h.session_id.to_le_bytes());
         assert_eq!(&b[28..32], &h.max_size.to_le_bytes());
@@ -435,23 +452,34 @@ mod tests {
     #[test]
     fn accepts_an_equal_or_lesser_minor_and_any_patch() {
         // The rule is a comparison of parsed numbers, not a match
-        // against the literal string this build writes. This build's
-        // minor is 0, so no lesser one exists.
-        for field in [b"0100", b"0109"] {
+        // against the literal string this build writes; the minor read
+        // is kept, as it decides the data header layout.
+        for (field, minor) in
+            [(b"0100", 0), (b"0109", 0), (b"0110", 1), (b"0119", 1)]
+        {
             let mut b = sample().to_bytes();
             b[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(field);
-            assert!(
-                SegmentHeader::from_bytes(&b).is_ok(),
-                "refused readable version {:?}",
-                std::str::from_utf8(field).unwrap()
-            );
+            let h = SegmentHeader::from_bytes(&b).unwrap_or_else(|e| {
+                panic!(
+                    "refused readable version {:?}: {e:?}",
+                    std::str::from_utf8(field).unwrap()
+                )
+            });
+            assert_eq!(h.version_minor, minor);
         }
+    }
+
+    #[test]
+    fn a_version_1_0_header_writes_back_as_1_0() {
+        let mut h = sample();
+        h.version_minor = 0;
+        assert_eq!(&h.to_bytes()[8..12], b"0100");
     }
 
     #[test]
     fn refuses_greater_minor_other_major_and_non_digits() {
         // 0010 is the format before the 32-bit record count.
-        for field in [b"0010", b"0110", b"0200", b"9900", b"00a0", b"    "] {
+        for field in [b"0010", b"0120", b"0200", b"9900", b"00a0", b"    "] {
             let mut b = sample().to_bytes();
             b[OFF_VERSION..OFF_VERSION + 4].copy_from_slice(field);
             assert!(

@@ -14,15 +14,19 @@ pub(crate) const TAG_VARIABLE_TSRC: u8 = 2;
 /// `RecSize` payload length.
 pub(crate) const VARIABLE_SIMPLE_HEADER_LEN: u32 = 4;
 /// On-disk size of a [`Format::VariableTsRc`] data header: a `RecSize`
-/// payload length, a `Timestamp`, and a `RecordCount` in 32 bits.
-pub(crate) const VARIABLE_TSRC_HEADER_LEN: u32 = 4 + 8 + 4;
+/// payload length, a `Timestamp`, and a `RecordCount` in 48 bits.
+pub(crate) const VARIABLE_TSRC_HEADER_LEN: u32 = 4 + 8 + 6;
+
+/// On-disk size of a [`Format::VariableTsRc`] data header in format
+/// 1.0, whose `RecordCount` was 32 bits.
+pub(crate) const VARIABLE_TSRC_HEADER_LEN_1_0: u32 = 4 + 8 + 4;
 
 /// How data records are laid out in a segment file's data section.
 ///
 /// The choice is made once, when the log is created, and is recorded in
 /// every segment file's header. It trades storage against metadata: a
 /// fixed-length record costs nothing per record and carries nothing,
-/// while a timestamped one costs sixteen bytes and dates itself.
+/// while a timestamped one costs eighteen bytes and dates itself.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
     /// Every record holds exactly this many payload bytes, and no data
@@ -73,11 +77,12 @@ impl Format {
         }
     }
 
-    /// Returns the on-disk size of one data record's data header.
+    /// Returns the on-disk size of one data record's data header, in the
+    /// format version this build writes.
     ///
     /// # Returns
     ///
-    /// Zero for `Fixed`, four for `VariableSimple`, and sixteen for
+    /// Zero for `Fixed`, four for `VariableSimple`, and eighteen for
     /// `VariableTsRc`.
     #[must_use]
     pub const fn data_header_len(self) -> u32 {
@@ -85,6 +90,26 @@ impl Format {
             Self::Fixed(_) => 0,
             Self::VariableSimple => VARIABLE_SIMPLE_HEADER_LEN,
             Self::VariableTsRc => VARIABLE_TSRC_HEADER_LEN,
+        }
+    }
+
+    /// Returns the on-disk size of one data record's data header in a
+    /// segment file of a given minor format version.
+    ///
+    /// # Arguments
+    ///
+    /// * `minor` - The file's minor format version.
+    ///
+    /// # Returns
+    ///
+    /// As [`data_header_len`](Self::data_header_len), but sixteen for a
+    /// `VariableTsRc` file of version 1.0, whose record count was 32
+    /// bits.
+    #[must_use]
+    pub const fn data_header_len_in(self, minor: u32) -> u32 {
+        match self {
+            Self::VariableTsRc if minor == 0 => VARIABLE_TSRC_HEADER_LEN_1_0,
+            _ => self.data_header_len(),
         }
     }
 
@@ -150,7 +175,16 @@ mod tests {
     fn data_header_lengths() {
         assert_eq!(Format::Fixed(7).data_header_len(), 0);
         assert_eq!(Format::VariableSimple.data_header_len(), 4);
-        assert_eq!(Format::VariableTsRc.data_header_len(), 16);
+        assert_eq!(Format::VariableTsRc.data_header_len(), 18);
+    }
+
+    #[test]
+    fn version_1_0_variable_tsrc_headers_are_sixteen_bytes() {
+        // Format 1.0 stored the record count in 32 bits; 1.1 in 48.
+        assert_eq!(Format::VariableTsRc.data_header_len_in(0), 16);
+        assert_eq!(Format::VariableTsRc.data_header_len_in(1), 18);
+        assert_eq!(Format::VariableSimple.data_header_len_in(0), 4);
+        assert_eq!(Format::Fixed(7).data_header_len_in(0), 0);
     }
 
     #[test]

@@ -18,7 +18,7 @@ use tempfile::TempDir;
 
 use tcslog::{
     Format, LogError, LogRead, LogWrite, Meta, RecSize, SegId, SegmentHeader,
-    WriteCallbacks, PREFIX_SUFFIX_MAX_CHARS, SEGMENT_FILE_HEADER_LEN,
+    SeqId, WriteCallbacks, PREFIX_SUFFIX_MAX_CHARS, SEGMENT_FILE_HEADER_LEN,
 };
 
 const PREFIX: &str = "seg-";
@@ -1423,9 +1423,9 @@ fn losing_the_last_segment_file_is_not_mistaken_for_the_end_of_the_log() {
 /// recovery weighs against a data header. Two geometries leave exactly
 /// one: a four-byte `VariableSimple` header with a ten-byte data
 /// section and a `first_len` of 12, which owes six bytes and leaves
-/// four; and a sixteen-byte `VariableTsRc` header with a
-/// twenty-byte data section and a `first_len` of 8, which owes
-/// four and leaves sixteen. In both the next record's data header fills
+/// four; and an eighteen-byte `VariableTsRc` header with a
+/// twenty-two-byte data section and a `first_len` of 8, which owes
+/// four and leaves eighteen. In both the next record's data header fills
 /// the rest of the second segment file and its payload begins at the
 /// third.
 ///
@@ -1521,9 +1521,9 @@ fn a_record_is_not_recovered_when_the_gap_had_room_for_more_than_a_header() {
 fn a_variable_tsrc_record_is_not_recovered_from_a_gap_that_held_its_header() {
     // The geometry the VariableSimple recovery turns on, in the format
     // whose data header holds more than a length: the first record owes
-    // four bytes of the second file, leaving sixteen, which is exactly
+    // four bytes of the second file, leaving eighteen, which is exactly
     // one VariableTsRc data header.
-    let (log, written) = lost_header_log(Format::VariableTsRc, 20, 8);
+    let (log, written) = lost_header_log(Format::VariableTsRc, 22, 8);
     assert_eq!(log.headers()[1].remaining, 4);
     // The next record's payload begins at the third file, so its
     // `remaining` is that whole payload rather than the tail of one.
@@ -1991,7 +1991,7 @@ fn write_returns_the_payload_plus_its_data_header() {
     for (format, header_len) in [
         (Format::Fixed(6), 0u32),
         (Format::VariableSimple, 4),
-        (Format::VariableTsRc, 16),
+        (Format::VariableTsRc, 18),
     ] {
         let log = Log::new(400);
         let mut w = log.writer(format);
@@ -2212,4 +2212,89 @@ fn a_segment_file_cut_short_mid_session_is_not_stitched_over() {
             );
         }
     }
+}
+
+/// Writes a segment file of format 1.0 by hand: what a tcslog that wrote
+/// that version left behind.
+///
+/// # Arguments
+///
+/// * `log`       - The log to put it in.
+/// * `id`        - The file's segment identifier.
+/// * `session`   - The identifier of its session's first file.
+/// * `sequence`  - Its position within the session.
+/// * `remaining` - The bytes it owes a record begun in the file before.
+/// * `data`      - Its data section.
+///
+/// # Panics
+///
+/// If the file cannot be written.
+fn write_version_1_0_file(
+    log: &Log,
+    id: u64,
+    session: u64,
+    sequence: u64,
+    remaining: u64,
+    data: &[u8],
+) {
+    let header = SegmentHeader {
+        segment_id: SegId::from_u64(id),
+        session_id: SegId::from_u64(session),
+        max_size: log.seg_size_max,
+        remaining,
+        format: Format::VariableTsRc,
+        sequence: SeqId::from_u64(sequence),
+        version_minor: 0,
+    };
+    let mut bytes = header.to_bytes().to_vec();
+    bytes.extend_from_slice(data);
+    let name = format!("{PREFIX}{}{SUFFIX}", SegId::from_u64(id));
+    fs::write(log.dir.path().join(name), bytes).expect("a writable file");
+}
+
+/// A version 1.0 data header: the payload length, the timestamp and a
+/// 32-bit record count, sixteen bytes.
+///
+/// # Arguments
+///
+/// * `len` - The payload length.
+/// * `ts`  - The timestamp.
+/// * `rc`  - The record count.
+///
+/// # Returns
+///
+/// The header's bytes.
+fn version_1_0_data_header(len: u32, ts: u64, rc: u32) -> Vec<u8> {
+    let mut h = len.to_le_bytes().to_vec();
+    h.extend_from_slice(&ts.to_le_bytes());
+    h.extend_from_slice(&rc.to_le_bytes());
+    h
+}
+
+#[test]
+fn a_version_1_0_log_with_32_bit_counts_still_reads() {
+    // Two files of a 24-byte data section: the first holds one whole
+    // record (a sixteen-byte header and four bytes) and the first four
+    // bytes of the next record's header, whose other twelve, and its
+    // payload, open the second.
+    let log = Log::new(24);
+    let (t1, t2) = (1_800_000_000_000_000_000_u64, 1_800_000_000_000_001_000);
+    let first = [
+        version_1_0_data_header(4, t1, 1),
+        b"abcd".to_vec(),
+        version_1_0_data_header(4, t2, 2),
+    ]
+    .concat();
+    write_version_1_0_file(&log, t1, t1, 0, 0, &first[..24]);
+    let second = [&first[24..], b"efgh".as_slice()].concat();
+    write_version_1_0_file(&log, t1 + 500, t1, 1, 16, &second);
+
+    assert!(log.headers().iter().all(|h| h.version_minor == 0));
+    let out = log.read_all();
+    assert_eq!(out.payloads, vec![b"abcd".to_vec(), b"efgh".to_vec()]);
+    assert_eq!(
+        out.metas,
+        vec![Meta::VariableTsRc(t1, 1), Meta::VariableTsRc(t2, 2)]
+    );
+    assert_eq!((out.truncations, out.lost), (0, 0));
 }

@@ -10,7 +10,7 @@
     segment_id: <id2>
     session_id: <id1>
     max_size:   77
-    remaining:  2
+    remaining:  4
     format:     VariableTsRc
     sequence:   1
     #1 1234567 (10 bytes, ts=<ts>, rc=1)
@@ -19,7 +19,7 @@
     segment_id: <id3>
     session_id: <id1>
     max_size:   77
-    remaining:  4
+    remaining:  8
     format:     VariableTsRc
     sequence:   2
     -- corrupted or truncated segment file; resynchronizing --
@@ -28,7 +28,7 @@
     segment_id: <id4>
     session_id: <id1>
     max_size:   77
-    remaining:  6
+    remaining:  12
     format:     VariableTsRc
     sequence:   3
     #3 1234567 (10 bytes, ts=<ts>, rc=3)
@@ -37,7 +37,7 @@
     segment_id: <id5>
     session_id: <id1>
     max_size:   77
-    remaining:  8
+    remaining:  16
     format:     VariableTsRc
     sequence:   4
     #4 1234567 (10 bytes, ts=<ts>, rc=4)
@@ -46,7 +46,7 @@
     segment_id: <id6>
     session_id: <id1>
     max_size:   77
-    remaining:  10
+    remaining:  20
     format:     VariableTsRc
     sequence:   5
     #5 1234567 (10 bytes, ts=<ts>, rc=5)
@@ -55,7 +55,7 @@
     segment_id: <id7>
     session_id: <id1>
     max_size:   77
-    remaining:  12
+    remaining:  24
     format:     VariableTsRc
     sequence:   6
     #6 1234567 (10 bytes, ts=<ts>, rc=6)

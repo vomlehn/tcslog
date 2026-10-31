@@ -616,25 +616,58 @@ next whole record. See <a class="reference internal" href="#advantages-when-thin
 <h1><a class="toc-backref" href="#toc-entry-6">Limitations</a></h1>
 <dl class="docutils">
 <dt>Format version</dt>
-<dd>This release writes segment files in version 1.0.0 of the stored
+<dd>This release writes segment files in version 1.1.0 of the stored
 format (<tt class="docutils literal">VERSION_MAJOR</tt>, <tt class="docutils literal">VERSION_MINOR</tt> and <tt class="docutils literal">VERSION_PATCH</tt>),
-and reads files whose version is 1.0.<em>x</em>: the same major version,
-and a minor version no greater than its own. Any other file, among
-them those of version 0.1.0 that tcslog 0.4.3 and earlier wrote, is
-refused with <tt class="docutils literal">VersionMismatch</tt>.</dd>
+and reads files whose version is 1.0.<em>x</em> or 1.1.<em>x</em>: the same
+major version, and a minor version no greater than its own. Version
+1.1 widened a <tt class="docutils literal">VariableTsRc</tt> record count from 32 bits to 48 (see
+Record count, below); a version 1.0 file, as tcslog 0.5 wrote, is read
+with its 32-bit counts. Any other file, among them those of version
+0.1.0 that tcslog 0.4.3 and earlier wrote, is refused with
+<tt class="docutils literal">VersionMismatch</tt>.</dd>
 <dt>Record size</dt>
-<dd>A <tt class="docutils literal">Fixed(n)</tt> record's payload is exactly <tt class="docutils literal">n</tt> bytes, and <tt class="docutils literal">n</tt> is
+<dd><p class="first">A <tt class="docutils literal">Fixed(n)</tt> record's payload is exactly <tt class="docutils literal">n</tt> bytes, and <tt class="docutils literal">n</tt> is
 from 1 to 4294967295. A payload and its data header together fit in
 32 bits, so a <tt class="docutils literal">VariableSimple</tt> payload is 0 to 4294967291 bytes and
-a <tt class="docutils literal">VariableTsRc</tt> one 0 to 4294967279. A longer payload is refused
+a <tt class="docutils literal">VariableTsRc</tt> one 0 to 4294967277. A longer payload is refused
 with <tt class="docutils literal">PayloadTooLarge</tt>, and a <tt class="docutils literal">Fixed</tt> payload of any other length
 with <tt class="docutils literal">FixedLenMismatch</tt>. A record may be larger than a segment
-file: it continues into the next one.</dd>
+file: it continues into the next one.</p>
+<p>The bytes each record's data header takes, ahead of its payload,
+depend on the format and on the version of the stored format:</p>
+<table border="1" class="last docutils">
+<colgroup>
+<col width="15%" />
+<col width="11%" />
+<col width="39%" />
+<col width="35%" />
+</colgroup>
+<thead valign="bottom">
+<tr><th class="head">Version</th>
+<th class="head">Fixed</th>
+<th class="head"><tt class="docutils literal">VariableSimple</tt></th>
+<th class="head"><tt class="docutils literal">VariableTsRc</tt></th>
+</tr>
+</thead>
+<tbody valign="top">
+<tr><td>1.0</td>
+<td>0</td>
+<td>4</td>
+<td>16</td>
+</tr>
+<tr><td>1.1</td>
+<td>0</td>
+<td>4</td>
+<td>18</td>
+</tr>
+</tbody>
+</table>
+</dd>
 <dt>Segment file size</dt>
 <dd><p class="first"><tt class="docutils literal">seg_size_max</tt> is 32 bits, so a segment file is at most 4294967295
 bytes, its 53-byte header included. It must be more than the header
 and one data header: at least 54 bytes for <tt class="docutils literal">Fixed</tt>, 58 for
-<tt class="docutils literal">VariableSimple</tt> and 74 for <tt class="docutils literal">VariableTsRc</tt>. See <a class="reference internal" href="#choosing-a-segment-file-size">Choosing a
+<tt class="docutils literal">VariableSimple</tt> and 72 for <tt class="docutils literal">VariableTsRc</tt>. See <a class="reference internal" href="#choosing-a-segment-file-size">Choosing a
 segment file size</a>.</p>
 <p>The header's length is fixed by the on-disk format's version, of
 which only the major and minor numbers matter here:</p>
@@ -665,20 +698,26 @@ writing a <tt class="docutils literal">VariableTsRc</tt> record and starting a s
 with <tt class="docutils literal">TimestampOverflow</tt>.</dd>
 <dt>Record count</dt>
 <dd>A <tt class="docutils literal">VariableTsRc</tt> record's count starts at 1 in each session and is
-stored in 32 bits, so a session counts at most <tt class="docutils literal">RECORD_COUNT_MAX</tt>,
-4294967295 (2<sup>32</sup> - 1), records: at a million records a
-second, about 72 minutes of them. The record after that begins a new
+stored in 48 bits, so a session counts at most <tt class="docutils literal">RECORD_COUNT_MAX</tt>,
+281474976710655 (2<sup>48</sup> - 1), records: at 100,000 records a
+second, about 89 years of them. A version 1.0 file stores it in 32
+bits, at most 4294967295, under 12 hours at that rate. The record
+after the last count begins a new
 session, which counts it 1, and a reader reports the session boundary
 before it, as after any other. A wrapped count would number two
 records of one session alike; <a class="reference external" href="https://vomlehn.github.io/tcslog/docs/design.html#data-header-format">the design</a>
 gives the reasons. The sequence number of a session's segment files is 64
 bits, and stops at its largest value rather than wrapping.</dd>
 <dt>Reading</dt>
-<dd>The record iterator reads into a 64 KiB buffer, and returns a longer
+<dd>The record iterator reads a record's payload into a 64 KiB buffer by
+default, its data header being read separately, and returns a longer
 record cut short and marked as truncated; <tt class="docutils literal">read</tt> with a caller's
-buffer reports <tt class="docutils literal">ReadOverflow</tt> instead. A reader lists the log's
-files once, when it is opened, so it doesn't see files written after
-that.</dd>
+buffer reports <tt class="docutils literal">ReadOverflow</tt> instead. <tt class="docutils literal"><span class="pre">tcslog-dump</span></tt>, in
+tcslog-tools, reads into 64 KiB as well, and its <tt class="docutils literal"><span class="pre">--rec-size</span></tt>
+option takes an unsigned integer, at least 1, that is the largest
+payload in bytes it reads without truncation. A reader lists the
+log's files once, when it is opened, so it doesn't see files written
+after that.</dd>
 <dt>One writer per log</dt>
 <dd>Nothing locks a log. A new <tt class="docutils literal">LogWrite</tt> first hands every segment
 file already in the log to <tt class="docutils literal">send</tt>, so a second writer on the same
@@ -1050,7 +1089,7 @@ choice when records vary in size.</td>
 TsRc</tt></td>
 <td><p class="first">0 to
 <tt class="docutils literal">RecSize::
-MAX</tt> - 16.</p>
+MAX</tt> - 18.</p>
 <p class="last">Empty records
 are allowed.</p>
 </td>
@@ -1066,7 +1105,7 @@ epoch. Generated by Tcslog.</p>
 position within its session,
 starting at 1. Generated by
 Tcslog.</p>
-<p class="last"><strong>16 bytes per record.</strong></p>
+<p class="last"><strong>18 bytes per record.</strong></p>
 </td>
 <td>Telemetry that must be dated and
 counted by the logger rather than by
@@ -1077,7 +1116,7 @@ received. The record count also
 reveals a gap in a session directly.
 The widest data header of the three,
 so the least suited to very short
-records: sixteen bytes of bookkeeping
+records: eighteen bytes of bookkeeping
 on a four-byte payload is mostly
 bookkeeping.</td>
 </tr>
@@ -1495,7 +1534,9 @@ zero would present itself as a session's first segment file -- and
 <dd><p class="first">What a segment file's header holds, as reported by
 <tt class="docutils literal"><span class="pre">LogRead::current_header</span></tt> and <tt class="docutils literal"><span class="pre">LogRead::take_opened_headers</span></tt>:
 <tt class="docutils literal">segment_id</tt>, <tt class="docutils literal">session_id</tt>, <tt class="docutils literal">max_size</tt>, <tt class="docutils literal">remaining</tt>,
-<tt class="docutils literal">format</tt>, and <tt class="docutils literal">sequence</tt>.</p>
+<tt class="docutils literal">format</tt>, <tt class="docutils literal">sequence</tt>, and <tt class="docutils literal">version_minor</tt>, the minor number of
+the stored format version the file was written in, which decides how
+long its <tt class="docutils literal">VariableTsRc</tt> data headers are.</p>
 <p>It also converts, which is what lets a program read a segment file's
 header without opening the log it belongs to -- what
 <tt class="docutils literal"><span class="pre">tcslog-dumphdr</span></tt> does for a file that has been renamed or copied
@@ -1514,7 +1555,7 @@ count. See <a class="reference internal" href="#record-formats">Record Formats</
 <dt><tt class="docutils literal">PREFIX_SUFFIX_MAX_CHARS</tt></dt>
 <dd>The most characters a prefix or a suffix may have, 16.</dd>
 <dt><tt class="docutils literal">RECORD_COUNT_MAX</tt></dt>
-<dd>The largest record count a data header holds, 2<sup>32</sup> - 1. The
+<dd>The largest record count a data header holds, 2<sup>48</sup> - 1. The
 record after a session's last count begins a new session; see
 <a class="reference internal" href="#limitations">Limitations</a>.</dd>
 <dt><tt class="docutils literal">VERSION_MAJOR</tt>, <tt class="docutils literal">VERSION_MINOR</tt>, <tt class="docutils literal">VERSION_PATCH</tt></dt>

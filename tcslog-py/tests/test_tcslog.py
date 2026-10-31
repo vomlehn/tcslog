@@ -69,7 +69,7 @@ class Scenarios(unittest.TestCase):
 
     def test_version_and_header_len(self) -> None:
         major, minor, patch = tcslog.format_version()
-        self.assertEqual((major, minor), (1, 0))
+        self.assertEqual((major, minor), (1, 1))
         self.assertEqual(tcslog.segment_file_header_len(), 53)
         self.assertEqual(
             tcslog.status_str(tcslog.Status.EOF), tcslog.Eof().args[0]
@@ -93,9 +93,9 @@ class Scenarios(unittest.TestCase):
             c,
         ) as w:
             for m in msgs:
-                # A VariableTsRc record carries a sixteen-byte data
+                # A VariableTsRc record carries an eighteen-byte data
                 # header.
-                self.assertEqual(w.write(m), len(m) + 16)
+                self.assertEqual(w.write(m), len(m) + 18)
             self.assertGreater(w.timer_resolution(), 0)
             w.flush()
         self.assertEqual(c.completes, len(msgs))

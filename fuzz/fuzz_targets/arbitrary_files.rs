@@ -86,6 +86,11 @@ fuzz_target!(|files: Vec<File>| {
                     remaining: u64::from(*remaining),
                     format,
                     sequence: SeqId::from_u64(u64::from(*sequence % 10)),
+                    // Either version a reader takes, 1.0 or 1.1, whose
+                    // VariableTsRc data headers differ in length: chosen
+                    // from the part of the sequence byte the sequence
+                    // above leaves alone.
+                    version_minor: u32::from(*sequence / 10 % 2),
                 };
                 let room = (max_size - SEGMENT_FILE_HEADER_LEN) as usize;
                 let mut bytes = header.to_bytes().to_vec();

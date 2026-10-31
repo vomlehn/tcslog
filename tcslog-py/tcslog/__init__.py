@@ -342,7 +342,7 @@ TIMESTAMP_STR_LEN = 30
 # The largest record count a data header holds, as TCSLOG_RECORD_COUNT_MAX
 # and the Rust RECORD_COUNT_MAX: the record after a session's last count
 # begins a new session.
-RECORD_COUNT_MAX = (1 << 32) - 1
+RECORD_COUNT_MAX = (1 << 48) - 1
 # The most characters a prefix or a suffix may have, as the C
 # TCSLOG_PREFIX_SUFFIX_MAX_CHARS and the Rust PREFIX_SUFFIX_MAX_CHARS.
 PREFIX_SUFFIX_MAX_CHARS = 16

@@ -123,7 +123,7 @@ static void round_trip(const char *base) {
 		for (const char *m : msgs) {
 			uint32_t written = 0;
 			check(w.write_str(m, &written) == TCSLOG_STATUS_OK &&
-			          written == std::strlen(m) + 16,
+			          written == std::strlen(m) + 18,
 			      "a record is written");
 		}
 		tcslog::RecordMeta meta;

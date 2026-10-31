@@ -78,6 +78,8 @@ text_flag="--text"
 # what is compared, so this chooses what the stored file holds, not just
 # what reaches the terminal.
 verbose_flag="--verbose"
+# tcslog-dump's --rec-size, which -R sets; empty leaves its default.
+rec_size=""
 FORMAT="variable-simple:0..10"
 number=20
 data_size=17
@@ -86,7 +88,7 @@ usage() {
 cat <<-EOF
 Usage: $0 -e <expected-file> [-g] [-k] [-q] [-r] [-x] [-H] \
 [-d \"idx1 idx2 ...\"] [-c \"idx ...\"] [-t \"idx ...\"] [-f spec] \
-[-n <count>] [-s <bytes>] [-S <count>] [-h]
+[-n <count>] [-R <bytes>] [-s <bytes>] [-S <count>] [-h]
 -c idx1 idx2 ...  Indices of files whose header magic to overwrite, so
                   the segment cannot be opened at all. Unlike -d the
                   file is still present, which is what a corrupted
@@ -122,6 +124,8 @@ Usage: $0 -e <expected-file> [-g] [-k] [-q] [-r] [-x] [-H] \
 -O idx1 idx2 ...  Indices of files to pad past their own stored
                   max_size, which the spec forbids a segment file from
                   exceeding.
+-R bytes          Payload bytes tcslog-dump reads a record into, as its
+                  --rec-size; its own default when not given
 -s size           Maximum of bytes in the data section
 -S count          Number of generation passes to run into the same
                   directory, each of which starts a new session. The
@@ -147,7 +151,7 @@ require_uint() {
         exit 1
     fi
 }
-while getopts ":gkqrxhHc:d:e:f:n:s:t:I:O:S:V:" opt; do
+while getopts ":gkqrxhHc:d:e:f:n:s:t:I:O:R:S:V:" opt; do
     case "$opt" in
         c) corrupt_indices_str="$OPTARG" ;;
         d) delete_indices_str="$OPTARG" ;;
@@ -162,6 +166,7 @@ while getopts ":gkqrxhHc:d:e:f:n:s:t:I:O:S:V:" opt; do
         n) require_uint n "$OPTARG"; number="$OPTARG" ;;
         q) verbose_flag="" ;;
         r) raw_dumphdr_enabled=1 ;;
+        R) require_uint R "$OPTARG"; rec_size="$OPTARG" ;;
         s) require_uint s "$OPTARG"; data_size="$OPTARG" ;;
         S) require_uint S "$OPTARG"; sessions="$OPTARG" ;;
 
@@ -446,7 +451,8 @@ actual_cmp=$(mktemp)
 # either one wrongly unless the record set happened to change with it.
 "$(dirname "$0")/tcslog-tool" tcslog-dump \
     "$TMP_DIR" "$PFX" "$SFX" ${verbose_flag:+"$verbose_flag"} \
-    ${text_flag:+"$text_flag"} > "$actual_file"
+    ${text_flag:+"$text_flag"} ${rec_size:+--rec-size "$rec_size"} \
+    > "$actual_file"
 cat "$actual_file"
 
 # Segment identifiers are wall-clock timestamps, so neither they nor the
@@ -490,7 +496,8 @@ check_quiet_mode() {
     quiet_re+='|    -- |    \(payload larger than|--- End of Session'
     quiet_re+='|read [0-9]+ message)'
     quiet=$("$(dirname "$0")/tcslog-tool" tcslog-dump \
-        "$TMP_DIR" "$PFX" "$SFX" ${text_flag:+"$text_flag"})
+        "$TMP_DIR" "$PFX" "$SFX" ${text_flag:+"$text_flag"} \
+        ${rec_size:+--rec-size "$rec_size"})
     if printf '%s\n' "$quiet" | grep -qE "$quiet_re"
     then
         echo "FAIL: output without --verbose is not records alone" 1>&2
