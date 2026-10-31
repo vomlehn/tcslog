@@ -1730,13 +1730,13 @@ relies on and does not bump it. In this repository the libraries cargo builds
 keep the crate's name, <tt class="docutils literal">libtcslog_c</tt>, which is what the tests and
 examples here link; only an install renames them.</p>
 <p>Installing and packaging use tcs-helpers
-(<a class="reference external" href="https://github.com/vomlehn/tcs-helpers">https://github.com/vomlehn/tcs-helpers</a>), the packaging scripts the TCS
-projects share, from a checkout of it beside this one: clone it there
-first, with <tt class="docutils literal">git clone <span class="pre">https://github.com/vomlehn/tcs-helpers.git</span>
+(<a class="reference external" href="https://github.com/vomlehn/tcs-helpers">https://github.com/vomlehn/tcs-helpers</a>), the packaging scripts and make
+rules the TCS projects share, from a checkout of it beside this one: clone
+it there first, with <tt class="docutils literal">git clone <span class="pre">https://github.com/vomlehn/tcs-helpers.git</span>
 <span class="pre">../tcs-helpers</span></tt>. It is used where it is, never installed, and
 <tt class="docutils literal"><span class="pre">TCS_HELPERS=&lt;path&gt;</span></tt> names a checkout elsewhere. <tt class="docutils literal">make <span class="pre">tcs-helpers</span></tt>
-checks that it is there and new enough, which installing and packaging
-do first.</p>
+checks that it is there and new enough, which installing and packaging do
+first.</p>
 <p><tt class="docutils literal">make deb</tt> and <tt class="docutils literal">make rpm</tt> build a package of all of it in
 <tt class="docutils literal">build/packages</tt>, <tt class="docutils literal"><span class="pre">tcslog_&lt;version&gt;-1_&lt;arch&gt;.deb</span></tt> and
 <tt class="docutils literal"><span class="pre">tcslog-&lt;version&gt;-1.&lt;arch&gt;.rpm</span></tt>, and <tt class="docutils literal">make packages</tt> builds both.

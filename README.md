@@ -66,9 +66,9 @@ in `lib/python3/site-packages/`; and the documentation and examples
 under `share/`.
 
 As a package, built from a checkout. Installing and packaging use
-[tcs-helpers](https://github.com/vomlehn/tcs-helpers), the packaging
-scripts the TCS projects share, from a checkout of it beside this one, so
-clone it there first; it is used where it is, never installed, and
+[tcs-helpers](https://github.com/vomlehn/tcs-helpers), the packaging scripts
+and make rules the TCS projects share, from a checkout of it beside this
+one, so clone it there first; it is used where it is, never installed, and
 `TCS_HELPERS=<path>` names a checkout elsewhere. `make tcs-helpers` checks
 that it is there and new enough, which installing and packaging do first.
 

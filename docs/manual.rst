@@ -1319,13 +1319,13 @@ keep the crate's name, ``libtcslog_c``, which is what the tests and
 examples here link; only an install renames them.
 
 Installing and packaging use tcs-helpers
-(https://github.com/vomlehn/tcs-helpers), the packaging scripts the TCS
-projects share, from a checkout of it beside this one: clone it there
-first, with ``git clone https://github.com/vomlehn/tcs-helpers.git
+(https://github.com/vomlehn/tcs-helpers), the packaging scripts and make
+rules the TCS projects share, from a checkout of it beside this one: clone
+it there first, with ``git clone https://github.com/vomlehn/tcs-helpers.git
 ../tcs-helpers``. It is used where it is, never installed, and
 ``TCS_HELPERS=<path>`` names a checkout elsewhere. ``make tcs-helpers``
-checks that it is there and new enough, which installing and packaging
-do first.
+checks that it is there and new enough, which installing and packaging do
+first.
 
 ``make deb`` and ``make rpm`` build a package of all of it in
 ``build/packages``, ``tcslog_<version>-1_<arch>.deb`` and

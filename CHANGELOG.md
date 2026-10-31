@@ -26,8 +26,16 @@ Stored format: unchanged.
   `tcslog-links` template -- from a checkout of
   [tcs-helpers](https://github.com/vomlehn/tcs-helpers) beside this one,
   or wherever `TCS_HELPERS` says, rather than a copy of their own. `make
-  tcs-helpers` checks that the checkout is there and at least 0.2.0, and
-  installing and packaging do first. The packages are unchanged.
+  tcs-helpers` checks that the checkout is there and at least 0.3.0, and
+  installing and packaging do first.
+- The packaging targets -- `stage`, `deb`, `rpm`, `packages`,
+  `lint-packages`, `links` and `unlinks` -- are tcs-helpers'
+  `packaging.mk`, which the Makefile includes, and the .deb is built by its
+  `build-deb.sh`, as tcs-xtce's is. The Debian control file and `prerm`
+  moved to `packaging/deb/tcslog/DEBIAN`, and the conffiles are found
+  under `/etc` rather than listed. The packages are unchanged but for the
+  .deb's `Installed-Size`, 4 KiB smaller for no longer counting the
+  `DEBIAN` directory, which is not installed.
 
 ## [0.6.0] - 2026-10-30
 

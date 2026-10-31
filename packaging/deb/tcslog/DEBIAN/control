@@ -3,7 +3,7 @@ Version: @VERSION@
 Architecture: @ARCH@
 Maintainer: David VomLehn <dvomlehn@gmail.com>
 Installed-Size: @SIZE@
-Depends: @DEPENDS@
+Depends: @SHLIBS@
 Recommends: python3
 Section: libs
 Priority: optional
