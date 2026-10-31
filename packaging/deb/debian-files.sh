@@ -25,6 +25,10 @@
 #   DEBIAN/triggers, for a package with a shared library in /opt/tcs/lib,
 #   which has dpkg run ldconfig once at the end of the run rather than each
 #   maintainer script running it, as debhelper arranges for a library.
+#   DEBIAN/md5sums, the MD5 of every file the package installs, which
+#   `dpkg --verify` and debsums check an installed package against, as
+#   debhelper's dh_md5sums writes it. It is written last, so that it covers
+#   the files above as well as the stage's.
 #
 # The .deb alone has them: the RPM says the same things its own way, in its
 # License and %changelog, %post and %postun, and in packaging/rpm's rpmlint
@@ -110,3 +114,15 @@ for library in "$root"/opt/tcs/lib/lib*.so.[0-9]*; do
 		break
 	fi
 done
+
+# Every regular file under <root> but DEBIAN/, by its path from <root>, in
+# a fixed order so that the same tree always gives the same file. md5sum
+# prints a name the way dpkg reads it back, relative and without "./".
+(
+	cd "$root"
+	find . -path ./DEBIAN -prune -o -type f -print | sed 's|^\./||' |
+		LC_ALL=C sort | while IFS= read -r file; do
+			md5sum "$file"
+		done
+) > "$root/DEBIAN/md5sums"
+chmod 644 "$root/DEBIAN/md5sums"
