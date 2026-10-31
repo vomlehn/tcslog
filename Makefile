@@ -45,6 +45,13 @@ DESTDIR ?=
 HOOKS   ?= 0
 # Whether install strips what it installs; see install below.
 STRIP   ?= 1
+# tcs-helpers, the packaging scripts the TCS projects share: a checkout
+# of https://github.com/vomlehn/tcs-helpers, beside this one unless
+# TCS_HELPERS names another, used where it is rather than installed.
+# Installing and packaging check it first: see the tcs-helpers target.
+TCS_HELPERS ?= $(abspath $(CURDIR)/../tcs-helpers)
+TCS_HELPERS_REQUIRED := 0.2.0
+
 BINDIR  := $(DESTDIR)$(PREFIX)/bin
 SBINDIR := $(DESTDIR)$(PREFIX)/sbin
 INCDIR  := $(DESTDIR)$(PREFIX)/include
@@ -271,14 +278,27 @@ PTH     := $(DESTDIR)/usr/lib/python3/dist-packages/tcslog.pth
 # keeps it off the network, and --target puts it in $(PYDIR) whatever
 # Python the build machine has. The direct_url.json pip writes would name
 # that copy, which is gone by then, so it is removed.
+# Stop, saying what to do, unless the tcs-helpers checkout is there and
+# at least TCS_HELPERS_REQUIRED.
+.PHONY: tcs-helpers
+tcs-helpers:		## Check the tcs-helpers checkout
+	@if [ ! -x "$(TCS_HELPERS)/bin/tcs-helpers" ]; then \
+		echo "No tcs-helpers checkout at $(TCS_HELPERS): clone" \
+			"https://github.com/vomlehn/tcs-helpers beside this" \
+			"repository, or set TCS_HELPERS to where it is." >&2; \
+		exit 1; \
+	fi
+	@"$(TCS_HELPERS)/bin/tcs-helpers" --require $(TCS_HELPERS_REQUIRED)
+
 .PHONY: install
-install: header docs	## Build, strip (STRIP=0: don't), install under PREFIX
+install: header docs tcs-helpers ## Build, strip (STRIP=0: don't), install under PREFIX
 	@echo "Installing tcslog $(VERSION) to $(DESTDIR)$(PREFIX)..."
 	cargo build --release -p tcslog-c -p tcslog-gen
 	install -D -m 755 -t $(BINDIR) $(addprefix target/release/,$(PROGRAMS))
 	install -d $(SBINDIR)
 	sed -e 's|@PACKAGE@|tcslog|g' -e 's|@PREFIX@|$(PREFIX)|g' \
-		-e 's|@PROGRAMS@|$(PROGRAMS)|g' packaging/hooks/links.sh.in \
+		-e 's|@PROGRAMS@|$(PROGRAMS)|g' \
+		$(TCS_HELPERS)/packaging/links.sh.in \
 		> $(SBINDIR)/tcslog-links
 	chmod 755 $(SBINDIR)/tcslog-links
 	install -D -m 644 -t $(INCDIR) $(CAPI_HEADERS)
@@ -405,7 +425,7 @@ endif
 # debian/control to read, so it is given a minimal one in a directory
 # of its own. The shlibs file tells dpkg-shlibdeps, building a package
 # that links libtcslog, to depend on this one at this version or later.
-# packaging/deb/debian-files.sh then adds what Debian expects outside
+# tcs-helpers' debian-files.sh then adds what Debian expects outside
 # /opt/tcs and the RPM does not have: the copyright file, the Debian
 # changelog, the lintian overrides and the trigger that runs ldconfig.
 #
@@ -439,8 +459,8 @@ deb: stage		## Build the .deb in build/packages
 	install -m 755 $(DEB_DIR)/prerm $$root/DEBIAN/; \
 	echo "libtcslog $(ABI) tcslog (>= $(VERSION))" > $$root/DEBIAN/shlibs; \
 	chmod 644 $$root/DEBIAN/shlibs; \
-	packaging/deb/debian-files.sh tcslog tcslog $$root $(DEB_VERSION) \
-		$(SOURCE_DATE_EPOCH); \
+	$(TCS_HELPERS)/packaging/debian-files.sh $(CURDIR)/packaging/deb \
+		tcslog tcslog $$root $(DEB_VERSION) $(SOURCE_DATE_EPOCH); \
 	dpkg-deb --root-owner-group --build $$root \
 		$(PKGOUT)/tcslog_$(DEB_VERSION)_$$arch.deb
 
@@ -485,20 +505,20 @@ packages: deb rpm	## Build both; STRIP=0 leaves them unstripped
 # Check the packages `make packages` built, and the shell scripts they
 # run or install, with lintian, rpmlint and shellcheck, any of which is
 # skipped in a line if it is not installed: see
-# packaging/lint-packages.sh. rpmlint is given packaging/rpm/rpmlint.toml,
+# tcs-helpers' lint-packages.sh, whose own scripts tcs-helpers checks.
+# rpmlint is given packaging/rpm/rpmlint.toml,
 # which says why each finding it accepts is intended; the .deb carries
 # its own lintian overrides. The links script and the profile.d hook are
 # checked as the stage has them, with their placeholders filled in.
 .PHONY: lint-packages
-lint-packages:		## Lint the packages and their shell scripts
-	packaging/lint-packages.sh packaging/rpm/rpmlint.toml \
+lint-packages: tcs-helpers ## Lint the packages and their shell scripts
+	$(TCS_HELPERS)/packaging/lint-packages.sh packaging/rpm/rpmlint.toml \
 		$(wildcard $(PKGOUT)/tcslog_$(DEB_VERSION)_*.deb \
 			$(PKGOUT)/tcslog-$(VERSION)-*.rpm) \
 		-- $(wildcard $(PKGSTAGE)/opt/tcs/sbin/*-links \
 			$(PKGSTAGE)/etc/profile.d/*.sh) \
 		$(wildcard $(addprefix $(DEB_DIR)/,preinst postinst prerm \
 			postrm)) \
-		packaging/deb/debian-files.sh packaging/lint-packages.sh \
 		bin/make-releases
 
 # Clean build artifacts

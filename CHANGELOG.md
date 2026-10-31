@@ -15,6 +15,20 @@ format where it was. Each entry below says whether the stored format moved.
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
 
+## [Unreleased]
+
+Stored format: unchanged.
+
+### Changed
+
+- Installing and packaging use the packaging scripts the TCS projects
+  share -- the package linter, the Debian file generator and the
+  `tcslog-links` template -- from a checkout of
+  [tcs-helpers](https://github.com/vomlehn/tcs-helpers) beside this one,
+  or wherever `TCS_HELPERS` says, rather than a copy of their own. `make
+  tcs-helpers` checks that the checkout is there and at least 0.2.0, and
+  installing and packaging do first. The packages are unchanged.
+
 ## [0.6.0] - 2026-10-30
 
 Stored format: 1.1.0, which still reads 1.0.
