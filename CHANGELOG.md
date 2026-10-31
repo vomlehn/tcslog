@@ -17,9 +17,13 @@ format where it was. Each entry below says whether the stored format moved.
 
 ## [Unreleased]
 
-Stored format: unchanged.
+Stored format: 1.1.0, which still reads 1.0.
 
 ### Added
+
+- `SegmentHeader::version_minor`, the minor number of the stored format a
+  file was written in, and `Format::data_header_len_in`, a data header's
+  length in a file of that version.
 
 - `make lint-packages` checks the packages with lintian and rpmlint, and
   their shell scripts with shellcheck, and fails on any finding not
@@ -34,6 +38,13 @@ Stored format: unchanged.
 - The .deb has dpkg's `ldconfig` trigger run the loader's cache rather
   than its `postinst` and `postrm`, which are gone.
 - `downlink.py`, an example that is a script, is installed executable.
+- A `VariableTsRc` record count is stored in 48 bits rather than 32, so
+  its data header is 18 bytes and `RECORD_COUNT_MAX`
+  (`TCSLOG_RECORD_COUNT_MAX` in C, `RECORD_COUNT_MAX` in Python) is
+  2^48 - 1: about 89 years at 100,000 records a second, where 32 bits
+  ended a session in under 12 hours. Files of format 1.0 are still read,
+  with their 16-byte data headers and 32-bit counts. `SegmentHeader`
+  gains a field, which breaks code that builds one field by field.
 
 ## [0.5.0] - 2026-10-30
 
