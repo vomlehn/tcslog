@@ -33,7 +33,7 @@ Stored format: unchanged.
   that step alone: the .deb with `apt-get` on Debian and Ubuntu, the RPM
   with `dnf`, or `yum`, on Fedora and Red Hat's, and with `zypper` on
   SUSE's, as `/etc/os-release` says the system is. `make uninstall`
-  removes the package with the same installer. `SIMULATE=1` has the
+  removes the package with the same installer. `DRY_RUN=1` has the
   installer show what it would do and change nothing; `PACKAGE_FORMAT`
   and `INSTALLER` choose the kind and the installer, and `SUDO` what runs
   it. Both are tcs-helpers' `packaging.mk`'s.

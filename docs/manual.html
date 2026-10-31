@@ -1748,11 +1748,11 @@ used when make runs as root. <tt class="docutils literal">make uninstall</tt> re
 the same installer:</p>
 <pre class="literal-block">
 make install                # build the packages, install this system's
-make install SIMULATE=1     # show what install would do; change nothing
+make install DRY_RUN=1      # show what install would do; change nothing
 make uninstall              # remove the package
-make uninstall SIMULATE=1   # show what uninstall would do
+make uninstall DRY_RUN=1    # show what uninstall would do
 </pre>
-<p><tt class="docutils literal">SIMULATE=1</tt> runs the installer's own mode for showing what it would
+<p><tt class="docutils literal">DRY_RUN=1</tt> runs the installer's own mode for showing what it would
 do -- <tt class="docutils literal"><span class="pre">apt-get</span> <span class="pre">-s</span></tt>, <tt class="docutils literal">dnf <span class="pre">--assumeno</span></tt>, <tt class="docutils literal">zypper <span class="pre">--dry-run</span></tt> -- without
 sudo, so that nothing is installed or removed. Which system this is
 comes from the <tt class="docutils literal">ID</tt> and <tt class="docutils literal">ID_LIKE</tt> of <tt class="docutils literal"><span class="pre">/etc/os-release</span></tt>, not from

@@ -1338,11 +1338,11 @@ used when make runs as root. ``make uninstall`` removes the package with
 the same installer::
 
     make install                # build the packages, install this system's
-    make install SIMULATE=1     # show what install would do; change nothing
+    make install DRY_RUN=1      # show what install would do; change nothing
     make uninstall              # remove the package
-    make uninstall SIMULATE=1   # show what uninstall would do
+    make uninstall DRY_RUN=1    # show what uninstall would do
 
-``SIMULATE=1`` runs the installer's own mode for showing what it would
+``DRY_RUN=1`` runs the installer's own mode for showing what it would
 do -- ``apt-get -s``, ``dnf --assumeno``, ``zypper --dry-run`` -- without
 sudo, so that nothing is installed or removed. Which system this is
 comes from the ``ID`` and ``ID_LIKE`` of ``/etc/os-release``, not from
