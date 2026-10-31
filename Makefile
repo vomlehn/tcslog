@@ -27,14 +27,14 @@ VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
 ABI     := $(strip $(file < tcslog-c/abi-version))
 SONAME  := libtcslog.so.$(ABI)
 
-# Where `make install` puts everything: /opt/tcs, the tree the TCS
+# Where `make install-files` puts everything: /opt/tcs, the tree the TCS
 # packages share under FHS 3.0's /opt/<package>, so that one PATH entry
 # and one loader directory serve them all. DESTDIR stages the install
 # for packaging. A developer installing somewhere of their own sets
 # PREFIX, such as PREFIX=$HOME.
 PREFIX  ?= /opt/tcs
 DESTDIR ?=
-# Whether install also writes the hooks outside $(PREFIX) that make an
+# Whether install-files also writes the hooks outside $(PREFIX) that make an
 # installed /opt/tcs usable without being told where it is: the loader's
 # directory in /etc/ld.so.conf.d, PATH and PKG_CONFIG_PATH in
 # /etc/profile.d, and Python's path in a .pth file. Off unless asked
@@ -43,14 +43,14 @@ DESTDIR ?=
 # where these belong. Each is named after this package, so no two TCS
 # packages own the same file.
 HOOKS   ?= 0
-# Whether install strips what it installs; see install below.
+# Whether install-files strips what it installs; see it below.
 STRIP   ?= 1
 # tcs-helpers, the packaging scripts the TCS projects share: a checkout
 # of https://github.com/vomlehn/tcs-helpers, beside this one unless
 # TCS_HELPERS names another, used where it is rather than installed.
 # Installing and packaging check it first: see the tcs-helpers target.
 TCS_HELPERS ?= $(abspath $(CURDIR)/../tcs-helpers)
-TCS_HELPERS_REQUIRED := 0.3.0
+TCS_HELPERS_REQUIRED := 0.4.0
 
 BINDIR  := $(DESTDIR)$(PREFIX)/bin
 SBINDIR := $(DESTDIR)$(PREFIX)/sbin
@@ -89,7 +89,7 @@ endif
 PYTHON := python3
 RUFF   := ruff
 MYPY   := mypy
-# Where `make install` puts the Python 3 package: the same directory
+# Where `make install-files` puts the Python 3 package: the same directory
 # for every Python 3, so the path has no minor version in it to go
 # stale when Python is upgraded. Python does not search it unless told
 # to, by PYTHONPATH or by the .pth file HOOKS=1 installs.
@@ -128,7 +128,7 @@ help:			## Show this help
 	@echo "Usage:"
 	@grep -hE '^[a-zA-Z_-]+:.*## ' $(MAKEFILE_LIST) \
 		| sed 's/:.*## /|/' \
-		| awk -F'|' '{printf "  make %-14s - %s\n", $$1, $$2}'
+		| awk -F'|' '{printf "  make %-15s - %s\n", $$1, $$2}'
 
 # Build the project. The subshell groups the whole build so that one
 # `tee` captures all of it.
@@ -268,7 +268,10 @@ tcs-helpers:		## Check the tcs-helpers checkout
 	fi
 	@"$(TCS_HELPERS)/bin/tcs-helpers" --require $(TCS_HELPERS_REQUIRED)
 
-# Install everything under $(PREFIX), built for release: tcslog-gen;
+# Copy everything into place under $(DESTDIR)$(PREFIX): what `make
+# install` once did, kept for development and for `make stage`, which
+# cuts the packages from it; `make install` installs the packages. What
+# is copied is built for release: tcslog-gen;
 # the headers in include; the shared library under its soname, with its
 # development name linked to it, and the static one; a pkg-config file
 # naming the real prefix; the Python 3 package; and the documents and
@@ -286,12 +289,12 @@ tcs-helpers:		## Check the tcs-helpers checkout
 # The Python package goes in with pip, so that it has the metadata pip
 # and importlib.metadata read, but from a copy of tcslog-py made for
 # the purpose: pip builds in the directory it is given, and a build left
-# in the source tree by `sudo make install` would be root's. --no-index
+# in the source tree by `sudo make install-files` would be root's. --no-index
 # keeps it off the network, and --target puts it in $(PYDIR) whatever
 # Python the build machine has. The direct_url.json pip writes would name
 # that copy, which is gone by then, so it is removed.
-.PHONY: install
-install: header docs tcs-helpers ## Build, strip (STRIP=0: don't), install under PREFIX
+.PHONY: install-files
+install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
 	@echo "Installing tcslog $(VERSION) to $(DESTDIR)$(PREFIX)..."
 	cargo build --release -p tcslog-c -p tcslog-gen
 	install -D -m 755 -t $(BINDIR) $(addprefix target/release/,$(PROGRAMS))
@@ -350,15 +353,15 @@ install: header docs tcs-helpers ## Build, strip (STRIP=0: don't), install under
 	@echo "     Python 3 with:"
 	@echo "       import tcslog"
 
-# Removes what install put there, honouring the same variables, HOOKS
-# included. Nothing else in those directories is touched.
+# Removes what install-files put there, honouring the same variables,
+# HOOKS included. Nothing else in those directories is touched.
 #
 # The links `make links` made in $(LINKDIR) go first, while the script
 # that knows which they are is still there, so that nothing is left
 # pointing at programs that are gone. A failure there, such as a
 # LINKDIR that does not exist, stops nothing.
-.PHONY: uninstall
-uninstall:		## Remove what install put under PREFIX
+.PHONY: uninstall-files
+uninstall-files:	## Remove what install-files put under PREFIX
 	@echo "Removing tcslog from $(DESTDIR)$(PREFIX)..."
 	-$(SBINDIR)/tcslog-links --remove --dir $(LINKDIR)
 	$(RM) $(addprefix $(BINDIR)/,$(PROGRAMS)) $(SBINDIR)/tcslog-links
@@ -374,16 +377,18 @@ uninstall:		## Remove what install put under PREFIX
 	@echo "[OK] Uninstalled from $(DESTDIR)$(PREFIX)"
 
 # Where `make links` links the installed programs, and from where
-# uninstall removes them: see tcs-helpers' packaging.mk.
+# uninstall-files removes them: see tcs-helpers' packaging.mk.
 LINKDIR ?= /usr/local/bin
 
-# The packaging targets -- stage, deb, rpm, packages, lint-packages,
-# links and unlinks -- are tcs-helpers' packaging.mk's, shared by the TCS
-# projects; see it for what each does. This repository has the one
-# package, built from packaging/deb/tcslog and packaging/rpm/tcslog.spec,
-# which is also given the library's ABI version and where the RPM's
-# Python looks for packages. Without a tcs-helpers checkout new enough to
-# have packaging.mk, the targets stop as the tcs-helpers target says.
+# The packaging targets -- install, uninstall, stage, deb, rpm, packages,
+# lint-packages, links and unlinks -- are tcs-helpers' packaging.mk's,
+# shared by the TCS projects; see it for what each does. This repository
+# has the one package, built from packaging/deb/tcslog and
+# packaging/rpm/tcslog.spec, which is also given the library's ABI
+# version and where the RPM's Python looks for packages. Without a
+# tcs-helpers checkout new enough to have install-packages.sh, which came
+# with the install target in 0.4.0, there is nothing to include that has
+# every target here, and the targets stop as the tcs-helpers target says.
 PACKAGES     := tcslog
 RPM_DEFINES   = --define "tcs_abi $(ABI)" \
 		--define "tcs_pysite $$($(PYTHON) -c 'import sysconfig; \
@@ -392,9 +397,13 @@ RPM_DEFINES   = --define "tcs_abi $(ABI)" \
 		--define "tcs_pyversion $$($(PYTHON) -c 'import sysconfig; \
 			print(sysconfig.get_python_version())')"
 LINT_SCRIPTS := bin/make-releases
-ifneq ($(wildcard $(TCS_HELPERS)/packaging/packaging.mk),)
+ifneq ($(wildcard $(TCS_HELPERS)/packaging/install-packages.sh),)
 include $(TCS_HELPERS)/packaging/packaging.mk
 else
+.PHONY: install
+install: tcs-helpers
+.PHONY: uninstall
+uninstall: tcs-helpers
 .PHONY: stage
 stage: tcs-helpers
 .PHONY: deb

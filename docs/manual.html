@@ -1737,18 +1737,47 @@ it there first, with <tt class="docutils literal">git clone <span class="pre">ht
 <tt class="docutils literal"><span class="pre">TCS_HELPERS=&lt;path&gt;</span></tt> names a checkout elsewhere. <tt class="docutils literal">make <span class="pre">tcs-helpers</span></tt>
 checks that it is there and new enough, which installing and packaging do
 first.</p>
+<p><tt class="docutils literal">make install</tt> builds both packages, described below, as you, and
+then installs the one this system takes with its own installer: the
+.deb with <tt class="docutils literal"><span class="pre">apt-get</span></tt> on Debian and Ubuntu, the RPM with <tt class="docutils literal">dnf</tt>, or
+<tt class="docutils literal">yum</tt> where there is no dnf, on Fedora and Red Hat's, and with
+<tt class="docutils literal">zypper</tt> on SUSE's, each of which installs what the package depends
+on too. Only the installer runs as root, under <tt class="docutils literal">sudo</tt>, which asks for
+your password then; <tt class="docutils literal"><span class="pre">SUDO=&lt;command&gt;</span></tt> names another, and nothing is
+used when make runs as root. <tt class="docutils literal">make uninstall</tt> removes the package with
+the same installer:</p>
+<pre class="literal-block">
+make install                # build the packages, install this system's
+make install SIMULATE=1     # show what install would do; change nothing
+make uninstall              # remove the package
+make uninstall SIMULATE=1   # show what uninstall would do
+</pre>
+<p><tt class="docutils literal">SIMULATE=1</tt> runs the installer's own mode for showing what it would
+do -- <tt class="docutils literal"><span class="pre">apt-get</span> <span class="pre">-s</span></tt>, <tt class="docutils literal">dnf <span class="pre">--assumeno</span></tt>, <tt class="docutils literal">zypper <span class="pre">--dry-run</span></tt> -- without
+sudo, so that nothing is installed or removed. Which system this is
+comes from the <tt class="docutils literal">ID</tt> and <tt class="docutils literal">ID_LIKE</tt> of <tt class="docutils literal"><span class="pre">/etc/os-release</span></tt>, not from
+which tools are present, since a Debian system may have <tt class="docutils literal">rpm</tt> too. On
+a system it does not know, <tt class="docutils literal">make install</tt> stops and says so; there,
+or to install the other kind, <tt class="docutils literal">PACKAGE_FORMAT=deb</tt> or
+<tt class="docutils literal">PACKAGE_FORMAT=rpm</tt> chooses the kind and <tt class="docutils literal"><span class="pre">INSTALLER=&lt;command&gt;</span></tt> the
+installer, one of <tt class="docutils literal"><span class="pre">apt-get</span></tt>, <tt class="docutils literal">apt</tt>, <tt class="docutils literal">dpkg</tt>, <tt class="docutils literal">dnf</tt>, <tt class="docutils literal">yum</tt>,
+<tt class="docutils literal">zypper</tt> and <tt class="docutils literal">rpm</tt>. If the kind the system takes was not built,
+because <tt class="docutils literal"><span class="pre">dpkg-deb</span></tt> or <tt class="docutils literal">rpmbuild</tt> is missing, it stops, saying which
+to install.</p>
 <p><tt class="docutils literal">make deb</tt> and <tt class="docutils literal">make rpm</tt> build a package of all of it in
 <tt class="docutils literal">build/packages</tt>, <tt class="docutils literal"><span class="pre">tcslog_&lt;version&gt;-1_&lt;arch&gt;.deb</span></tt> and
 <tt class="docutils literal"><span class="pre">tcslog-&lt;version&gt;-1.&lt;arch&gt;.rpm</span></tt>, and <tt class="docutils literal">make packages</tt> builds both.
 The <tt class="docutils literal">1</tt> is the package's release, for a package rebuilt from the same
-source; <tt class="docutils literal">DEB_REVISION</tt> sets it for the .deb. The two are made from one
-install into <tt class="docutils literal">build/stage/tcslog</tt> (<tt class="docutils literal">make stage</tt>), so they hold the
-same files. Building them needs, besides cargo and <tt class="docutils literal">cbindgen</tt>,
-Python's <tt class="docutils literal">pip</tt> and <tt class="docutils literal">setuptools</tt>, <tt class="docutils literal">rst2html</tt> from docutils, and
-<tt class="docutils literal"><span class="pre">dpkg-shlibdeps</span></tt> from dpkg-dev. <tt class="docutils literal">make rpm</tt> needs <tt class="docutils literal">rpmbuild</tt>,
+source; <tt class="docutils literal">DEB_REVISION</tt> sets it for both. The two are made from one
+copy of the files into <tt class="docutils literal">build/stage/tcslog</tt> (<tt class="docutils literal">make stage</tt>, with
+<tt class="docutils literal">make <span class="pre">install-files</span></tt>), so they hold the same files. Building them
+needs, besides cargo and <tt class="docutils literal">cbindgen</tt>, Python's <tt class="docutils literal">pip</tt> and
+<tt class="docutils literal">setuptools</tt>, <tt class="docutils literal">rst2html</tt> from docutils, and <tt class="docutils literal"><span class="pre">dpkg-shlibdeps</span></tt> from
+dpkg-dev. <tt class="docutils literal">make rpm</tt> needs <tt class="docutils literal">rpmbuild</tt>,
 which Debian has as <tt class="docutils literal">sudo apt install rpm</tt>; where it is missing it
-says so and builds nothing, without failing.</p>
-<p>That install strips what it installs, unless <tt class="docutils literal">STRIP=0</tt>: <tt class="docutils literal"><span class="pre">tcslog-gen</span></tt>
+says so and builds nothing, without failing, as <tt class="docutils literal">make deb</tt> does
+without <tt class="docutils literal"><span class="pre">dpkg-deb</span></tt>, so that <tt class="docutils literal">make packages</tt> builds what it can.</p>
+<p>That copy strips what it installs, unless <tt class="docutils literal">STRIP=0</tt>: <tt class="docutils literal"><span class="pre">tcslog-gen</span></tt>
 and the shared library with <tt class="docutils literal">strip <span class="pre">--strip-unneeded</span></tt>, which leaves
 only the symbols a program is linked against, and the static library
 with <tt class="docutils literal">strip <span class="pre">--strip-debug</span></tt>, which removes only debugging information,
@@ -1805,16 +1834,19 @@ never run for you: removing the package removes its links, from
 choice being the administrator's. After <tt class="docutils literal">make install</tt>, <tt class="docutils literal">sudo make
 links</tt> and <tt class="docutils literal">sudo make unlinks</tt> do the same, with <tt class="docutils literal">LINKDIR</tt> naming
 the directory.</p>
-<p>Or install straight from the repository root:</p>
+<p>Or copy the files into place straight from the repository root, without
+a package, for development, which is what <tt class="docutils literal">make install</tt> once did:</p>
 <pre class="literal-block">
-sudo make install                   # under /opt/tcs, nothing in /etc
-sudo make install HOOKS=1           # with the three files above
-make install PREFIX=$HOME/tcs       # somewhere of your own
+sudo make install-files             # under /opt/tcs, nothing in /etc
+sudo make install-files HOOKS=1     # with the three files above
+make install-files PREFIX=$HOME/tcs # somewhere of your own
+make install-files DESTDIR=/tmp/stage
 </pre>
-<p><tt class="docutils literal">DESTDIR</tt> stages the install, and <tt class="docutils literal">make uninstall</tt> removes it again,
-honouring the same variables. <tt class="docutils literal">make install</tt> strips as the packages
-do, and <tt class="docutils literal">STRIP=0</tt> keeps it from doing so. The hooks are left out
-unless <tt class="docutils literal">HOOKS=1</tt> asks for them, so that an install touches nothing in
+<p><tt class="docutils literal">DESTDIR</tt> stages the copy, and <tt class="docutils literal">make <span class="pre">uninstall-files</span></tt> removes it
+again, honouring the same variables; <tt class="docutils literal">make install</tt> takes neither, and
+stops if given one. <tt class="docutils literal">make <span class="pre">install-files</span></tt> strips as the packages do,
+and <tt class="docutils literal">STRIP=0</tt> keeps it from doing so. The hooks are left out unless
+<tt class="docutils literal">HOOKS=1</tt> asks for them, so that a copy touches nothing in
 <tt class="docutils literal">/etc</tt> its installer did not mean it to, and they need the default
 <tt class="docutils literal">PREFIX</tt>, since they name <tt class="docutils literal">/opt/tcs</tt>. Then compile against it, from
 C or from C++:</p>
@@ -2255,15 +2287,16 @@ Rust or C/C++, and the other way round.</p>
 <h2><a class="toc-backref" href="#toc-entry-35">Installing the package</a></h2>
 <p><tt class="docutils literal">make install</tt>, described under <a class="reference internal" href="#installing">Installing</a> in <a class="reference internal" href="#calling-from-c-c">Calling From
 C/C++</a>, installs the package along with the header and libraries, into
-<tt class="docutils literal"><span class="pre">lib/python3/site-packages</span></tt> under the <tt class="docutils literal">PREFIX</tt>: a path with no
+<tt class="docutils literal"><span class="pre">lib/python3/site-packages</span></tt> under <tt class="docutils literal">/opt/tcs</tt>, or under the
+<tt class="docutils literal">PREFIX</tt> <tt class="docutils literal">make <span class="pre">install-files</span></tt> is given: a path with no
 Python minor version in it, so that it survives an upgrade of Python.
 It uses <tt class="docutils literal">pip install <span class="pre">--target</span></tt> on a copy of <tt class="docutils literal"><span class="pre">tcslog-py</span></tt>, which works
 on a Python that is externally managed (PEP 668) as well. Python
 searches there once told to, by <tt class="docutils literal">PYTHONPATH</tt> or by the <tt class="docutils literal">tcslog.pth</tt>
-a package installs. <tt class="docutils literal">PYDIR</tt> chooses somewhere else, and <tt class="docutils literal">make
-uninstall</tt> removes it. Inside a virtual environment, <tt class="docutils literal">pip install
-<span class="pre">./tcslog-py</span></tt> installs the package alone, which then finds the library
-only through the search below.</p>
+a package installs. With <tt class="docutils literal">make <span class="pre">install-files</span></tt>, <tt class="docutils literal">PYDIR</tt> chooses
+somewhere else, and <tt class="docutils literal">make <span class="pre">uninstall-files</span></tt> removes it. Inside a
+virtual environment, <tt class="docutils literal">pip install <span class="pre">./tcslog-py</span></tt> installs the package
+alone, which then finds the library only through the search below.</p>
 <p>The package finds the library by looking, in order, at the
 <tt class="docutils literal">TCSLOG_LIB</tt> environment variable, which names the file; beside the
 package; as <tt class="docutils literal">libtcslog.so.1</tt> in the <tt class="docutils literal">lib</tt> directory of the tree the

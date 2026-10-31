@@ -453,10 +453,10 @@ class Scenarios(unittest.TestCase):
     "the installed layout is ELF's, and needs TCSLOG_LIB to copy from",
 )
 class InstalledLayout(unittest.TestCase):
-    """The package finds the library in the tree `make install` made."""
+    """The package finds the library in the tree install-files makes."""
 
     def test_finds_library_three_directories_up(self) -> None:
-        # The tree make install makes under its PREFIX, built in a
+        # The tree make install-files makes under its PREFIX, built in a
         # temporary directory: the package in lib/python3/site-packages
         # and the library in lib under its soname. Nothing tells the
         # copy where the library is, so finding it is the package's own

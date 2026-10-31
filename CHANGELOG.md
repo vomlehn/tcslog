@@ -26,8 +26,26 @@ Stored format: unchanged.
   `tcslog-links` template -- from a checkout of
   [tcs-helpers](https://github.com/vomlehn/tcs-helpers) beside this one,
   or wherever `TCS_HELPERS` says, rather than a copy of their own. `make
-  tcs-helpers` checks that the checkout is there and at least 0.3.0, and
+  tcs-helpers` checks that the checkout is there and at least 0.4.0, and
   installing and packaging do first.
+- `make install` builds the packages, as whoever runs it, and installs
+  the one this system takes with its usual installer, under `sudo` for
+  that step alone: the .deb with `apt-get` on Debian and Ubuntu, the RPM
+  with `dnf`, or `yum`, on Fedora and Red Hat's, and with `zypper` on
+  SUSE's, as `/etc/os-release` says the system is. `make uninstall`
+  removes the package with the same installer. `SIMULATE=1` has the
+  installer show what it would do and change nothing; `PACKAGE_FORMAT`
+  and `INSTALLER` choose the kind and the installer, and `SUDO` what runs
+  it. Both are tcs-helpers' `packaging.mk`'s.
+- The copy of the files into `PREFIX` and `DESTDIR` that `make install`
+  and `make uninstall` were is `make install-files` and `make
+  uninstall-files`, as it was in every other way; `make stage`, and so
+  the packages, use it. `make install` and `make uninstall` stop, naming
+  `install-files`, when given `DESTDIR` or `PREFIX`.
+- `make deb` without `dpkg-deb` says so and builds nothing, without
+  failing, as `make rpm` does without `rpmbuild`, so that `make packages`
+  builds what it can. The RPM's release is `DEB_REVISION`, as the .deb's
+  revision is, rather than always 1.
 - The packaging targets -- `stage`, `deb`, `rpm`, `packages`,
   `lint-packages`, `links` and `unlinks` -- are tcs-helpers'
   `packaging.mk`, which the Makefile includes, and the .deb is built by its

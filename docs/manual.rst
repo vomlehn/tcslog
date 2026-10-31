@@ -1327,19 +1327,49 @@ it there first, with ``git clone https://github.com/vomlehn/tcs-helpers.git
 checks that it is there and new enough, which installing and packaging do
 first.
 
+``make install`` builds both packages, described below, as you, and
+then installs the one this system takes with its own installer: the
+.deb with ``apt-get`` on Debian and Ubuntu, the RPM with ``dnf``, or
+``yum`` where there is no dnf, on Fedora and Red Hat's, and with
+``zypper`` on SUSE's, each of which installs what the package depends
+on too. Only the installer runs as root, under ``sudo``, which asks for
+your password then; ``SUDO=<command>`` names another, and nothing is
+used when make runs as root. ``make uninstall`` removes the package with
+the same installer::
+
+    make install                # build the packages, install this system's
+    make install SIMULATE=1     # show what install would do; change nothing
+    make uninstall              # remove the package
+    make uninstall SIMULATE=1   # show what uninstall would do
+
+``SIMULATE=1`` runs the installer's own mode for showing what it would
+do -- ``apt-get -s``, ``dnf --assumeno``, ``zypper --dry-run`` -- without
+sudo, so that nothing is installed or removed. Which system this is
+comes from the ``ID`` and ``ID_LIKE`` of ``/etc/os-release``, not from
+which tools are present, since a Debian system may have ``rpm`` too. On
+a system it does not know, ``make install`` stops and says so; there,
+or to install the other kind, ``PACKAGE_FORMAT=deb`` or
+``PACKAGE_FORMAT=rpm`` chooses the kind and ``INSTALLER=<command>`` the
+installer, one of ``apt-get``, ``apt``, ``dpkg``, ``dnf``, ``yum``,
+``zypper`` and ``rpm``. If the kind the system takes was not built,
+because ``dpkg-deb`` or ``rpmbuild`` is missing, it stops, saying which
+to install.
+
 ``make deb`` and ``make rpm`` build a package of all of it in
 ``build/packages``, ``tcslog_<version>-1_<arch>.deb`` and
 ``tcslog-<version>-1.<arch>.rpm``, and ``make packages`` builds both.
 The ``1`` is the package's release, for a package rebuilt from the same
-source; ``DEB_REVISION`` sets it for the .deb. The two are made from one
-install into ``build/stage/tcslog`` (``make stage``), so they hold the
-same files. Building them needs, besides cargo and ``cbindgen``,
-Python's ``pip`` and ``setuptools``, ``rst2html`` from docutils, and
-``dpkg-shlibdeps`` from dpkg-dev. ``make rpm`` needs ``rpmbuild``,
+source; ``DEB_REVISION`` sets it for both. The two are made from one
+copy of the files into ``build/stage/tcslog`` (``make stage``, with
+``make install-files``), so they hold the same files. Building them
+needs, besides cargo and ``cbindgen``, Python's ``pip`` and
+``setuptools``, ``rst2html`` from docutils, and ``dpkg-shlibdeps`` from
+dpkg-dev. ``make rpm`` needs ``rpmbuild``,
 which Debian has as ``sudo apt install rpm``; where it is missing it
-says so and builds nothing, without failing.
+says so and builds nothing, without failing, as ``make deb`` does
+without ``dpkg-deb``, so that ``make packages`` builds what it can.
 
-That install strips what it installs, unless ``STRIP=0``: ``tcslog-gen``
+That copy strips what it installs, unless ``STRIP=0``: ``tcslog-gen``
 and the shared library with ``strip --strip-unneeded``, which leaves
 only the symbols a program is linked against, and the static library
 with ``strip --strip-debug``, which removes only debugging information,
@@ -1400,16 +1430,19 @@ choice being the administrator's. After ``make install``, ``sudo make
 links`` and ``sudo make unlinks`` do the same, with ``LINKDIR`` naming
 the directory.
 
-Or install straight from the repository root::
+Or copy the files into place straight from the repository root, without
+a package, for development, which is what ``make install`` once did::
 
-    sudo make install                   # under /opt/tcs, nothing in /etc
-    sudo make install HOOKS=1           # with the three files above
-    make install PREFIX=$HOME/tcs       # somewhere of your own
+    sudo make install-files             # under /opt/tcs, nothing in /etc
+    sudo make install-files HOOKS=1     # with the three files above
+    make install-files PREFIX=$HOME/tcs # somewhere of your own
+    make install-files DESTDIR=/tmp/stage
 
-``DESTDIR`` stages the install, and ``make uninstall`` removes it again,
-honouring the same variables. ``make install`` strips as the packages
-do, and ``STRIP=0`` keeps it from doing so. The hooks are left out
-unless ``HOOKS=1`` asks for them, so that an install touches nothing in
+``DESTDIR`` stages the copy, and ``make uninstall-files`` removes it
+again, honouring the same variables; ``make install`` takes neither, and
+stops if given one. ``make install-files`` strips as the packages do,
+and ``STRIP=0`` keeps it from doing so. The hooks are left out unless
+``HOOKS=1`` asks for them, so that a copy touches nothing in
 ``/etc`` its installer did not mean it to, and they need the default
 ``PREFIX``, since they name ``/opt/tcs``. Then compile against it, from
 C or from C++::
@@ -1887,15 +1920,16 @@ Installing the package
 
 ``make install``, described under `Installing`_ in `Calling From
 C/C++`_, installs the package along with the header and libraries, into
-``lib/python3/site-packages`` under the ``PREFIX``: a path with no
+``lib/python3/site-packages`` under ``/opt/tcs``, or under the
+``PREFIX`` ``make install-files`` is given: a path with no
 Python minor version in it, so that it survives an upgrade of Python.
 It uses ``pip install --target`` on a copy of ``tcslog-py``, which works
 on a Python that is externally managed (PEP 668) as well. Python
 searches there once told to, by ``PYTHONPATH`` or by the ``tcslog.pth``
-a package installs. ``PYDIR`` chooses somewhere else, and ``make
-uninstall`` removes it. Inside a virtual environment, ``pip install
-./tcslog-py`` installs the package alone, which then finds the library
-only through the search below.
+a package installs. With ``make install-files``, ``PYDIR`` chooses
+somewhere else, and ``make uninstall-files`` removes it. Inside a
+virtual environment, ``pip install ./tcslog-py`` installs the package
+alone, which then finds the library only through the search below.
 
 The package finds the library by looking, in order, at the
 ``TCSLOG_LIB`` environment variable, which names the file; beside the
