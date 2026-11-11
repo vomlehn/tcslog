@@ -7,7 +7,9 @@ Files: *
 Copyright: @COPYRIGHT@
 License: MIT or Apache-2.0
 Comment: The programs and libraries have the Rust crates they depend on
- compiled into them, each under its own licence.
+ compiled into them, each under its own licence. Each is listed, with its
+ licence and the notices it requires, in
+ /opt/tcs/share/doc/@PACKAGE@/THIRD-PARTY-NOTICES.
 
 License: MIT
 @MIT@

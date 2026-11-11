@@ -50,7 +50,7 @@ STRIP   ?= 1
 # TCS_HELPERS names another, used where it is rather than installed.
 # Installing and packaging check it first: see the tcs-helpers target.
 TCS_HELPERS ?= $(abspath $(CURDIR)/../tcs-helpers)
-TCS_HELPERS_REQUIRED := 0.5.0
+TCS_HELPERS_REQUIRED := 0.6.0
 
 BINDIR  := $(DESTDIR)$(PREFIX)/bin
 SBINDIR := $(DESTDIR)$(PREFIX)/sbin
@@ -293,6 +293,10 @@ tcs-helpers:		## Check the tcs-helpers checkout
 # keeps it off the network, and --target puts it in $(PYDIR) whatever
 # Python the build machine has. The direct_url.json pip writes would name
 # that copy, which is gone by then, so it is removed.
+#
+# THIRD-PARTY-NOTICES, which tcs-helpers' third-party-notices.py writes,
+# lists the crates compiled into the programs and the library, with the
+# licence notices each requires to go with every copy.
 .PHONY: install-files
 install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
 	@echo "Installing tcslog $(VERSION) to $(DESTDIR)$(PREFIX)..."
@@ -329,6 +333,8 @@ install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
 	$(RM) $$dist/direct_url.json; \
 	sed -i '/^tcslog-[^/]*\.dist-info\/direct_url\.json,/d' $$dist/RECORD
 	install -D -m 644 -t $(DOCDIR) $(DOCS)
+	$(THIRD_PARTY_NOTICES) . $(DOCDIR)/THIRD-PARTY-NOTICES tcslog \
+		tcslog-c tcslog-gen
 	for f in $(EXAMPLES); do \
 		mode=644; \
 		[ "$$(head -c 2 $$f)" != '#!' ] || mode=755; \
