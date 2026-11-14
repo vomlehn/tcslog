@@ -61,7 +61,7 @@ rest of tcslog documents its exceptions:
 The library is found by looking, in order, at the ``TCSLOG_LIB``
 environment variable, which names the file; beside this module; in the
 ``lib`` directory of the tree ``make install`` put this module in, three
-directories up as ``libtcslog.so.1``; on the system loader's search
+directories up as ``libtcslogc.so.1``; on the system loader's search
 path, which ``LD_LIBRARY_PATH`` extends; and in ``target/release`` then
 ``target/debug`` of the repository this module sits in.
 """
@@ -141,7 +141,7 @@ _ITER_BUF_LEN = 64 * 1024
 # in lib/python3/site-packages/tcslog/ and the library in lib/ of the
 # same tree. `make check` holds the 1 to tcslogc/abi-version, the ABI
 # version this module is written against.
-_INSTALLED_NAME = "libtcslog.so.1"
+_INSTALLED_NAME = "libtcslogc.so.1"
 
 
 def _lib_name() -> str:
@@ -164,7 +164,7 @@ def _load() -> ctypes.CDLL:
 
     Looks in turn at the path in ``TCSLOG_LIB``, beside this module, in
     the ``lib`` directory of the installed tree this module is in,
-    wherever the loader finds ``libtcslog.so.1`` or ``tcslogc``, and in
+    wherever the loader finds ``libtcslogc.so.1`` or ``tcslogc``, and in
     the release and then the debug build directory of the repository
     this module is in.
 

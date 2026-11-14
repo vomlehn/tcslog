@@ -1,8 +1,8 @@
 /* Generated from tcslogc/src/lib.rs by cbindgen. Do not edit.
    Run `make header` from the repository root to regenerate. */
 
-#ifndef TCSLOG_H
-#define TCSLOG_H
+#ifndef TCSLOGC_H
+#define TCSLOGC_H
 
 #include <stdint.h>
 #include <stddef.h>
@@ -833,4 +833,4 @@ void tcslog_read_close(struct TcslogRead *h);
 }  // extern "C"
 #endif  // __cplusplus
 
-#endif  /* TCSLOG_H */
+#endif  /* TCSLOGC_H */

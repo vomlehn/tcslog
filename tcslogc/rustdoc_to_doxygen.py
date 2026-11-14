@@ -1,4 +1,4 @@
-"""Turn the rustdoc sections cbindgen copies into tcslog.h into Doxygen.
+"""Turn the rustdoc sections cbindgen copies into tcslogc.h into Doxygen.
 
 cbindgen copies each function's doc comment from tcslogc/src/lib.rs
 into the header as it stands, so the header would document parameters
@@ -24,7 +24,7 @@ one column:
 Other sections (``# Errors``, ``# Safety``) are left as they are; Doxygen
 reads them as Markdown headings.
 
-usage: cbindgen ... | python3 -I rustdoc_to_doxygen.py > tcslog.h
+usage: cbindgen ... | python3 -I rustdoc_to_doxygen.py > tcslogc.h
 """
 
 import re

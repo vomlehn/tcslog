@@ -39,7 +39,7 @@
 #include <string.h>
 #include <sys/stat.h>
 
-#include "tcslog.h"
+#include "tcslogc.h"
 
 /* Small enough that a few records fill a segment file, so the example
  * actually exercises a handover rather than describing one. */

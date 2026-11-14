@@ -2,10 +2,10 @@
 //!
 //! Cargo names the library after the crate, `libtcslogc.so`, and that is
 //! the name the tests and examples in this repository load it by. `make
-//! install` installs it as `libtcslog.so.<abi>`, with `libtcslog.so`
+//! install` installs it as `libtcslogc.so.<abi>`, with `libtcslogc.so`
 //! linked to it. A program linked against it records the soname as what
 //! it needs, not the file it was linked with, so the soname has to be
-//! `libtcslog.so.<abi>`: that is the name the loader looks for, and a
+//! `libtcslogc.so.<abi>`: that is the name the loader looks for, and a
 //! library whose ABI has changed is then not mistaken for the one the
 //! program was built against.
 //!
@@ -44,5 +44,5 @@ fn main() {
     if !family.split(',').any(|f| f == "unix") || vendor == "apple" {
         return;
     }
-    println!("cargo:rustc-cdylib-link-arg=-Wl,-soname,libtcslog.so.{abi}");
+    println!("cargo:rustc-cdylib-link-arg=-Wl,-soname,libtcslogc.so.{abi}");
 }

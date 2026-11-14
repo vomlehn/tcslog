@@ -1875,7 +1875,7 @@ built as a ``cdylib`` and a ``staticlib``, which a crate cannot be
 conditionally, and because the ``unsafe`` an ABI needs is then confined
 to it: the library crate itself contains none.
 
-The header, ``tcslogc/include/tcslog.h``, is generated from the crate's
+The header, ``tcslogc/include/tcslogc.h``, is generated from the crate's
 source by ``cbindgen`` and is not written by hand. ``make header``
 regenerates it and ``make check`` fails if it is out of date, so a
 header that no longer describes the binding cannot reach a caller.
@@ -2100,8 +2100,8 @@ not allocate either.
 
 The C++ Interface
 -----------------
-``tcslogc/include/tcslog.hpp`` is the C/C++ interface as C++ classes,
-written by hand over ``tcslog.h`` and installed beside it. It must be
+``tcslogc/include/tcslogc.hpp`` is the C/C++ interface as C++ classes,
+written by hand over ``tcslogc.h`` and installed beside it. It must be
 header-only C++11, must build with ``-fno-exceptions -fno-rtti``, and
 must allocate nothing.
 

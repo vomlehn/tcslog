@@ -59,8 +59,8 @@ Installing
 Everything installs under `/opt/tcs`, the tree the TCS packages share
 (FHS 3.0's `/opt/<package>`): `tcslog-gen`, which writes test logs, in
 `bin/`; `tcslog-links`, which links it into `/usr/local/bin`, in `sbin/`;
-the C and C++ headers, `tcslog.h` and `tcslog.hpp`, in `include/`;
-`libtcslog.so.1` (with `libtcslog.so` linked to it) and `libtcslog.a`
+the C and C++ headers, `tcslogc.h` and `tcslogc.hpp`, in `include/`;
+`libtcslogc.so.1` (with `libtcslogc.so` linked to it) and `libtcslogc.a`
 in `lib/`; a pkg-config file in `lib/pkgconfig/`; the Python 3 package
 in `lib/python3/site-packages/`; and the documentation and examples
 under `share/`.
@@ -189,12 +189,12 @@ one refuses to open a log for writing.
 From C or C++, through pkg-config:
 
 ```c
-#include "tcslog.h"             /* or "tcslog.hpp" from C++ */
+#include "tcslogc.h"             /* or "tcslogc.hpp" from C++ */
 ```
 
 ```sh
-cc  prog.c   $(pkg-config --cflags --libs tcslog)
-c++ prog.cpp $(pkg-config --cflags --libs tcslog)
+cc  prog.c   $(pkg-config --cflags --libs tcslogc)
+c++ prog.cpp $(pkg-config --cflags --libs tcslogc)
 ```
 
 From Python 3, the package finds the library installed beside it with
@@ -263,7 +263,7 @@ The code producing telemetry on a flight system is often C or C++, and a
 library that code cannot call is one that does not get used where the
 data is, so `tcslogc` presents `LogWrite` and `LogRead` to a C or C++
 caller. The header wraps its declarations in `extern "C"` for C++, so
-the same header and libraries serve both. C++ has `tcslog.hpp` besides:
+the same header and libraries serve both. C++ has `tcslogc.hpp` besides:
 `tcslog::LogWrite`, `tcslog::LogRead` and `tcslog::WriteCallbacks`,
 named as in Rust, closing their handles themselves, and needing no
 exceptions, RTTI, or heap. `make capi-test` runs its test,
@@ -273,12 +273,12 @@ separate crate because a C interface has to be built as a `cdylib` and a
 `unsafe` an ABI needs is then confined to it: the library crate itself
 contains none.
 
-`make install` installs the headers and both libraries, as `libtcslog`;
+`make install` installs the headers and both libraries, as `libtcslogc`;
 see *Installing* above. In this repository the libraries cargo builds
 keep the crate's name, `libtcslogc`, which is what the tests and
 examples here link.
 
-The `1` in `libtcslog.so.1` is the ABI's version, not the package's. It
+The `1` in `libtcslogc.so.1` is the ABI's version, not the package's. It
 is the whole number in `tcslogc/abi-version`, from which
 `tcslogc/build.rs` sets the soname and the Makefile the installed
 names, and it is bumped only when the ABI changes incompatibly: when a
@@ -288,7 +288,7 @@ values. A program built against one ABI version is then never started
 against another. Adding a function, or a status after the last, does
 not bump it.
 
-`tcslogc/include/tcslog.h` is generated from `tcslogc/src/lib.rs` by
+`tcslogc/include/tcslogc.h` is generated from `tcslogc/src/lib.rs` by
 `cbindgen` and is not written by hand: `make header` regenerates it and
 `make check` fails if it is out of date, the same arrangement
 `tcslog/README.md` has with the library's doc comment. That needs a tool
@@ -355,7 +355,7 @@ overrides where it goes. Python searches there once told to, by
 environment, `pip install ./tcslog-py` works too.
 
 The package finds the library through `TCSLOG_LIB`, if set, then beside
-the package, then as `libtcslog.so.1` in the `lib/` of the tree it was
+the package, then as `libtcslogc.so.1` in the `lib/` of the tree it was
 installed into, then on the loader's path (`LD_LIBRARY_PATH`), then in
 this repository's `target/` directory.
 

@@ -7,10 +7,10 @@ exec_prefix=${prefix}
 libdir=${exec_prefix}/lib
 includedir=${prefix}/include
 
-Name: tcslog
+Name: tcslogc
 Description: Segmented telemetry log for storage-bounded systems (C/C++)
 URL: https://github.com/vomlehn/tcslog
 Version: @VERSION@
-Libs: -L${libdir} -ltcslog
+Libs: -L${libdir} -ltcslogc
 Libs.private: -lgcc_s -lutil -lrt -lpthread -lm -ldl -lc
 Cflags: -I${includedir}

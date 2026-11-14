@@ -33,8 +33,8 @@ Rust
     The ``tcslog`` crate, which the rest of this manual describes first.
 
 C/C++
-    The ``tcslogc`` binding: a C ABI and a header, ``tcslog.h``, that
-    compiles as C and as C++ and is tested as both, and ``tcslog.hpp``,
+    The ``tcslogc`` binding: a C ABI and a header, ``tcslogc.h``, that
+    compiles as C and as C++ and is tested as both, and ``tcslogc.hpp``,
     the same interface as C++ classes. See `Calling From C/C++`_.
 
 Python 3
@@ -1275,7 +1275,7 @@ a Rust or Python caller and the other way round, the stored format being
 the same one.
 
 Everything in this chapter applies to C and C++ alike, and C++ has a
-header of its own besides; see `The C++ interface: tcslog.hpp`_. The header
+header of its own besides; see `The C++ interface: tcslogc.hpp`_. The header
 declares its functions inside ``extern "C"`` when compiled as C++, and
 gives its enums a fixed ``int32_t`` or ``uint32_t`` underlying type
 there, so a C++ program includes it, calls it, and links against it
@@ -1293,18 +1293,18 @@ which is FHS 3.0's ``/opt/<package>``:
 ``bin/tcslog-gen``                              writes test logs
 ``sbin/tcslog-links``                           links the programs into
                                                 ``/usr/local/bin``
-``include/tcslog.h``, ``tcslog.hpp``            the C and C++ headers
-``lib/libtcslog.so.1``                          the shared library, with
-                                                ``libtcslog.so`` linked to it
-``lib/libtcslog.a``                             the static library
-``lib/pkgconfig/tcslog.pc``                     its pkg-config file
+``include/tcslogc.h``, ``tcslogc.hpp``          the C and C++ headers
+``lib/libtcslogc.so.1``                         the shared library, with
+                                                ``libtcslogc.so`` linked to it
+``lib/libtcslogc.a``                            the static library
+``lib/pkgconfig/tcslogc.pc``                    its pkg-config file
 ``lib/python3/site-packages/tcslog/``           the Python 3 package
 ``share/doc/tcslog/``                           this manual, the design,
                                                 README, licences, changelog
 ``share/examples/tcslog/``                      the examples
 ==============================================  =============================
 
-The shared library's soname is ``libtcslog.so.1``. The ``1`` is the
+The shared library's soname is ``libtcslogc.so.1``. The ``1`` is the
 ABI's version, not the package's: it is the whole number in
 ``tcslogc/abi-version``, from which ``tcslogc/build.rs`` sets the
 soname and the Makefile the installed names, so the two cannot
@@ -1447,14 +1447,14 @@ and ``STRIP=0`` keeps it from doing so. The hooks are left out unless
 ``PREFIX``, since they name ``/opt/tcs``. Then compile against it, from
 C or from C++::
 
-    #include "tcslog.h"             /* or "tcslog.hpp" */
+    #include "tcslogc.h"             /* or "tcslogc.hpp" */
 
-    cc  prog.c   $(pkg-config --cflags --libs tcslog)
-    c++ prog.cpp $(pkg-config --cflags --libs tcslog)
+    cc  prog.c   $(pkg-config --cflags --libs tcslogc)
+    c++ prog.cpp $(pkg-config --cflags --libs tcslogc)
 
 with ``PKG_CONFIG_PATH=/opt/tcs/lib/pkgconfig`` if the hooks are not
 installed, and ``LD_LIBRARY_PATH=/opt/tcs/lib`` to run the program.
-``pkg-config --static --libs tcslog`` adds what a program linking the
+``pkg-config --static --libs tcslogc`` adds what a program linking the
 static library needs besides it.
 
 ``TIMER_RESOLUTION`` is a build-time value of the Rust library, so it is
@@ -1705,17 +1705,17 @@ What ``send`` has to do is what it has to do in Rust: when it returns
 there must be no file at the path it was given and none matching the
 log's naming pattern. See `Callbacks: WriteCallbacks`_.
 
-The C++ interface: tcslog.hpp
------------------------------
+The C++ interface: tcslogc.hpp
+------------------------------
 
 A C++ program may call the C functions above directly, and everything in
-this chapter applies to it. ``tcslog.hpp``, installed beside
-``tcslog.h``, is the alternative: the same interface in classes named
+this chapter applies to it. ``tcslogc.hpp``, installed beside
+``tcslogc.h``, is the alternative: the same interface in classes named
 as in Rust, which close their handles themselves.
 
 .. code-block:: c++
 
-    #include "tcslog.hpp"
+    #include "tcslogc.hpp"
 
     struct Downlink : tcslog::WriteCallbacks {
             int queued = 0;
@@ -1810,7 +1810,7 @@ Writing a log and reading it back:
 
     #include <stdio.h>
     #include <string.h>
-    #include "tcslog.h"
+    #include "tcslogc.h"
 
     /* Handed each filled segment file, and the one still open when the
      * writer is closed. A real one must leave no file at the path it is
@@ -1933,7 +1933,7 @@ alone, which then finds the library only through the search below.
 
 The package finds the library by looking, in order, at the
 ``TCSLOG_LIB`` environment variable, which names the file; beside the
-package; as ``libtcslog.so.1`` in the ``lib`` directory of the tree the
+package; as ``libtcslogc.so.1`` in the ``lib`` directory of the tree the
 package was installed into, three directories up from it; on the system
 loader's search path, which ``LD_LIBRARY_PATH`` extends; and in
 ``target/release`` then ``target/debug`` of the repository the package

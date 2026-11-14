@@ -21,13 +21,15 @@ Stored format: unchanged.
 
 ### Changed
 
-- The C ABI's crate is `tcslogc`, in `tcslogc/`, where it was `tcslog-c`:
-  a TCS name with a letter after `tcslog` is code that runs on the
-  vehicle or in the MOC, and one with a hyphen after it, such as
-  tcslog-tools, is not. Cargo builds `libtcslogc.so` and `libtcslogc.a`;
-  what is installed is unchanged -- `libtcslog.so.1`, `libtcslog.a`,
-  `tcslog.h` and `-ltcslog`. The Python binding looks for `libtcslogc`
-  where it looked for `libtcslog_c`, after the installed `libtcslog`.
+- The C library is named after the crate it is built from, `tcslogc`, in
+  `tcslogc/`, where both were `tcslog-c` and the library `libtcslog`: a
+  TCS name with a letter after `tcslog` is code that runs on the vehicle
+  or in the MOC, one with a hyphen after it, such as tcslog-tools, is
+  not, and a C library is its crate's name with `lib` before it. A C or
+  C++ program now includes `tcslogc.h` or `tcslogc.hpp` and links with
+  `-ltcslogc`, or `pkg-config --cflags --libs tcslogc`; the library is
+  `libtcslogc.so.1`, linked to as `libtcslogc.so`, and `libtcslogc.a`.
+  The Python binding looks for `libtcslogc.so.1`. The ABI is unchanged.
 - Installing and packaging use the packaging scripts the TCS projects
   share -- the package linter, the Debian file generator and the
   `tcslog-links` template -- from a checkout of

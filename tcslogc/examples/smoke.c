@@ -33,7 +33,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 
-#include "tcslog.h"
+#include "tcslogc.h"
 
 #define BUF_LEN 256
 #define NAME_LEN 256

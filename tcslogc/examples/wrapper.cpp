@@ -1,4 +1,4 @@
-// Drives the C++ interface, tcslog.hpp, through the scenarios that
+// Drives the C++ interface, tcslogc.hpp, through the scenarios that
 // matter to it: a round trip with a handler, a handler that overrides
 // only some callbacks, a refusing send, the queries, moving a handle,
 // and the text forms.
@@ -19,7 +19,7 @@
 
 #include <sys/stat.h>
 
-#include "tcslog.hpp"
+#include "tcslogc.hpp"
 
 static int news = 0;
 

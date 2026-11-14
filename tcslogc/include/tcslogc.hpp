@@ -1,4 +1,4 @@
-/* C++ interface to tcslog: the C ABI in tcslog.h, wrapped in classes
+/* C++ interface to tcslog: the C ABI in tcslogc.h, wrapped in classes
  * that close their handles themselves.
  *
  * The names are the Rust crate's: LogWrite, LogRead, WriteCallbacks,
@@ -6,21 +6,21 @@
  * returns a Status, as the C functions do, and nothing here throws, uses
  * RTTI, or allocates, so it builds with -fno-exceptions -fno-rtti and
  * suits a program with no heap to spare. What allocates underneath is
- * what tcslog.h documents: opening a log, clearing one, and retaining
+ * what tcslogc.h documents: opening a log, clearing one, and retaining
  * segment headers when asked to.
  *
- * Header-only and C++11. Link against libtcslog as for tcslog.h:
- * -ltcslog, or `pkg-config --libs tcslog`, once installed.
+ * Header-only and C++11. Link against libtcslogc as for tcslogc.h:
+ * -ltcslogc, or `pkg-config --libs tcslogc`, once installed.
  */
 
-#ifndef TCSLOG_HPP
-#define TCSLOG_HPP
+#ifndef TCSLOGC_HPP
+#define TCSLOGC_HPP
 
 #include <cstddef>
 #include <cstdint>
 #include <type_traits>
 
-#include "tcslog.h"
+#include "tcslogc.h"
 
 namespace tcslog {
 
@@ -355,4 +355,4 @@ Status format_timestamp(uint64_t ts, char (&buf)[N]) {
 
 }  // namespace tcslog
 
-#endif /* TCSLOG_HPP */
+#endif /* TCSLOGC_HPP */

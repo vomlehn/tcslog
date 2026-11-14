@@ -61,7 +61,7 @@ if [ "%{tcs_pysite}" != /usr/lib/python3/dist-packages ]; then
 fi
 # RPM finds what a shared library provides only in an executable file,
 # where Debian wants one that is not.
-chmod 755 %{buildroot}/opt/tcs/lib/libtcslog.so.%{tcs_abi}
+chmod 755 %{buildroot}/opt/tcs/lib/libtcslogc.so.%{tcs_abi}
 
 # Takes away the links tcslog-links made, in either directory it is
 # meant for, while it is still installed, so that removing the package
@@ -92,12 +92,12 @@ fi
 %dir /opt/tcs/share/examples
 /opt/tcs/bin/tcslog-gen
 /opt/tcs/sbin/tcslog-links
-/opt/tcs/include/tcslog.h
-/opt/tcs/include/tcslog.hpp
-/opt/tcs/lib/libtcslog.so
-/opt/tcs/lib/libtcslog.so.%{tcs_abi}
-/opt/tcs/lib/libtcslog.a
-/opt/tcs/lib/pkgconfig/tcslog.pc
+/opt/tcs/include/tcslogc.h
+/opt/tcs/include/tcslogc.hpp
+/opt/tcs/lib/libtcslogc.so
+/opt/tcs/lib/libtcslogc.so.%{tcs_abi}
+/opt/tcs/lib/libtcslogc.a
+/opt/tcs/lib/pkgconfig/tcslogc.pc
 /opt/tcs/lib/python3/site-packages/tcslog/
 /opt/tcs/lib/python3/site-packages/tcslog-%{version}.dist-info/
 %doc /opt/tcs/share/doc/tcslog/
