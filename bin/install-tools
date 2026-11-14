@@ -7,8 +7,10 @@
 # It installs them with the system's own package manager, under sudo
 # unless it is run as root, as in a container: apt-get on Debian, Ubuntu
 # and what is like them, dnf on Fedora and Red Hat's, read from
-# /etc/os-release. Rust comes from rustup where rustup is installed, with
-# the components the checks run, and otherwise from the system's packages.
+# /etc/os-release. Rust comes from rustup, with the components the checks
+# run: the rustup installed, or else, on Debian and Ubuntu, whose own Rust
+# lags behind what the tools need, the system's rustup package, with the
+# current stable toolchain. Fedora's own Rust keeps up, so it is used there.
 # What the system does not package is installed for whoever runs this, with
 # cargo install or pipx. --dry-run shows each command and runs none;
 # --no-packaging leaves out the tools only `make packages` and `make
@@ -21,7 +23,9 @@
 set -eu
 
 # What tcslog needs. Building: C and C++ compilers for the C API's tests,
-# cbindgen for its header, and rst2html for the documents. make check:
+# cbindgen for its header, from crates.io, since the header must be what
+# the current cbindgen writes and the systems' lag, and rst2html for the
+# documents. make check:
 # rustfmt, clippy, cargo-rdme, ruff and mypy; make test: hexdump. Python
 # 3.11 because tcs-helpers' production-names, which make check runs, reads
 # TOML with tomllib. Ubuntu has no ruff package, so pipx installs it there.
@@ -29,13 +33,13 @@ PROJECT=tcslog
 RUST_MIN=1.75
 PYTHON_MIN=3.11
 APT_BUILD="build-essential binutils python3 python3-pip python3-setuptools
-	python3-docutils bsdextrautils cbindgen mypy git"
+	python3-docutils bsdextrautils mypy git"
 DNF_BUILD="gcc gcc-c++ make binutils python3 python3-pip python3-setuptools
-	python3-docutils util-linux cbindgen ruff python3-mypy git"
-APT_RUST="cargo rustc rustfmt rust-clippy"
+	python3-docutils util-linux ruff python3-mypy git"
+APT_RUST="rustup"
 DNF_RUST="cargo rust rustfmt clippy"
 RUST_COMPONENTS="rustfmt clippy"
-CARGO_TOOLS="cargo-rdme"
+CARGO_TOOLS="cbindgen cargo-rdme"
 PIPX_TOOLS="ruff"
 CHECKOUTS="tcs-helpers tcslog-tools"
 # The packaging tools: make packages and make lint-packages.
@@ -150,15 +154,15 @@ else
 	[ "$packaging" = 0 ] || packages="$packages $DNF_PACKAGING"
 fi
 
-# Rust from rustup, where it is, with the components the checks run, and
-# otherwise the system's own.
+# Rust from rustup, where it is, with the components the checks run; on
+# Debian and Ubuntu the system's rustup package, and on Fedora its Rust.
 if command -v rustup > /dev/null 2>&1; then
-	rustup_there=1
+	use_rustup=1
 elif [ "$kind" = apt ]; then
-	rustup_there=0
+	use_rustup=1
 	packages="$packages $APT_RUST"
 else
-	rustup_there=0
+	use_rustup=0
 	packages="$packages $DNF_RUST"
 fi
 
@@ -169,7 +173,12 @@ if [ "$kind" = apt ]; then
 else
 	as_root dnf install -y $packages
 fi
-if [ "$rustup_there" = 1 ]; then
+if [ "$use_rustup" = 1 ]; then
+	# A rustup just installed has no toolchain yet.
+	if ! command -v rustup > /dev/null 2>&1 \
+		|| ! rustup default > /dev/null 2>&1; then
+		run rustup default stable
+	fi
 	# shellcheck disable=SC2086 # a list of words, split on purpose
 	run rustup component add $RUST_COMPONENTS
 fi
@@ -181,6 +190,15 @@ for tool in $CARGO_TOOLS; do
 		run cargo install --locked "$tool"
 	fi
 done
+if [ -n "$CARGO_TOOLS" ] && [ "$dry_run" = 0 ]; then
+	case :$PATH: in
+	*:"$HOME/.cargo/bin":*) ;;
+	*)
+		echo "install-tools: cargo installs in $HOME/.cargo/bin," \
+			"which is not on PATH: add it, in ~/.profile"
+		;;
+	esac
+fi
 if [ "$kind" = apt ]; then
 	for tool in $PIPX_TOOLS; do
 		command -v "$tool" > /dev/null 2>&1 || run pipx install "$tool"
