@@ -5,7 +5,7 @@
 #
 # The error-recovery suite drives the tools in tcslog-tools, which
 # depends on this repository by path, so both are checked out side by
-# side as they are on a developer's machine.
+# side as they are on a developer's machine, and tcs-helpers beside them.
 
 name: CI
 
@@ -34,6 +34,12 @@ jobs:
         with:
           repository: vomlehn/tcslog-tools
           path: tcslog-tools
+      # tcs-helpers, beside the others as on a developer's machine: make
+      # check runs its production-names.
+      - uses: actions/checkout@v4
+        with:
+          repository: vomlehn/tcs-helpers
+          path: tcs-helpers
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt

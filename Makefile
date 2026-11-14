@@ -50,7 +50,7 @@ STRIP   ?= 1
 # TCS_HELPERS names another, used where it is rather than installed.
 # Installing and packaging check it first: see the tcs-helpers target.
 TCS_HELPERS ?= $(abspath $(CURDIR)/../tcs-helpers)
-TCS_HELPERS_REQUIRED := 0.6.0
+TCS_HELPERS_REQUIRED := 0.9.0
 
 BINDIR  := $(DESTDIR)$(PREFIX)/bin
 SBINDIR := $(DESTDIR)$(PREFIX)/sbin
@@ -490,6 +490,24 @@ check:			## Run cargo check, clippy, fmt, ruff, mypy, and more
 		|| { echo "tcslog-py/tcslog/__init__.py: _INSTALLED_NAME" \
 			"is not \"$(SONAME)\"" 1>&2; \
 		     exit 1; }
+	$(MAKE) --no-print-directory production-names
+
+# Fail where production code -- tcslog and tcslogc, which fly, and the
+# Python package -- is built from or imports code with a non-production
+# name, a name with a hyphen or an underscore after tcs or tcslog, such as
+# tcslog-gen's or tcslog-tools'. The rule, and the check, are tcs-helpers'
+# production-names, which every TCS project runs; its README says more.
+.PHONY: production-names
+production-names: tcs-helpers	## Check the names of production code
+	$(TCS_HELPERS)/bin/production-names \
+		--pyproject tcslog-py/pyproject.toml
+
+# Have git run tcs-helpers' pre-commit hook in this checkout, which checks
+# the names when a commit changes a dependency, and remakes the page of each
+# document a commit changes and adds it to the commit.
+.PHONY: hooks
+hooks: tcs-helpers		## Have git run tcs-helpers' pre-commit hook
+	git config core.hooksPath "$(TCS_HELPERS)/githooks"
 
 # Fuzz the reader: each target in fuzz/ for FUZZ_TIME seconds, starting
 # from and adding to the corpus under fuzz/corpus. Needs a nightly
