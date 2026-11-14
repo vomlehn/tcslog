@@ -50,7 +50,7 @@ STRIP   ?= 1
 # TCS_HELPERS names another, used where it is rather than installed.
 # Installing and packaging check it first: see the tcs-helpers target.
 TCS_HELPERS ?= $(abspath $(CURDIR)/../tcs-helpers)
-TCS_HELPERS_REQUIRED := 0.9.0
+TCS_HELPERS_REQUIRED := 0.10.0
 
 BINDIR  := $(DESTDIR)$(PREFIX)/bin
 SBINDIR := $(DESTDIR)$(PREFIX)/sbin
@@ -495,16 +495,18 @@ check:			## Run cargo check, clippy, fmt, ruff, mypy, and more
 		|| { echo "tcslog-py/tcslog/__init__.py: _INSTALLED_NAME" \
 			"is not \"$(SONAME)\"" 1>&2; \
 		     exit 1; }
-	$(MAKE) --no-print-directory production-names
+	$(MAKE) --no-print-directory operational-names
 
-# Fail where production code -- tcslog and tcslogc, which fly, and the
-# Python package -- is built from or imports code with a non-production
+# Fail where operational code -- tcslog and tcslogc, which fly, and the
+# Python package -- is built from or imports code with a non-operational
 # name, a name with a hyphen or an underscore after tcs or tcslog, such as
-# tcslog-gen's or tcslog-tools'. The rule, and the check, are tcs-helpers'
-# production-names, which every TCS project runs; its README says more.
-.PHONY: production-names
-production-names: tcs-helpers	## Check the names of production code
-	$(TCS_HELPERS)/bin/production-names \
+# tcslog-gen's or tcslog-tools', or where categories.toml leaves a
+# directory out of every category or disagrees with a name. The rules, and
+# the check, are tcs-helpers' operational-names, which every TCS project
+# runs; its README says more.
+.PHONY: operational-names
+operational-names: tcs-helpers	## Check names and code categories
+	$(TCS_HELPERS)/bin/operational-names \
 		--pyproject tcslog-py/pyproject.toml
 
 # Have git run tcs-helpers' pre-commit hook in this checkout, which checks

@@ -27,7 +27,7 @@ set -eu
 # the current cbindgen writes and the systems' lag, and rst2html for the
 # documents. make check:
 # rustfmt, clippy, cargo-rdme, ruff and mypy; make test: hexdump. Python
-# 3.11 because tcs-helpers' production-names, which make check runs, reads
+# 3.11 because tcs-helpers' operational-names, which make check runs, reads
 # TOML with tomllib. Ubuntu has no ruff package, so pipx installs it there.
 PROJECT=tcslog
 RUST_MIN=1.75

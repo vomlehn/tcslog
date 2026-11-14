@@ -1,0 +1,37 @@
+# What each directory of tcslog is, by the TCS code categories: see "Code
+# categories" in tcs-helpers' README. A directory stands for everything
+# under it but what a deeper path covers, and a file at the top is
+# infrastructure. make operational-names holds this to the files git
+# tracks, and to the names of the crates and Python packages in each.
+
+[categories]
+# The TCS Onboard Log, in Rust, for C and C++, and for Python.
+operational = [
+	"tcslog",
+	"tcslogc",
+	"tcslog-py",
+]
+
+# tcslog-gen, which makes chains of log files to test with, the fuzz
+# targets, the recovery cases and every test.
+verification-tools = [
+	"tcslog-gen",
+	"fuzz",
+	"test",
+	"*/tests",
+]
+
+# What builds, documents and checks the rest.
+infrastructure = [
+	".cargo",
+	".claude",
+	".github",
+	"bin",
+	"docs",
+	"packaging",
+]
+
+# The programs that show how each interface is used.
+examples = [
+	"*/examples",
+]

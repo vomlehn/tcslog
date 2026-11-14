@@ -25,6 +25,13 @@ o   Python 3: `tcslog-py`, a pure-Python package over `ctypes`. See
 
 A log written from any of them reads in the other two.
 
+All three are operational code, which a mission depends on while it
+operates; `tcslog-gen`, the fuzz targets and the tests are verification
+tools, and `categories.toml` puts each directory in its category, as "Code
+categories" in
+[tcs-helpers' README](https://github.com/vomlehn/tcs-helpers#code-categories)
+defines them.
+
 Integration with cFS and F´
 ---------------------------
 Work is under way on using Tcslog with NASA's core Flight System (cFS), as a

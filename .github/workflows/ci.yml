@@ -35,7 +35,7 @@ jobs:
           repository: vomlehn/tcslog-tools
           path: tcslog-tools
       # tcs-helpers, beside the others as on a developer's machine: make
-      # check runs its production-names.
+      # check runs its operational-names.
       - uses: actions/checkout@v4
         with:
           repository: vomlehn/tcs-helpers
