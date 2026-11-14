@@ -1,4 +1,5 @@
-"""Python 3 interface to tcslog, a segmented telemetry log.
+"""Python 3 interface to tcslog, the TCS Onboard Log, a segmented telemetry
+log.
 
 This module presents the same interface as the Rust crate and the C/C++
 binding, through :mod:`ctypes` over ``libtcslog_c``, the shared library

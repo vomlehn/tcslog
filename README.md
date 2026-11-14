@@ -1,5 +1,5 @@
 # tcslog
-Flight software: a small segmented telemetry log library for storage-bounded systems with error recovery
+Flight software: the TCS Onboard Log, a small segmented telemetry log library for storage-bounded systems with error recovery
 
 Summary
 =======
