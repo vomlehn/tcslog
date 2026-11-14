@@ -401,17 +401,12 @@ LINKDIR ?= /usr/local/bin
 # shared by the TCS projects; see it for what each does. This repository
 # has the one package, built from packaging/deb/tcslog and
 # packaging/rpm/tcslog.spec, which is also given the library's ABI
-# version and where the RPM's Python looks for packages. Without a
-# tcs-helpers checkout new enough to have install-packages.sh, which came
-# with the install target in 0.4.0, there is nothing to include that has
-# every target here, and the targets stop as the tcs-helpers target says.
+# version. Without a tcs-helpers checkout new enough to have
+# install-packages.sh, which came with the install target in 0.4.0, there
+# is nothing to include that has every target here, and the targets stop
+# as the tcs-helpers target says.
 PACKAGES     := tcslog
-RPM_DEFINES   = --define "tcs_abi $(ABI)" \
-		--define "tcs_pysite $$($(PYTHON) -c 'import sysconfig; \
-			print(sysconfig.get_path("purelib", "posix_prefix", \
-			vars={"base": "/usr"}))')" \
-		--define "tcs_pyversion $$($(PYTHON) -c 'import sysconfig; \
-			print(sysconfig.get_python_version())')"
+RPM_DEFINES   = --define "tcs_abi $(ABI)"
 LINT_SCRIPTS := bin/make-releases
 ifneq ($(wildcard $(TCS_HELPERS)/packaging/install-packages.sh),)
 include $(TCS_HELPERS)/packaging/packaging.mk

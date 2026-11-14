@@ -4,10 +4,7 @@
 # once. The Makefile passes tcs_version, from Cargo.toml; tcs_release,
 # the Debian revision, so that the two are named alike; tcs_abi, from
 # tcslogc/abi-version, which names the shared library; tcs_stage;
-# tcs_date, the date of the commit built, for the %changelog; and
-# tcs_pysite and tcs_pyversion, the site-packages directory and version
-# of the python3 it found, which on Fedora are what its python3_sitelib
-# and python3_version macros say.
+# and tcs_date, the date of the commit built, for the %changelog.
 
 %{!?tcs_version: %{error: tcs_version is not defined: build with make rpm}}
 %{!?tcs_release: %{error: tcs_release is not defined: build with make rpm}}
@@ -32,11 +29,6 @@ License:	MIT OR Apache-2.0
 URL:		https://github.com/vomlehn/tcslog
 %global tcs_maintainer David VomLehn <dvomlehn@gmail.com>
 Packager:	%{tcs_maintainer}
-# The .pth file that puts /opt/tcs on Python's path is in the directory
-# of one Python version, which is the one this RPM was built for. A
-# Recommends rather than a Requires, since the C/C++ library is of use
-# without any Python at all.
-Recommends:	python(abi) = %{tcs_pyversion}
 
 %description
 Tcslog is flight software that logs telemetry into a directory of
@@ -50,15 +42,9 @@ documentation, all under /opt/tcs.
 
 %install
 cp -a %{tcs_stage}/. %{buildroot}/
-# The stage has the .pth where Debian's python3 looks; this one looks in
-# its own site-packages.
-pth=%{buildroot}/usr/lib/python3/dist-packages/tcslog.pth
-if [ "%{tcs_pysite}" != /usr/lib/python3/dist-packages ]; then
-	mkdir -p %{buildroot}%{tcs_pysite}
-	mv $pth %{buildroot}%{tcs_pysite}/
-	rmdir %{buildroot}/usr/lib/python3/dist-packages
-	rmdir %{buildroot}/usr/lib/python3
-fi
+# The stage has the .pth where Debian's python3 looks; this one's is
+# written when it is installed, by the trigger below.
+rm -rf %{buildroot}/usr/lib/python3
 # RPM finds what a shared library provides only in an executable file,
 # where Debian wants one that is not.
 chmod 755 %{buildroot}/opt/tcs/lib/libtcslogc.so.%{tcs_abi}
@@ -69,10 +55,31 @@ chmod 755 %{buildroot}/opt/tcs/lib/libtcslogc.so.%{tcs_abi}
 # an upgrade, and never failing the removal.
 %preun
 if [ "$1" = 0 ]; then
+	rm -f /usr/lib/python3*/site-packages/tcslog.pth
 	for dir in /usr/local/bin /opt/bin; do
 		/opt/tcs/sbin/tcslog-links --remove --dir "$dir" \
 			> /dev/null 2>&1 || true
 	done
+fi
+
+# The .pth file that puts /opt/tcs/lib/python3/site-packages on python3's
+# path. It goes in python3's own site-packages, which on Fedora names its
+# minor version (/usr/lib/python3.15/site-packages), so the python3 that is
+# installed says where, rather than the one that built the package. This
+# runs when the package is installed with a python3 there, and again when
+# python3 is installed or upgraded, moving the file to the new version's
+# directory; it never fails the transaction.
+%triggerin -- python3
+rm -f /usr/lib/python3*/site-packages/tcslog.pth
+site=$(python3 -c 'import sysconfig
+print(sysconfig.get_path("purelib", "posix_prefix", {"base": "/usr"}))') \
+	&& mkdir -p "$site" \
+	&& echo /opt/tcs/lib/python3/site-packages > "$site/tcslog.pth" || :
+
+# python3 removed ($2 is 0) takes the .pth with it.
+%triggerun -- python3
+if [ "$2" = 0 ]; then
+	rm -f /usr/lib/python3*/site-packages/tcslog.pth
 fi
 
 %post -p /sbin/ldconfig
@@ -104,7 +111,6 @@ fi
 /opt/tcs/share/examples/tcslog/
 %config(noreplace) /etc/ld.so.conf.d/tcslog.conf
 %config(noreplace) /etc/profile.d/tcslog.sh
-%{tcs_pysite}/tcslog.pth
 
 # One entry, for the version being built, dated by the Makefile from the
 # commit it was built from, so that a new version needs no edit here; what

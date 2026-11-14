@@ -32,7 +32,12 @@ Filters = [
 	' env-script-interpreter /opt/tcs/share/examples/tcslog/',
 	# The packages are not signed.
 	' no-signature',
-	# python-base is openSUSE's name; Fedora's python3 is depended on
-	# through python(abi), which the package recommends.
+	# python-base is openSUSE's name; the package uses Fedora's python3
+	# where there is one, writing its .pth file for it when either is
+	# installed.
 	' no-dependency-on python-base ',
+	# The rm the triggers and %preun run takes away only the package's own
+	# .pth file, which the python3 installed says where to write, so it
+	# cannot be a file the package lists.
+	'^tcslog\.[^:]+: E: dangerous-command-in-%(trigger|preun) rm$',
 ]
