@@ -46,9 +46,14 @@ are listed, with why each is unavoidable, in `docs/manual.rst`.
 
 Building
 --------
-From the repository root:
+From the repository root, first install the tools building, testing,
+checking and packaging need, with apt-get or dnf; `DRY_RUN=1` shows the
+commands and runs none, and `PACKAGING=0` leaves out the packaging tools.
+It is `bin/install-tools`, which a container can run as root too. tcslog
+needs nothing of TCSpecial's, and is used with it or on its own:
 
 ```sh
+make install-tools
 make build
 ```
 

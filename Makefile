@@ -268,6 +268,16 @@ tcs-helpers:		## Check the tcs-helpers checkout
 	fi
 	@"$(TCS_HELPERS)/bin/tcs-helpers" --require $(TCS_HELPERS_REQUIRED)
 
+# Install the tools building, testing, checking, documenting and packaging
+# this project need, with the system's own package manager, under sudo:
+# see bin/install-tools, which a container can run as root too. DRY_RUN=1
+# shows the commands and runs none; PACKAGING=0 leaves out what only make
+# packages and make lint-packages need.
+.PHONY: install-tools
+install-tools:		## Install the tools building this needs
+	bin/install-tools $(if $(filter 1,$(DRY_RUN)),--dry-run) \
+		$(if $(filter 0,$(PACKAGING)),--no-packaging)
+
 # Copy everything into place under $(DESTDIR)$(PREFIX): what `make
 # install` once did, kept for development and for `make stage`, which
 # cuts the packages from it; `make install` installs the packages. What
