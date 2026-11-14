@@ -3,7 +3,7 @@ resolver = "2"
 
 members = [
     "tcslog",
-    "tcslog-c",
+    "tcslogc",
     "tcslog-gen",
 ]
 # Built by cargo-fuzz on nightly, with flags the workspace does not want.

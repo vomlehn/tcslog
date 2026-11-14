@@ -3,7 +3,7 @@
 # binding fails the build rather than reaching a C caller -- the same
 # arrangement tcslog/README.md has with the library's doc comment.
 language = "C"
-header = """/* Generated from tcslog-c/src/lib.rs by cbindgen. Do not edit.
+header = """/* Generated from tcslogc/src/lib.rs by cbindgen. Do not edit.
    Run `make header` from the repository root to regenerate. */"""
 include_guard = "TCSLOG_H"
 tab_width = 8

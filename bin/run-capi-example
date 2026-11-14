@@ -3,7 +3,7 @@
 # Build and run the C binding's example against a throwaway directory.
 #
 # This is bin/run-sample's counterpart for C and C++: it compiles
-# tcslog-c/examples/downlink.c against the generated header, links it
+# tcslogc/examples/downlink.c against the generated header, links it
 # against the staticlib cargo built, gives it a temporary directory, and
 # lists what is left before deleting it.
 #
@@ -47,14 +47,14 @@ trap 'rm -rf "$log_dir"' EXIT
 # The staticlib the example links, which cargo writes under
 # target/debug. Built here rather than assumed, so the example cannot
 # be run against a library older than the source beside it.
-cargo build --quiet -p tcslog-c
+cargo build --quiet -p tcslogc
 
 echo "Log directory: $log_dir"
 echo
 
 # shellcheck disable=SC2086  # flags is deliberately word-split.
-$compiler $flags -o "$log_dir/downlink" tcslog-c/examples/downlink.c \
-    -I tcslog-c/include -L target/debug -l:libtcslog_c.a
+$compiler $flags -o "$log_dir/downlink" tcslogc/examples/downlink.c \
+    -I tcslogc/include -L target/debug -l:libtcslogc.a
 
 "$log_dir/downlink" "$log_dir"
 

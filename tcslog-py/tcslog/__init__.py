@@ -2,8 +2,8 @@
 log.
 
 This module presents the same interface as the Rust crate and the C/C++
-binding, through :mod:`ctypes` over ``libtcslog_c``, the shared library
-``tcslog-c`` builds. It has no dependencies beyond the standard library
+binding, through :mod:`ctypes` over ``libtcslogc``, the shared library
+``tcslogc`` builds. It has no dependencies beyond the standard library
 and is not compiled: it calls the very functions a C or C++ program
 calls, so a log written from any of the three languages reads in the
 other two.
@@ -137,26 +137,26 @@ __all__ = [
 _ITER_BUF_LEN = 64 * 1024
 
 # The name the library is installed under on an ELF platform, which is
-# its soname, set by tcslog-c/build.rs: `make install` puts this module
+# its soname, set by tcslogc/build.rs: `make install` puts this module
 # in lib/python3/site-packages/tcslog/ and the library in lib/ of the
-# same tree. `make check` holds the 1 to tcslog-c/abi-version, the ABI
+# same tree. `make check` holds the 1 to tcslogc/abi-version, the ABI
 # version this module is written against.
 _INSTALLED_NAME = "libtcslog.so.1"
 
 
 def _lib_name() -> str:
-    """Names the shared library tcslog-c builds on this platform.
+    """Names the shared library tcslogc builds on this platform.
 
     Returns:
-        Its file name: ``libtcslog_c.dylib`` on macOS, ``tcslog_c.dll``
-        on Windows and ``libtcslog_c.so`` elsewhere.
+        Its file name: ``libtcslogc.dylib`` on macOS, ``tcslogc.dll``
+        on Windows and ``libtcslogc.so`` elsewhere.
 
     """
     if sys.platform == "darwin":
-        return "libtcslog_c.dylib"
+        return "libtcslogc.dylib"
     if sys.platform == "win32":
-        return "tcslog_c.dll"
-    return "libtcslog_c.so"
+        return "tcslogc.dll"
+    return "libtcslogc.so"
 
 
 def _load() -> ctypes.CDLL:
@@ -164,7 +164,7 @@ def _load() -> ctypes.CDLL:
 
     Looks in turn at the path in ``TCSLOG_LIB``, beside this module, in
     the ``lib`` directory of the installed tree this module is in,
-    wherever the loader finds ``libtcslog.so.1`` or ``tcslog_c``, and in
+    wherever the loader finds ``libtcslog.so.1`` or ``tcslogc``, and in
     the release and then the debug build directory of the repository
     this module is in.
 
@@ -198,7 +198,7 @@ def _load() -> ctypes.CDLL:
         except OSError:
             pass
     try:
-        return ctypes.CDLL(ctypes.util.find_library("tcslog_c") or name)
+        return ctypes.CDLL(ctypes.util.find_library("tcslogc") or name)
     except OSError:
         pass
     # tcslog-py/tcslog/__init__.py, so the repository is two up.
@@ -208,7 +208,7 @@ def _load() -> ctypes.CDLL:
         if built.exists():
             return ctypes.CDLL(str(built))
     raise OSError(
-        f"cannot find {name}: build it with `cargo build -p tcslog-c`, "
+        f"cannot find {name}: build it with `cargo build -p tcslogc`, "
         "install it with `make install`, or name it in TCSLOG_LIB"
     )
 

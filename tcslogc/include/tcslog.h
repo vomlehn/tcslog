@@ -1,4 +1,4 @@
-/* Generated from tcslog-c/src/lib.rs by cbindgen. Do not edit.
+/* Generated from tcslogc/src/lib.rs by cbindgen. Do not edit.
    Run `make header` from the repository root to regenerate. */
 
 #ifndef TCSLOG_H

@@ -3,7 +3,7 @@
 # copies that tree, so the RPM and the .deb hold the same files, built
 # once. The Makefile passes tcs_version, from Cargo.toml; tcs_release,
 # the Debian revision, so that the two are named alike; tcs_abi, from
-# tcslog-c/abi-version, which names the shared library; tcs_stage;
+# tcslogc/abi-version, which names the shared library; tcs_stage;
 # tcs_date, the date of the commit built, for the %changelog; and
 # tcs_pysite and tcs_pyversion, the site-packages directory and version
 # of the python3 it found, which on Fedora are what its python3_sitelib

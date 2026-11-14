@@ -17,7 +17,7 @@ operations under the same names in all three:
 
 o   Rust: the `tcslog` crate.
 
-o   C/C++: `tcslog-c`, a C ABI whose header compiles, and is tested, as
+o   C/C++: `tcslogc`, a C ABI whose header compiles, and is tested, as
     both C and C++. See *C/C++ interface* below.
 
 o   Python 3: `tcslog-py`, a pure-Python package over `ctypes`. See
@@ -261,13 +261,13 @@ C/C++ interface
 ---------------
 The code producing telemetry on a flight system is often C or C++, and a
 library that code cannot call is one that does not get used where the
-data is, so `tcslog-c` presents `LogWrite` and `LogRead` to a C or C++
+data is, so `tcslogc` presents `LogWrite` and `LogRead` to a C or C++
 caller. The header wraps its declarations in `extern "C"` for C++, so
 the same header and libraries serve both. C++ has `tcslog.hpp` besides:
 `tcslog::LogWrite`, `tcslog::LogRead` and `tcslog::WriteCallbacks`,
 named as in Rust, closing their handles themselves, and needing no
 exceptions, RTTI, or heap. `make capi-test` runs its test,
-`tcslog-c/examples/wrapper.cpp`. It is a
+`tcslogc/examples/wrapper.cpp`. It is a
 separate crate because a C interface has to be built as a `cdylib` and a
 `staticlib`, which a crate cannot be conditionally, and because the
 `unsafe` an ABI needs is then confined to it: the library crate itself
@@ -275,12 +275,12 @@ contains none.
 
 `make install` installs the headers and both libraries, as `libtcslog`;
 see *Installing* above. In this repository the libraries cargo builds
-keep the crate's name, `libtcslog_c`, which is what the tests and
+keep the crate's name, `libtcslogc`, which is what the tests and
 examples here link.
 
 The `1` in `libtcslog.so.1` is the ABI's version, not the package's. It
-is the whole number in `tcslog-c/abi-version`, from which
-`tcslog-c/build.rs` sets the soname and the Makefile the installed
+is the whole number in `tcslogc/abi-version`, from which
+`tcslogc/build.rs` sets the soname and the Makefile the installed
 names, and it is bumped only when the ABI changes incompatibly: when a
 function's signature or behaviour changes incompatibly, or one is
 removed, or a struct or enum the header exposes changes its layout or
@@ -288,7 +288,7 @@ values. A program built against one ABI version is then never started
 against another. Adding a function, or a status after the last, does
 not bump it.
 
-`tcslog-c/include/tcslog.h` is generated from `tcslog-c/src/lib.rs` by
+`tcslogc/include/tcslog.h` is generated from `tcslogc/src/lib.rs` by
 `cbindgen` and is not written by hand: `make header` regenerates it and
 `make check` fails if it is out of date, the same arrangement
 `tcslog/README.md` has with the library's doc comment. That needs a tool
@@ -314,7 +314,7 @@ which a caller implements on whatever its callbacks need to reach.
 ./bin/run-capi-example --cxx    # the same file as C++
 ```
 
-Builds `tcslog-c/examples/downlink.c` against the header, runs it
+Builds `tcslogc/examples/downlink.c` against the header, runs it
 against a temporary directory, and shows what is left. The example
 writes telemetry twice: once with a `send` callback that renames each
 filled segment file out of the log's namespace, which is what a vehicle
@@ -323,14 +323,14 @@ which is what a log looks like before a ground station comes into view.
 It then reads back what remains.
 
 `make capi-test` is the other half of that: it compiles
-`tcslog-c/examples/smoke.c` against the header, once as C and once as
+`tcslogc/examples/smoke.c` against the header, once as C and once as
 C++, links the staticlib, and drives ten scenarios through the ABI -- a
 round trip, the fixed format, a refused format tag, a record too large
 for the buffer, a segment file deleted from the middle of the log, a
 `send` callback that refuses, a cleared log, the resolution callback,
 two writers with two contexts, and null arguments. `make test`
 runs it, because it is the only test that would catch a header
-describing the wrong argument order -- the Rust unit tests in `tcslog-c`
+describing the wrong argument order -- the Rust unit tests in `tcslogc`
 call the same functions as Rust.
 
 `make capi-memcheck` runs the same program, as C and as C++, under the address and

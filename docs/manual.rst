@@ -33,7 +33,7 @@ Rust
     The ``tcslog`` crate, which the rest of this manual describes first.
 
 C/C++
-    The ``tcslog-c`` binding: a C ABI and a header, ``tcslog.h``, that
+    The ``tcslogc`` binding: a C ABI and a header, ``tcslog.h``, that
     compiles as C and as C++ and is tested as both, and ``tcslog.hpp``,
     the same interface as C++ classes. See `Calling From C/C++`_.
 
@@ -1264,7 +1264,7 @@ Calling From C/C++
 The code producing telemetry on a flight system is often C or C++, and
 a library that code cannot call is one that does not get used where the
 data is. So a C or C++ program reaches the same two interfaces through
-``tcslog-c``, a crate in this workspace that presents ``LogWrite`` and
+``tcslogc``, a crate in this workspace that presents ``LogWrite`` and
 ``LogRead`` as a C ABI. It is a separate crate because a C interface has
 to be built as a shared and a static library, which a crate cannot be
 only when asked, and because the unsafe code an ABI needs is then
@@ -1306,7 +1306,7 @@ which is FHS 3.0's ``/opt/<package>``:
 
 The shared library's soname is ``libtcslog.so.1``. The ``1`` is the
 ABI's version, not the package's: it is the whole number in
-``tcslog-c/abi-version``, from which ``tcslog-c/build.rs`` sets the
+``tcslogc/abi-version``, from which ``tcslogc/build.rs`` sets the
 soname and the Makefile the installed names, so the two cannot
 disagree. It is bumped only when the ABI changes incompatibly -- when a
 function's signature or behaviour changes incompatibly, or a function is
@@ -1315,7 +1315,7 @@ its values -- and then a program built against the old ABI is refused
 by the loader rather than started against the new one. Adding a
 function, or a status after the last, changes nothing a built program
 relies on and does not bump it. In this repository the libraries cargo builds
-keep the crate's name, ``libtcslog_c``, which is what the tests and
+keep the crate's name, ``libtcslogc``, which is what the tests and
 examples here link; only an install renames them.
 
 Installing and packaging use tcs-helpers
@@ -1764,7 +1764,7 @@ and must outlive the writer.
 
 The header is C++11 and needs neither exceptions nor RTTI: nothing in it
 throws, and it builds with ``-fno-exceptions -fno-rtti``. It allocates
-nothing either. ``make capi-test`` runs ``tcslog-c/examples/wrapper.cpp``,
+nothing either. ``make capi-test`` runs ``tcslogc/examples/wrapper.cpp``,
 which is built with those flags and replaces the global ``operator new``
 with one that counts, and checks that the count stays at zero.
 
@@ -1899,7 +1899,7 @@ Writing a log and reading it back:
 
 A longer one, with a ``send`` callback that takes each filled segment
 file out of the log the way a vehicle would, is
-``tcslog-c/examples/downlink.c`` in the repository.
+``tcslogc/examples/downlink.c`` in the repository.
 ``bin/run-capi-example`` builds it as C and runs it against a temporary
 directory, and ``bin/run-capi-example --cxx`` builds the same file as
 C++. Both it and the program above are written in the common subset of

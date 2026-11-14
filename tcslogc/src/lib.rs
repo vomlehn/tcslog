@@ -1771,7 +1771,7 @@ mod tests {
         /// The directory, which is removed when dropped.
         fn new(tag: &str) -> Self {
             let p = std::env::temp_dir().join(format!(
-                "tcslog-c-{tag}-{}-{:?}",
+                "tcslogc-{tag}-{}-{:?}",
                 std::process::id(),
                 std::thread::current().id()
             ));

@@ -492,14 +492,14 @@ operations under the same names, and a log written from any one must
 read in the other two. Wherever C is supported, C++ must be supported
 too.</p>
 <p>The deliverable is a Cargo workspace of three crates and one Python
-package: <tt class="docutils literal">tcslog</tt>, the library and its Rust interface; <tt class="docutils literal"><span class="pre">tcslog-c</span></tt>,
+package: <tt class="docutils literal">tcslog</tt>, the library and its Rust interface; <tt class="docutils literal">tcslogc</tt>,
 the C/C++ ABI over it, specified under &quot;The C/C++ Interface&quot;;
 <tt class="docutils literal"><span class="pre">tcslog-gen</span></tt>, specified under &quot;Support Binaries&quot;; and <tt class="docutils literal"><span class="pre">tcslog-py</span></tt>,
 the Python 3 interface, specified under &quot;The Python 3 Interface&quot;. The
 library also carries the <tt class="docutils literal">sample</tt> example specified there,
-<tt class="docutils literal"><span class="pre">tcslog-c</span></tt> the two C/C++ programs named under &quot;The C/C++ Binding&quot;,
+<tt class="docutils literal">tcslogc</tt> the two C/C++ programs named under &quot;The C/C++ Binding&quot;,
 and <tt class="docutils literal"><span class="pre">tcslog-py</span></tt> its tests and an example. Only <tt class="docutils literal">tcslog</tt> is published
-to a registry: a C/C++ consumer links what <tt class="docutils literal"><span class="pre">tcslog-c</span></tt> builds and
+to a registry: a C/C++ consumer links what <tt class="docutils literal">tcslogc</tt> builds and
 includes the header beside it, neither of which cargo delivers, a Python
 consumer installs <tt class="docutils literal"><span class="pre">tcslog-py</span></tt> with pip, and <tt class="docutils literal"><span class="pre">tcslog-gen</span></tt> exists for
 the test suite. The
@@ -2166,17 +2166,17 @@ coming out as it did going in.</blockquote>
 </div>
 <div class="section" id="the-c-c-interface">
 <h1><a class="toc-backref" href="#toc-entry-45">The C/C++ Interface</a></h1>
-<p><tt class="docutils literal"><span class="pre">tcslog-c</span></tt> in this workspace presents <tt class="docutils literal">LogWrite</tt> and <tt class="docutils literal">LogRead</tt>
+<p><tt class="docutils literal">tcslogc</tt> in this workspace presents <tt class="docutils literal">LogWrite</tt> and <tt class="docutils literal">LogRead</tt>
 to a C or C++ caller. It is a separate crate because a C interface must be
 built as a <tt class="docutils literal">cdylib</tt> and a <tt class="docutils literal">staticlib</tt>, which a crate cannot be
 conditionally, and because the <tt class="docutils literal">unsafe</tt> an ABI needs is then confined
 to it: the library crate itself contains none.</p>
-<p>The header, <tt class="docutils literal"><span class="pre">tcslog-c/include/tcslog.h</span></tt>, is generated from the crate's
+<p>The header, <tt class="docutils literal">tcslogc/include/tcslog.h</tt>, is generated from the crate's
 source by <tt class="docutils literal">cbindgen</tt> and is not written by hand. <tt class="docutils literal">make header</tt>
 regenerates it and <tt class="docutils literal">make check</tt> fails if it is out of date, so a
 header that no longer describes the binding cannot reach a caller.</p>
 <p>cbindgen copies each function's doc comment as rustdoc has it, so
-<tt class="docutils literal"><span class="pre">tcslog-c/rustdoc_to_doxygen.py</span></tt> rewrites the comments' <tt class="docutils literal"># Arguments</tt>
+<tt class="docutils literal">tcslogc/rustdoc_to_doxygen.py</tt> rewrites the comments' <tt class="docutils literal"># Arguments</tt>
 and <tt class="docutils literal"># Returns</tt> sections as Doxygen <tt class="docutils literal">&#64;param</tt> and <tt class="docutils literal">&#64;return</tt>
 commands, which is what a C or C++ reader's tools understand.</p>
 <p>The header must compile as C11 and as C++11 and mean the same in both:
@@ -2468,7 +2468,7 @@ not allocate either.</p>
 </div>
 <div class="section" id="the-c-interface">
 <h2><a class="toc-backref" href="#toc-entry-53">The C++ Interface</a></h2>
-<p><tt class="docutils literal"><span class="pre">tcslog-c/include/tcslog.hpp</span></tt> is the C/C++ interface as C++ classes,
+<p><tt class="docutils literal">tcslogc/include/tcslog.hpp</tt> is the C/C++ interface as C++ classes,
 written by hand over <tt class="docutils literal">tcslog.h</tt> and installed beside it. It must be
 header-only C++11, must build with <tt class="docutils literal"><span class="pre">-fno-exceptions</span> <span class="pre">-fno-rtti</span></tt>, and
 must allocate nothing.</p>
@@ -2485,7 +2485,7 @@ virtual. <tt class="docutils literal"><span class="pre">LogWrite::open</span></t
 installs a method only when that type defines it rather than inheriting
 it, so an unset callback is null to the library as it is in C. The
 handler is the <tt class="docutils literal">ctx</tt>.</p>
-<p><tt class="docutils literal"><span class="pre">tcslog-c/examples/wrapper.cpp</span></tt> tests it, built with <tt class="docutils literal"><span class="pre">-pedantic</span>
+<p><tt class="docutils literal">tcslogc/examples/wrapper.cpp</tt> tests it, built with <tt class="docutils literal"><span class="pre">-pedantic</span>
 <span class="pre">-fno-exceptions</span> <span class="pre">-fno-rtti</span></tt> and with a global <tt class="docutils literal">operator new</tt> that
 counts, which must read zero at the end.</p>
 </div>
@@ -2494,7 +2494,7 @@ counts, which must read zero at the end.</p>
 <h1><a class="toc-backref" href="#toc-entry-54">The Python 3 Interface</a></h1>
 <p><tt class="docutils literal"><span class="pre">tcslog-py</span></tt> presents <tt class="docutils literal">LogWrite</tt> and <tt class="docutils literal">LogRead</tt> to Python 3 as the
 <tt class="docutils literal">tcslog</tt> package. It is pure Python over <tt class="docutils literal">ctypes</tt>, calling the
-functions of the C/C++ interface in the shared library <tt class="docutils literal"><span class="pre">tcslog-c</span></tt>
+functions of the C/C++ interface in the shared library <tt class="docutils literal">tcslogc</tt>
 builds, so it requires nothing compiled beyond that library and nothing
 outside the standard library. It covers what the C/C++ interface
 covers.</p>
@@ -2591,7 +2591,7 @@ crate. The three binaries are what the error-recovery test suite drives,
 and that suite compares their output against stored files, so the output
 wording specified below is part of the requirement rather than an
 illustration of it.</p>
-<p><tt class="docutils literal"><span class="pre">tcslog-c</span></tt> carries two C/C++ programs of its own, <tt class="docutils literal">smoke.c</tt> and
+<p><tt class="docutils literal">tcslogc</tt> carries two C/C++ programs of its own, <tt class="docutils literal">smoke.c</tt> and
 <tt class="docutils literal">downlink.c</tt>, and <tt class="docutils literal"><span class="pre">tcslog-py</span></tt> a test suite and <tt class="docutils literal">downlink.py</tt>. They
 are specified under &quot;The C/C++ Binding&quot; and &quot;The Python 3 Interface&quot;
 under Testing rather than here, being what tests and illustrates the
@@ -3279,7 +3279,7 @@ is a <tt class="docutils literal">make</tt> target:</p>
 written, so this is what keeps a stale one from reaching a caller --
 and the status numbers being ABI, a header that disagrees with the
 binding is worse than no header.</dd>
-<dt>o   <tt class="docutils literal">make <span class="pre">capi-test</span></tt> compiles <tt class="docutils literal"><span class="pre">tcslog-c/examples/smoke.c</span></tt> against</dt>
+<dt>o   <tt class="docutils literal">make <span class="pre">capi-test</span></tt> compiles <tt class="docutils literal">tcslogc/examples/smoke.c</tt> against</dt>
 <dd>the header in the tree, once as C and once as C++, links each
 against the staticlib cargo built, and runs both. Compiling is half
 the test: a signature a C or C++ compiler rejects is a signature no
@@ -3293,7 +3293,7 @@ find it.</dd>
 the binding mishandles can be caught at all: the Rust crates contain
 no <tt class="docutils literal">unsafe</tt>, and all of the binding's is reached only from C.</dd>
 </dl>
-<p><tt class="docutils literal"><span class="pre">tcslog-c/examples/downlink.c</span></tt>, run by <tt class="docutils literal"><span class="pre">bin/run-capi-example</span></tt>
+<p><tt class="docutils literal">tcslogc/examples/downlink.c</tt>, run by <tt class="docutils literal"><span class="pre">bin/run-capi-example</span></tt>
 against a temporary directory, is the C/C++ counterpart of <tt class="docutils literal">sample</tt>: a
 complete program a newcomer can read, exercising the callbacks rather
 than only the read and write calls. <tt class="docutils literal"><span class="pre">bin/run-capi-example</span> <span class="pre">--cxx</span></tt>

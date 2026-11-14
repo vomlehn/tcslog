@@ -9,7 +9,7 @@
 //!
 //! Tcslog supports three languages: **Rust**, **C/C++**, and
 //! **Python 3**. This crate is the Rust interface. The code producing
-//! telemetry on such a vehicle is often C or C++, so `tcslog-c`, in the
+//! telemetry on such a vehicle is often C or C++, so `tcslogc`, in the
 //! same repository, presents the library as a C ABI with a header that
 //! compiles as either -- see *Calling from C/C++* below -- and
 //! `tcslog-py` presents that same ABI to Python 3 -- see *Calling from
@@ -257,7 +257,7 @@
 //!
 //! # Calling from C/C++
 //!
-//! `tcslog-c`, in the same repository, presents these two interfaces as
+//! `tcslogc`, in the same repository, presents these two interfaces as
 //! a C ABI: `tcslog_write_open` and `tcslog_write_record` for writing,
 //! `tcslog_read_open` and `tcslog_read_record` for reading, with every
 //! function returning a status and every result written through an

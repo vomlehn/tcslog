@@ -1,6 +1,6 @@
 """Turn the rustdoc sections cbindgen copies into tcslog.h into Doxygen.
 
-cbindgen copies each function's doc comment from tcslog-c/src/lib.rs
+cbindgen copies each function's doc comment from tcslogc/src/lib.rs
 into the header as it stands, so the header would document parameters
 and results in rustdoc's form, which a C reader's tools do not know:
 

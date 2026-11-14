@@ -1,4 +1,4 @@
-"""Drives the Python interface through the scenarios tcslog-c/examples/smoke.c
+"""Drives the Python interface through the scenarios tcslogc/examples/smoke.c
 drives the C/C++ one, so that the three languages are held to the same
 behaviour.
 

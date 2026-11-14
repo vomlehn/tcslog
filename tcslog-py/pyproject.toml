@@ -1,5 +1,5 @@
 # The Python 3 interface to tcslog: pure Python over ctypes, calling
-# the libtcslog_c shared library. `make install` installs both, without
+# the libtcslogc shared library. `make install` installs both, without
 # pip; this file is for installing the package into a virtual
 # environment instead, with
 #

@@ -462,7 +462,7 @@ offer the same operations under the same names:</p>
 <dt>Rust</dt>
 <dd>The <tt class="docutils literal">tcslog</tt> crate, which the rest of this manual describes first.</dd>
 <dt>C/C++</dt>
-<dd>The <tt class="docutils literal"><span class="pre">tcslog-c</span></tt> binding: a C ABI and a header, <tt class="docutils literal">tcslog.h</tt>, that
+<dd>The <tt class="docutils literal">tcslogc</tt> binding: a C ABI and a header, <tt class="docutils literal">tcslog.h</tt>, that
 compiles as C and as C++ and is tested as both, and <tt class="docutils literal">tcslog.hpp</tt>,
 the same interface as C++ classes. See <a class="reference internal" href="#calling-from-c-c">Calling From C/C++</a>.</dd>
 <dt>Python 3</dt>
@@ -1658,7 +1658,7 @@ this build cannot read.</dd>
 <p>The code producing telemetry on a flight system is often C or C++, and
 a library that code cannot call is one that does not get used where the
 data is. So a C or C++ program reaches the same two interfaces through
-<tt class="docutils literal"><span class="pre">tcslog-c</span></tt>, a crate in this workspace that presents <tt class="docutils literal">LogWrite</tt> and
+<tt class="docutils literal">tcslogc</tt>, a crate in this workspace that presents <tt class="docutils literal">LogWrite</tt> and
 <tt class="docutils literal">LogRead</tt> as a C ABI. It is a separate crate because a C interface has
 to be built as a shared and a static library, which a crate cannot be
 only when asked, and because the unsafe code an ABI needs is then
@@ -1718,7 +1718,7 @@ README, licences, changelog</td>
 </table>
 <p>The shared library's soname is <tt class="docutils literal">libtcslog.so.1</tt>. The <tt class="docutils literal">1</tt> is the
 ABI's version, not the package's: it is the whole number in
-<tt class="docutils literal"><span class="pre">tcslog-c/abi-version</span></tt>, from which <tt class="docutils literal"><span class="pre">tcslog-c/build.rs</span></tt> sets the
+<tt class="docutils literal"><span class="pre">tcslogc/abi-version</span></tt>, from which <tt class="docutils literal">tcslogc/build.rs</tt> sets the
 soname and the Makefile the installed names, so the two cannot
 disagree. It is bumped only when the ABI changes incompatibly -- when a
 function's signature or behaviour changes incompatibly, or a function is
@@ -1727,7 +1727,7 @@ its values -- and then a program built against the old ABI is refused
 by the loader rather than started against the new one. Adding a
 function, or a status after the last, changes nothing a built program
 relies on and does not bump it. In this repository the libraries cargo builds
-keep the crate's name, <tt class="docutils literal">libtcslog_c</tt>, which is what the tests and
+keep the crate's name, <tt class="docutils literal">libtcslogc</tt>, which is what the tests and
 examples here link; only an install renames them.</p>
 <p>Installing and packaging use tcs-helpers
 (<a class="reference external" href="https://github.com/vomlehn/tcs-helpers">https://github.com/vomlehn/tcs-helpers</a>), the packaging scripts and make
@@ -2138,7 +2138,7 @@ the library and costs nothing per record. The handler is the context,
 and must outlive the writer.</p>
 <p>The header is C++11 and needs neither exceptions nor RTTI: nothing in it
 throws, and it builds with <tt class="docutils literal"><span class="pre">-fno-exceptions</span> <span class="pre">-fno-rtti</span></tt>. It allocates
-nothing either. <tt class="docutils literal">make <span class="pre">capi-test</span></tt> runs <tt class="docutils literal"><span class="pre">tcslog-c/examples/wrapper.cpp</span></tt>,
+nothing either. <tt class="docutils literal">make <span class="pre">capi-test</span></tt> runs <tt class="docutils literal">tcslogc/examples/wrapper.cpp</tt>,
 which is built with those flags and replaces the global <tt class="docutils literal">operator new</tt>
 with one that counts, and checks that the count stays at zero.</p>
 </div>
@@ -2268,7 +2268,7 @@ far.</p>
 </pre>
 <p>A longer one, with a <tt class="docutils literal">send</tt> callback that takes each filled segment
 file out of the log the way a vehicle would, is
-<tt class="docutils literal"><span class="pre">tcslog-c/examples/downlink.c</span></tt> in the repository.
+<tt class="docutils literal">tcslogc/examples/downlink.c</tt> in the repository.
 <tt class="docutils literal"><span class="pre">bin/run-capi-example</span></tt> builds it as C and runs it against a temporary
 directory, and <tt class="docutils literal"><span class="pre">bin/run-capi-example</span> <span class="pre">--cxx</span></tt> builds the same file as
 C++. Both it and the program above are written in the common subset of

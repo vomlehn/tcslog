@@ -1,6 +1,6 @@
 //! Gives the shared library the soname it is installed under.
 //!
-//! Cargo names the library after the crate, `libtcslog_c.so`, and that is
+//! Cargo names the library after the crate, `libtcslogc.so`, and that is
 //! the name the tests and examples in this repository load it by. `make
 //! install` installs it as `libtcslog.so.<abi>`, with `libtcslog.so`
 //! linked to it. A program linked against it records the soname as what
@@ -30,10 +30,10 @@ fn main() {
     println!("cargo:rerun-if-changed=abi-version");
 
     let text = fs::read_to_string("abi-version")
-        .expect("tcslog-c/abi-version must exist and be readable");
+        .expect("tcslogc/abi-version must exist and be readable");
     let abi: u32 = text.trim().parse().unwrap_or_else(|_| {
         panic!(
-            "tcslog-c/abi-version holds {:?}; it must hold one whole \
+            "tcslogc/abi-version holds {:?}; it must hold one whole \
              number, the ABI version, such as 1",
             text.trim()
         )

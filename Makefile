@@ -18,13 +18,13 @@ RELEASE =
 # and the packages take.
 VERSION := $(shell sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml)
 # The C ABI's version, which is not the package's: a whole number in
-# tcslog-c/abi-version, from which tcslog-c/build.rs sets the shared
+# tcslogc/abi-version, from which tcslogc/build.rs sets the shared
 # library's soname, so that the soname and the installed names cannot
 # disagree. Bump it only when the ABI changes incompatibly -- a
 # function's signature or behaviour changed incompatibly or a function
 # removed, or a struct or enum the header exposes changed in layout or
 # values -- as build.rs says at more length.
-ABI     := $(strip $(file < tcslog-c/abi-version))
+ABI     := $(strip $(file < tcslogc/abi-version))
 SONAME  := libtcslog.so.$(ABI)
 
 # Where `make install-files` puts everything: /opt/tcs, the tree the TCS
@@ -62,17 +62,17 @@ EXDIR   := $(DESTDIR)$(PREFIX)/share/examples/tcslog
 # What install puts there: the generated header and the C++ one written
 # over it by hand, both libraries, so a consumer can link either
 # statically or dynamically, and the documents a reader of the installed
-# tree needs. Cargo names the libraries after the crate, libtcslog_c;
-# they are installed as libtcslog, the name tcslog-c/build.rs gives the
+# tree needs. Cargo names the libraries after the crate, libtcslogc;
+# they are installed as libtcslog, the name tcslogc/build.rs gives the
 # shared one's soname.
-CAPI_HEADERS := tcslog-c/include/tcslog.h tcslog-c/include/tcslog.hpp
+CAPI_HEADERS := tcslogc/include/tcslog.h tcslogc/include/tcslog.hpp
 # The programs a person runs, in bin. They are also what tcslog-links
 # links into /usr/local/bin, written into it as it is installed, so that
 # it never touches another TCS package's programs in the same bin.
 PROGRAMS := tcslog-gen
 DOCS     := README.md LICENSE-APACHE LICENSE-MIT CHANGELOG.md \
 	docs/manual.html docs/design.html
-EXAMPLES := tcslog-c/examples/downlink.c tcslog-c/examples/wrapper.cpp \
+EXAMPLES := tcslogc/examples/downlink.c tcslogc/examples/wrapper.cpp \
 	tcslog-py/examples/downlink.py tcslog/examples/sample.rs
 # The hooks HOOKS=1 installs name /opt/tcs, so they are refused with any
 # other PREFIX rather than installed pointing at the wrong tree.
@@ -152,10 +152,10 @@ test:			## Run all tests
 	$(MAKE) python-test
 	@echo "[OK] Tests complete"
 
-# Build and run the C binding's smoke test: tcslog-c/examples/smoke.c
+# Build and run the C binding's smoke test: tcslogc/examples/smoke.c
 # compiled against the generated header and linked against the
 # staticlib, which is what a C or C++ consumer does. The Rust unit tests
-# in tcslog-c call the same functions as Rust, so they would pass a
+# in tcslogc call the same functions as Rust, so they would pass a
 # header that described the wrong argument order; only this catches
 # that.
 #
@@ -168,17 +168,17 @@ test:			## Run all tests
 .PHONY: capi-test
 capi-test:		## Run the C binding's smoke test as C and as C++
 	@echo "Running the C binding smoke test..."
-	cargo build $(RELEASE) -p tcslog-c
+	cargo build $(RELEASE) -p tcslogc
 	tmp=$$(mktemp -d -t tcslog-capi.XXXXXXXXXX); \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	mkdir $$tmp/c $$tmp/cxx; \
-	$(CC) $(CAPI_CFLAGS) -o $$tmp/smoke-c tcslog-c/examples/smoke.c \
-		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
-	$(CXX) $(CAPI_CXXFLAGS) -o $$tmp/smoke-cxx tcslog-c/examples/smoke.c \
-		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+	$(CC) $(CAPI_CFLAGS) -o $$tmp/smoke-c tcslogc/examples/smoke.c \
+		-I tcslogc/include -L $(CARGO_TARGET_DIR) -l:libtcslogc.a; \
+	$(CXX) $(CAPI_CXXFLAGS) -o $$tmp/smoke-cxx tcslogc/examples/smoke.c \
+		-I tcslogc/include -L $(CARGO_TARGET_DIR) -l:libtcslogc.a; \
 	$(CXX) $(WRAPPER_CXXFLAGS) -o $$tmp/wrapper \
-		tcslog-c/examples/wrapper.cpp \
-		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+		tcslogc/examples/wrapper.cpp \
+		-I tcslogc/include -L $(CARGO_TARGET_DIR) -l:libtcslogc.a; \
 	mkdir $$tmp/wrap; \
 	echo "-- as C"; $$tmp/smoke-c $$tmp/c; \
 	echo "-- as C++"; $$tmp/smoke-cxx $$tmp/cxx; \
@@ -192,8 +192,8 @@ capi-test:		## Run the C binding's smoke test as C and as C++
 .PHONY: python-test
 python-test:		## Run the Python 3 interface's tests
 	@echo "Running the Python 3 interface tests..."
-	cargo build $(RELEASE) -p tcslog-c
-	TCSLOG_LIB=$(abspath $(CARGO_TARGET_DIR))/libtcslog_c.so \
+	cargo build $(RELEASE) -p tcslogc
+	TCSLOG_LIB=$(abspath $(CARGO_TARGET_DIR))/libtcslogc.so \
 		PYTHONPATH=$(abspath tcslog-py) \
 		$(PYTHON) -m unittest discover -s tcslog-py/tests
 	@echo "[OK] Python 3 interface tests passed"
@@ -214,19 +214,19 @@ python-test:		## Run the Python 3 interface's tests
 .PHONY: capi-memcheck
 capi-memcheck:		## Run the C/C++ smoke test under ASan and UBSan
 	@echo "Running the C binding smoke test under sanitizers..."
-	cargo build $(RELEASE) -p tcslog-c
+	cargo build $(RELEASE) -p tcslogc
 	tmp=$$(mktemp -d -t tcslog-capi-san.XXXXXXXXXX); \
 	trap 'rm -rf "$$tmp"' EXIT; \
 	mkdir $$tmp/c $$tmp/cxx; \
 	$(CC) $(CAPI_CFLAGS) $(CAPI_SAN_FLAGS) -o $$tmp/smoke-c \
-		tcslog-c/examples/smoke.c \
-		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+		tcslogc/examples/smoke.c \
+		-I tcslogc/include -L $(CARGO_TARGET_DIR) -l:libtcslogc.a; \
 	$(CXX) $(CAPI_CXXFLAGS) $(CAPI_SAN_FLAGS) -o $$tmp/smoke-cxx \
-		tcslog-c/examples/smoke.c \
-		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+		tcslogc/examples/smoke.c \
+		-I tcslogc/include -L $(CARGO_TARGET_DIR) -l:libtcslogc.a; \
 	$(CXX) $(WRAPPER_CXXFLAGS) $(CAPI_SAN_FLAGS) -o $$tmp/wrapper \
-		tcslog-c/examples/wrapper.cpp \
-		-I tcslog-c/include -L $(CARGO_TARGET_DIR) -l:libtcslog_c.a; \
+		tcslogc/examples/wrapper.cpp \
+		-I tcslogc/include -L $(CARGO_TARGET_DIR) -l:libtcslogc.a; \
 	mkdir $$tmp/wrap; \
 	export ASAN_OPTIONS=detect_leaks=1 UBSAN_OPTIONS=halt_on_error=1; \
 	echo "-- as C"; $$tmp/smoke-c $$tmp/c; \
@@ -234,20 +234,20 @@ capi-memcheck:		## Run the C/C++ smoke test under ASan and UBSan
 	echo "-- through tcslog.hpp"; $$tmp/wrapper $$tmp/wrap
 	@echo "[OK] No leak or undefined behaviour reported"
 
-# Regenerate tcslog-c/include/tcslog.h from tcslog-c/src/lib.rs. Needs
+# Regenerate tcslogc/include/tcslog.h from tcslogc/src/lib.rs. Needs
 # `cargo install cbindgen`, as `make check` does. cbindgen indents only
 # with spaces, so unexpand turns its eight-column indents into tabs.
 # cbindgen copies the doc comments as rustdoc wrote them, so
 # rustdoc_to_doxygen.py rewrites their Arguments and Returns sections as
 # the @param and @return commands a C reader's tools know.
 .PHONY: header
-header:			## Regenerate the C header from tcslog-c/src/lib.rs
-	cd tcslog-c && cbindgen --config cbindgen.toml --crate tcslog-c \
+header:			## Regenerate the C header from tcslogc/src/lib.rs
+	cd tcslogc && cbindgen --config cbindgen.toml --crate tcslogc \
 		--output include/tcslog.h.tmp \
 		&& unexpand --first-only -t 8 include/tcslog.h.tmp \
 		| $(PYTHON) -I rustdoc_to_doxygen.py > include/tcslog.h \
 		&& rm include/tcslog.h.tmp
-	@echo "[OK] tcslog-c/include/tcslog.h regenerated"
+	@echo "[OK] tcslogc/include/tcslog.h regenerated"
 
 # The hooks HOOKS=1 installs, outside $(PREFIX). The .pth file goes
 # where Debian's python3 looks; `make rpm` moves it to where the RPM's
@@ -300,7 +300,7 @@ tcs-helpers:		## Check the tcs-helpers checkout
 .PHONY: install-files
 install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
 	@echo "Installing tcslog $(VERSION) to $(DESTDIR)$(PREFIX)..."
-	cargo build --release -p tcslog-c -p tcslog-gen
+	cargo build --release -p tcslogc -p tcslog-gen
 	install -D -m 755 -t $(BINDIR) $(addprefix target/release/,$(PROGRAMS))
 	install -d $(SBINDIR)
 	sed -e 's|@PACKAGE@|tcslog|g' -e 's|@PREFIX@|$(PREFIX)|g' \
@@ -309,9 +309,9 @@ install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
 		> $(SBINDIR)/tcslog-links
 	chmod 755 $(SBINDIR)/tcslog-links
 	install -D -m 644 -t $(INCDIR) $(CAPI_HEADERS)
-	install -D -m 644 target/release/libtcslog_c.so $(LIBDIR)/$(SONAME)
+	install -D -m 644 target/release/libtcslogc.so $(LIBDIR)/$(SONAME)
 	ln -sf $(SONAME) $(LIBDIR)/libtcslog.so
-	install -D -m 644 target/release/libtcslog_c.a $(LIBDIR)/libtcslog.a
+	install -D -m 644 target/release/libtcslogc.a $(LIBDIR)/libtcslog.a
 	if [ "$(STRIP)" = 1 ]; then \
 		strip --strip-unneeded $(addprefix $(BINDIR)/,$(PROGRAMS)) \
 			$(LIBDIR)/$(SONAME); \
@@ -334,7 +334,7 @@ install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
 	sed -i '/^tcslog-[^/]*\.dist-info\/direct_url\.json,/d' $$dist/RECORD
 	install -D -m 644 -t $(DOCDIR) $(DOCS)
 	$(THIRD_PARTY_NOTICES) . $(DOCDIR)/THIRD-PARTY-NOTICES tcslog \
-		tcslog-c tcslog-gen
+		tcslogc tcslog-gen
 	for f in $(EXAMPLES); do \
 		mode=644; \
 		[ "$$(head -c 2 $$f)" != '#!' ] || mode=755; \
@@ -468,12 +468,12 @@ check:			## Run cargo check, clippy, fmt, ruff, mypy, and more
 		-- -D warnings
 	cargo rdme --check -w tcslog --intralinks-strip-links
 	@echo "Checking the C header is current..."
-	cd tcslog-c && cbindgen --config cbindgen.toml --crate tcslog-c \
+	cd tcslogc && cbindgen --config cbindgen.toml --crate tcslogc \
 		--output /dev/stdout 2>/dev/null \
 		| unexpand --first-only -t 8 \
 		| $(PYTHON) -I rustdoc_to_doxygen.py \
 		| diff -u include/tcslog.h - \
-		|| { echo "tcslog-c/include/tcslog.h is out of date;" \
+		|| { echo "tcslogc/include/tcslog.h is out of date;" \
 			"run 'make header'" 1>&2; \
 		     exit 1; }
 	@echo "Checking the Python 3 package..."

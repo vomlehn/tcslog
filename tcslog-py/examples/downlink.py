@@ -2,7 +2,7 @@
 """Writes telemetry through the Python interface the way a vehicle would,
 then reads back what is left in the log.
 
-This is tcslog-c/examples/downlink.c in Python, and does what it does:
+This is tcslogc/examples/downlink.c in Python, and does what it does:
 the first writer hands each filled segment file to a `send` callback
 that renames it into a "downlinked" subdirectory, out of the log's
 namespace; the second has no `send` at all, so its filled files stay in

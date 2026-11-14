@@ -22,14 +22,14 @@ under the same names, and a log written from any one must read in the other two.
 Wherever C is supported, C++ must be supported too.
 
 The deliverable is a Cargo workspace of three crates and one Python
-package: ``tcslog``, the library and its Rust interface; ``tcslog-c``,
+package: ``tcslog``, the library and its Rust interface; ``tcslogc``,
 the C/C++ ABI over it, specified under "The C/C++ Interface";
 ``tcslog-gen``, specified under "Support Binaries"; and ``tcslog-py``,
 the Python 3 interface, specified under "The Python 3 Interface". The
 library also carries the ``sample`` example specified there,
-``tcslog-c`` the two C/C++ programs named under "The C/C++ Binding",
+``tcslogc`` the two C/C++ programs named under "The C/C++ Binding",
 and ``tcslog-py`` its tests and an example. Only ``tcslog`` is published
-to a registry: a C/C++ consumer links what ``tcslog-c`` builds and
+to a registry: a C/C++ consumer links what ``tcslogc`` builds and
 includes the header beside it, neither of which cargo delivers, a Python
 consumer installs ``tcslog-py`` with pip, and ``tcslog-gen`` exists for
 the test suite. The
@@ -1869,19 +1869,19 @@ Free Functions
 
 The C/C++ Interface
 ===================
-``tcslog-c`` in this workspace presents ``LogWrite`` and ``LogRead``
+``tcslogc`` in this workspace presents ``LogWrite`` and ``LogRead``
 to a C or C++ caller. It is a separate crate because a C interface must be
 built as a ``cdylib`` and a ``staticlib``, which a crate cannot be
 conditionally, and because the ``unsafe`` an ABI needs is then confined
 to it: the library crate itself contains none.
 
-The header, ``tcslog-c/include/tcslog.h``, is generated from the crate's
+The header, ``tcslogc/include/tcslog.h``, is generated from the crate's
 source by ``cbindgen`` and is not written by hand. ``make header``
 regenerates it and ``make check`` fails if it is out of date, so a
 header that no longer describes the binding cannot reach a caller.
 
 cbindgen copies each function's doc comment as rustdoc has it, so
-``tcslog-c/rustdoc_to_doxygen.py`` rewrites the comments' ``# Arguments``
+``tcslogc/rustdoc_to_doxygen.py`` rewrites the comments' ``# Arguments``
 and ``# Returns`` sections as Doxygen ``@param`` and ``@return``
 commands, which is what a C or C++ reader's tools understand.
 
@@ -2100,7 +2100,7 @@ not allocate either.
 
 The C++ Interface
 -----------------
-``tcslog-c/include/tcslog.hpp`` is the C/C++ interface as C++ classes,
+``tcslogc/include/tcslog.hpp`` is the C/C++ interface as C++ classes,
 written by hand over ``tcslog.h`` and installed beside it. It must be
 header-only C++11, must build with ``-fno-exceptions -fno-rtti``, and
 must allocate nothing.
@@ -2120,7 +2120,7 @@ installs a method only when that type defines it rather than inheriting
 it, so an unset callback is null to the library as it is in C. The
 handler is the ``ctx``.
 
-``tcslog-c/examples/wrapper.cpp`` tests it, built with ``-pedantic
+``tcslogc/examples/wrapper.cpp`` tests it, built with ``-pedantic
 -fno-exceptions -fno-rtti`` and with a global ``operator new`` that
 counts, which must read zero at the end.
 
@@ -2128,7 +2128,7 @@ The Python 3 Interface
 ======================
 ``tcslog-py`` presents ``LogWrite`` and ``LogRead`` to Python 3 as the
 ``tcslog`` package. It is pure Python over ``ctypes``, calling the
-functions of the C/C++ interface in the shared library ``tcslog-c``
+functions of the C/C++ interface in the shared library ``tcslogc``
 builds, so it requires nothing compiled beyond that library and nothing
 outside the standard library. It covers what the C/C++ interface
 covers.
@@ -2230,7 +2230,7 @@ and that suite compares their output against stored files, so the output
 wording specified below is part of the requirement rather than an
 illustration of it.
 
-``tcslog-c`` carries two C/C++ programs of its own, ``smoke.c`` and
+``tcslogc`` carries two C/C++ programs of its own, ``smoke.c`` and
 ``downlink.c``, and ``tcslog-py`` a test suite and ``downlink.py``. They
 are specified under "The C/C++ Binding" and "The Python 3 Interface"
 under Testing rather than here, being what tests and illustrates the
@@ -2950,7 +2950,7 @@ o   ``make check`` regenerates the header with cbindgen and fails if it
     and the status numbers being ABI, a header that disagrees with the
     binding is worse than no header.
 
-o   ``make capi-test`` compiles ``tcslog-c/examples/smoke.c`` against
+o   ``make capi-test`` compiles ``tcslogc/examples/smoke.c`` against
     the header in the tree, once as C and once as C++, links each
     against the staticlib cargo built, and runs both. Compiling is half
     the test: a signature a C or C++ compiler rejects is a signature no
@@ -2965,7 +2965,7 @@ o   ``make capi-memcheck`` runs that same program, as C and as C++,
     the binding mishandles can be caught at all: the Rust crates contain
     no ``unsafe``, and all of the binding's is reached only from C.
 
-``tcslog-c/examples/downlink.c``, run by ``bin/run-capi-example``
+``tcslogc/examples/downlink.c``, run by ``bin/run-capi-example``
 against a temporary directory, is the C/C++ counterpart of ``sample``: a
 complete program a newcomer can read, exercising the callbacks rather
 than only the read and write calls. ``bin/run-capi-example --cxx``
