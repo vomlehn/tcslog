@@ -1,4 +1,4 @@
-# What rpmlint is to accept in the tcslog RPM, read by `make
+# What rpmlint is to accept in the tcslog and tcslog-gen RPMs, read by `make
 # lint-packages` and never shipped. Each filter is a finding that is
 # intended, with why; anything else rpmlint reports is to be fixed.
 

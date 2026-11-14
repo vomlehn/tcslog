@@ -1287,12 +1287,11 @@ Installing
 ----------
 
 Everything installs under ``/opt/tcs``, the tree the TCS packages share,
-which is FHS 3.0's ``/opt/<package>``:
+which is FHS 3.0's ``/opt/<package>``, in two packages, since a package
+with operational code holds nothing else. ``tcslog``, the operational
+code, installs:
 
 ==============================================  =============================
-``bin/tcslog-gen``                              writes test logs
-``sbin/tcslog-links``                           links the programs into
-                                                ``/usr/local/bin``
 ``include/tcslogc.h``, ``tcslogc.hpp``          the C and C++ headers
 ``lib/libtcslogc.so.1``                         the shared library, with
                                                 ``libtcslogc.so`` linked to it
@@ -1301,6 +1300,15 @@ which is FHS 3.0's ``/opt/<package>``:
 ``lib/python3/site-packages/tcslog/``           the Python 3 package
 ``share/doc/tcslog/``                           this manual, the design,
                                                 README, licences, changelog
+==============================================  =============================
+
+``tcslog-gen``, a verification tool, with the examples, installs:
+
+==============================================  =============================
+``bin/tcslog-gen``                              writes test logs
+``sbin/tcslog-gen-links``                       links it into
+                                                ``/usr/local/bin``
+``share/doc/tcslog-gen/``                       licences and notices
 ``share/examples/tcslog/``                      the examples
 ==============================================  =============================
 
@@ -1355,13 +1363,15 @@ installer, one of ``apt-get``, ``apt``, ``dpkg``, ``dnf``, ``yum``,
 because ``dpkg-deb`` or ``rpmbuild`` is missing, it stops, saying which
 to install.
 
-``make deb`` and ``make rpm`` build a package of all of it in
+``make deb`` and ``make rpm`` build the two packages in
 ``build/packages``, ``tcslog_<version>-1_<arch>.deb`` and
-``tcslog-<version>-1.<arch>.rpm``, and ``make packages`` builds both.
-The ``1`` is the package's release, for a package rebuilt from the same
-source; ``DEB_REVISION`` sets it for both. The two are made from one
-copy of the files into ``build/stage/tcslog`` (``make stage``, with
-``make install-files``), so they hold the same files. Building them
+``tcslog-<version>-1.<arch>.rpm`` and the same for ``tcslog-gen``, and
+``make packages`` builds both kinds. The ``1`` is the package's release,
+for a package rebuilt from the same source; ``DEB_REVISION`` sets it for
+both. Each package's two kinds are made from one copy of its files into
+``build/stage/<package>`` (``make stage``, with ``make
+install-tcslog`` and ``make install-tcslog-gen``), so they hold the same
+files. Building them
 needs, besides cargo and ``cbindgen``, Python's ``pip`` and
 ``setuptools``, ``rst2html`` from docutils, and ``dpkg-shlibdeps`` from
 dpkg-dev. ``make rpm`` needs ``rpmbuild``,
@@ -1378,18 +1388,20 @@ stripping on its own, so that it and the .deb hold the same bytes.
 ``make packages STRIP=0`` builds both unstripped, for a debugger: about
 25 MB installed rather than 16.
 
-A package also installs three files outside ``/opt/tcs``, each named
-after it so that no two TCS packages own one:
+The packages also install files outside ``/opt/tcs``, each named after
+its package so that no two TCS packages own one. ``tcslog`` installs:
 
 * ``/etc/ld.so.conf.d/tcslog.conf``, so the loader finds the library;
-* ``/etc/profile.d/tcslog.sh``, which adds ``/opt/tcs/bin`` to ``PATH``
-  and ``/opt/tcs/lib/pkgconfig`` to ``PKG_CONFIG_PATH``, unless they are
-  there already; and
+* ``/etc/profile.d/tcslog.sh``, which adds ``/opt/tcs/lib/pkgconfig`` to
+  ``PKG_CONFIG_PATH``, unless it is there already; and
 * ``tcslog.pth`` in the system Python's own directory, which puts
   ``/opt/tcs/lib/python3/site-packages`` on Python's path: in
-  ``/usr/lib/python3/dist-packages`` for the .deb, and for the RPM in
-  ``/usr/lib/python3.X/site-packages`` of the Python it was built with,
-  which it therefore recommends.
+  ``/usr/lib/python3/dist-packages`` for the .deb; the RPM writes it into
+  the installed python3's ``/usr/lib/python3.X/site-packages`` when it is
+  installed, and again when python3 is upgraded.
+
+``tcslog-gen`` installs ``/etc/profile.d/tcslog-gen.sh``, which adds
+``/opt/tcs/bin`` to ``PATH``.
 
 The .deb also carries what Debian expects of every package, outside
 ``/opt/tcs`` as those files are: ``/usr/share/doc/tcslog/copyright``,
@@ -1403,22 +1415,22 @@ removed. The RPM says the same in its own ``License``, ``%changelog``,
 
 ``make lint-packages`` checks the packages ``make packages`` built with
 lintian and rpmlint, and the shell scripts they run or install with
-shellcheck: the hooks and ``tcslog-links`` as the stage has them, the
+shellcheck: the hooks and ``tcslog-gen-links`` as the stage has them, the
 .deb's maintainer scripts, the packaging scripts and
 ``bin/make-releases``. It skips, in a line, any of the three that is
 not installed, and fails on any finding that is not overridden. What is
 overridden is intended, and says why: for lintian in
-``packaging/deb/tcslog/lintian-overrides``, which the .deb carries, and
+``packaging/deb/<package>/lintian-overrides``, which each .deb carries, and
 for rpmlint in ``packaging/rpm/rpmlint.toml``, which is not shipped.
 
 Login shells find ``/opt/tcs/bin`` through
-``/etc/profile.d/tcslog.sh``, but sudo, cron and other minimal
+``/etc/profile.d/tcslog-gen.sh``, but sudo, cron and other minimal
 environments do not read it, and so do not find the programs. To make
 them available everywhere, link them into ``/usr/local/bin``, which is
 on every one of those paths, sudo's ``secure_path`` included::
 
-    sudo /opt/tcs/sbin/tcslog-links            # link them
-    sudo /opt/tcs/sbin/tcslog-links --remove   # undo it
+    sudo /opt/tcs/sbin/tcslog-gen-links            # link them
+    sudo /opt/tcs/sbin/tcslog-gen-links --remove   # undo it
 
 ``--dir`` names another directory, such as ``/opt/bin``. It links only
 this package's own programs, written into it when it was installed, so

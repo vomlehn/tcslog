@@ -15,5 +15,6 @@ Description: segmented telemetry log for storage-bounded systems
  ground is intermittent.
  .
  This package holds the C/C++ library (shared and static), its headers
- and pkg-config file, the Python 3 package over it, tcslog-gen, and the
- documentation, all under /opt/tcs.
+ and pkg-config file, the Python 3 package over it, and the
+ documentation, all under /opt/tcs: the operational code alone.
+ tcslog-gen and the examples are in the tcslog-gen package.

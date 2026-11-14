@@ -240,7 +240,7 @@ dependencies = [
 
 [[package]]
 name = "tcslog"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "clap",
  "tempfile",
@@ -249,7 +249,7 @@ dependencies = [
 
 [[package]]
 name = "tcslog-gen"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "clap",
  "tcslog",
@@ -257,7 +257,7 @@ dependencies = [
 
 [[package]]
 name = "tcslogc"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "tcslog",
 ]

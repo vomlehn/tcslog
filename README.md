@@ -69,13 +69,18 @@ This compiles the library and builds the user documentation under `docs/`.
 Installing
 ----------
 Everything installs under `/opt/tcs`, the tree the TCS packages share
-(FHS 3.0's `/opt/<package>`): `tcslog-gen`, which writes test logs, in
-`bin/`; `tcslog-links`, which links it into `/usr/local/bin`, in `sbin/`;
-the C and C++ headers, `tcslogc.h` and `tcslogc.hpp`, in `include/`;
-`libtcslogc.so.1` (with `libtcslogc.so` linked to it) and `libtcslogc.a`
-in `lib/`; a pkg-config file in `lib/pkgconfig/`; the Python 3 package
-in `lib/python3/site-packages/`; and the documentation and examples
-under `share/`.
+(FHS 3.0's `/opt/<package>`), in two packages, since a package with
+operational code holds nothing else:
+
+- `tcslog`, the operational code: the C and C++ headers, `tcslogc.h` and
+  `tcslogc.hpp`, in `include/`; `libtcslogc.so.1` (with `libtcslogc.so`
+  linked to it) and `libtcslogc.a` in `lib/`; a pkg-config file in
+  `lib/pkgconfig/`; the Python 3 package in
+  `lib/python3/site-packages/`; and the documentation under `share/doc/`.
+- `tcslog-gen`, a verification tool, and the examples: `tcslog-gen`, which
+  writes test logs, in `bin/`; `tcslog-gen-links`, which links it into
+  `/usr/local/bin`, in `sbin/`; and the examples under
+  `share/examples/tcslog/`.
 
 As a package, built from a checkout. Installing and packaging use
 [tcs-helpers](https://github.com/vomlehn/tcs-helpers), the packaging scripts
@@ -88,18 +93,18 @@ that it is there and new enough, which installing and packaging do first.
 git clone https://github.com/vomlehn/tcs-helpers.git ../tcs-helpers
 make install              # build the packages, install this system's
 make install DRY_RUN=1    # show what install would do; change nothing
-make uninstall            # remove the package
+make uninstall            # remove the packages
 make uninstall DRY_RUN=1  # show what uninstall would do
 ```
 
-`make install` builds both packages, below, as you, and then installs
-the one this system takes with its usual installer: the .deb with
+`make install` builds the packages, below, as you, and then installs
+the kind this system takes with its usual installer: the .deb with
 `apt-get` on Debian and Ubuntu, the RPM with `dnf` (or `yum`) on Fedora
 and Red Hat's, or with `zypper` on SUSE's, each of which installs what
 the package depends on too. Only that step runs as root, under `sudo`,
 which asks for your password then; `SUDO=<command>` names another, and
 none is used when make runs as root. `make uninstall` removes the
-package with the same installer. `DRY_RUN=1` has the installer show
+packages with the same installer. `DRY_RUN=1` has the installer show
 what it would do -- `apt-get -s`, `dnf --assumeno`, `zypper --dry-run`
 -- without sudo, changing nothing.
 
@@ -114,15 +119,16 @@ missing, it says which to install.
 The packages themselves:
 
 ```sh
-make deb                # build/packages/tcslog_<version>-1_<arch>.deb
-make rpm                # build/packages/tcslog-<version>-1.<arch>.rpm
-make packages           # both
-make packages STRIP=0   # both, unstripped
+make deb                # build/packages/tcslog{,-gen}_<version>-1_<arch>.deb
+make rpm                # build/packages/tcslog{,-gen}-<version>-1.<arch>.rpm
+make packages           # both kinds
+make packages STRIP=0   # both kinds, unstripped
 ```
 
-Both are made from one install into `build/stage/tcslog` (`make stage`),
-so they hold the same files. That install strips what it installs: the
-program and shared library with `strip --strip-unneeded`, the static
+Each package's .deb and RPM are made from one install into
+`build/stage/<package>` (`make stage`), so they hold the same files.
+That install strips what it installs: the program and shared library
+with `strip --strip-unneeded`, the static
 library with `strip --strip-debug`, which keeps the symbols a program
 links against. `STRIP=0` keeps everything as cargo built it, for a
 debugger: about 25 MB installed rather than 16. The `-1` is the package's
@@ -131,14 +137,16 @@ source. Building them needs, besides cargo and cbindgen, `python3-pip`,
 `python3-setuptools`, `python3-docutils` (for `rst2html`) and
 `dpkg-dev`. `make rpm` needs `rpmbuild` (`sudo apt install rpm` on
 Debian) and says so, without failing, where it is missing, as `make deb`
-does without `dpkg-deb`. A package
-also installs three files outside `/opt/tcs`, each named after it:
-`/etc/ld.so.conf.d/tcslog.conf`, so the loader finds the library;
-`/etc/profile.d/tcslog.sh`, which adds `/opt/tcs/bin` to `PATH` and
-`/opt/tcs/lib/pkgconfig` to `PKG_CONFIG_PATH`; and a `tcslog.pth` in the
-system Python's own directory (`/usr/lib/python3/dist-packages` on
-Debian, `/usr/lib/python3.X/site-packages` for the Python the RPM was
-built with), so `import tcslog` works.
+does without `dpkg-deb`. The packages
+also install files outside `/opt/tcs`, each named after its package:
+`tcslog` installs `/etc/ld.so.conf.d/tcslog.conf`, so the loader finds the
+library; `/etc/profile.d/tcslog.sh`, which adds `/opt/tcs/lib/pkgconfig`
+to `PKG_CONFIG_PATH`; and a `tcslog.pth` in the system Python's own
+directory (`/usr/lib/python3/dist-packages` on Debian; on Fedora the
+RPM writes it into the installed python3's
+`/usr/lib/python3.X/site-packages`, and moves it when python3 is
+upgraded), so `import tcslog` works. `tcslog-gen` installs
+`/etc/profile.d/tcslog-gen.sh`, which adds `/opt/tcs/bin` to `PATH`.
 
 The .deb also carries what Debian expects of every package, outside
 `/opt/tcs` as the hooks are: `/usr/share/doc/tcslog/copyright`, in
@@ -151,18 +159,18 @@ RPM says the same in its own `License`, `%changelog`, `%post` and
 built with lintian and rpmlint, and their shell scripts with shellcheck.
 It skips, in a line, any of the three that is not installed, and fails
 on any finding that is not overridden; each override says why it is
-intended, in `packaging/deb/tcslog/lintian-overrides` and
+intended, in `packaging/deb/<package>/lintian-overrides` and
 `packaging/rpm/rpmlint.toml`.
 
-Login shells find `/opt/tcs/bin` through `/etc/profile.d/tcslog.sh`, but
+Login shells find `/opt/tcs/bin` through `/etc/profile.d/tcslog-gen.sh`, but
 sudo, cron and other minimal environments do not read it, and do not
 find the programs. To make them available everywhere, link them into
 `/usr/local/bin`, which is on every one of those paths, sudo's
 `secure_path` included:
 
 ```sh
-sudo /opt/tcs/sbin/tcslog-links            # link them
-sudo /opt/tcs/sbin/tcslog-links --remove   # undo it
+sudo /opt/tcs/sbin/tcslog-gen-links            # link them
+sudo /opt/tcs/sbin/tcslog-gen-links --remove   # undo it
 ```
 
 `--dir` names another directory, such as `/opt/bin`. It links only this

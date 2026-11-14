@@ -37,8 +37,9 @@ files that were lost or damaged, for vehicles whose contact with the
 ground is intermittent.
 
 This package holds the C/C++ library (shared and static), its headers
-and pkg-config file, the Python 3 package over it, tcslog-gen, and the
-documentation, all under /opt/tcs.
+and pkg-config file, the Python 3 package over it, and the
+documentation, all under /opt/tcs: the operational code alone.
+tcslog-gen and the examples are in the tcslog-gen package.
 
 %install
 cp -a %{tcs_stage}/. %{buildroot}/
@@ -49,17 +50,11 @@ rm -rf %{buildroot}/usr/lib/python3
 # where Debian wants one that is not.
 chmod 755 %{buildroot}/opt/tcs/lib/libtcslogc.so.%{tcs_abi}
 
-# Takes away the links tcslog-links made, in either directory it is
-# meant for, while it is still installed, so that removing the package
-# leaves none dangling. Only when the package is going ($1 is 0), not on
-# an upgrade, and never failing the removal.
+# Takes away the .pth file the trigger below wrote, only when the package
+# is going ($1 is 0), not on an upgrade.
 %preun
 if [ "$1" = 0 ]; then
 	rm -f /usr/lib/python3*/site-packages/tcslog.pth
-	for dir in /usr/local/bin /opt/bin; do
-		/opt/tcs/sbin/tcslog-links --remove --dir "$dir" \
-			> /dev/null 2>&1 || true
-	done
 fi
 
 # The .pth file that puts /opt/tcs/lib/python3/site-packages on python3's
@@ -87,8 +82,6 @@ fi
 
 %files
 %dir /opt/tcs
-%dir /opt/tcs/bin
-%dir /opt/tcs/sbin
 %dir /opt/tcs/include
 %dir /opt/tcs/lib
 %dir /opt/tcs/lib/pkgconfig
@@ -96,9 +89,6 @@ fi
 %dir /opt/tcs/lib/python3/site-packages
 %dir /opt/tcs/share
 %dir /opt/tcs/share/doc
-%dir /opt/tcs/share/examples
-/opt/tcs/bin/tcslog-gen
-/opt/tcs/sbin/tcslog-links
 /opt/tcs/include/tcslogc.h
 /opt/tcs/include/tcslogc.hpp
 /opt/tcs/lib/libtcslogc.so
@@ -108,7 +98,6 @@ fi
 /opt/tcs/lib/python3/site-packages/tcslog/
 /opt/tcs/lib/python3/site-packages/tcslog-%{version}.dist-info/
 %doc /opt/tcs/share/doc/tcslog/
-/opt/tcs/share/examples/tcslog/
 %config(noreplace) /etc/ld.so.conf.d/tcslog.conf
 %config(noreplace) /etc/profile.d/tcslog.sh
 

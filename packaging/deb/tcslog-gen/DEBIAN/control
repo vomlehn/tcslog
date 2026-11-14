@@ -1,0 +1,17 @@
+Package: tcslog-gen
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: David VomLehn <dvomlehn@gmail.com>
+Installed-Size: @SIZE@
+Depends: @SHLIBS@
+Recommends: tcslog, python3
+Replaces: tcslog (<< 0.7.0)
+Breaks: tcslog (<< 0.7.0)
+Section: devel
+Priority: optional
+Homepage: https://github.com/vomlehn/tcslog
+Description: makes tcslog logs to test with, and tcslog's examples
+ Tcslog-gen writes chains of tcslog segment files, to test what reads
+ them; it is a verification tool, and never flies. The package also
+ holds the examples of tcslog's Rust, C, C++ and Python interfaces,
+ which the tcslog package's library runs.

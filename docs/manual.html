@@ -1677,20 +1677,15 @@ that only one of the two compilers accepted would fail the tests.</p>
 <div class="section" id="installing">
 <h2><a class="toc-backref" href="#toc-entry-25">Installing</a></h2>
 <p>Everything installs under <tt class="docutils literal">/opt/tcs</tt>, the tree the TCS packages share,
-which is FHS 3.0's <tt class="docutils literal"><span class="pre">/opt/&lt;package&gt;</span></tt>:</p>
+which is FHS 3.0's <tt class="docutils literal"><span class="pre">/opt/&lt;package&gt;</span></tt>, in two packages, since a package
+with operational code holds nothing else. <tt class="docutils literal">tcslog</tt>, the operational
+code, installs:</p>
 <table border="1" class="docutils">
 <colgroup>
 <col width="61%" />
 <col width="39%" />
 </colgroup>
 <tbody valign="top">
-<tr><td><tt class="docutils literal"><span class="pre">bin/tcslog-gen</span></tt></td>
-<td>writes test logs</td>
-</tr>
-<tr><td><tt class="docutils literal"><span class="pre">sbin/tcslog-links</span></tt></td>
-<td>links the programs into
-<tt class="docutils literal">/usr/local/bin</tt></td>
-</tr>
 <tr><td><tt class="docutils literal">include/tcslogc.h</tt>, <tt class="docutils literal">tcslogc.hpp</tt></td>
 <td>the C and C++ headers</td>
 </tr>
@@ -1710,6 +1705,25 @@ which is FHS 3.0's <tt class="docutils literal"><span class="pre">/opt/&lt;packa
 <tr><td><tt class="docutils literal">share/doc/tcslog/</tt></td>
 <td>this manual, the design,
 README, licences, changelog</td>
+</tr>
+</tbody>
+</table>
+<p><tt class="docutils literal"><span class="pre">tcslog-gen</span></tt>, a verification tool, with the examples, installs:</p>
+<table border="1" class="docutils">
+<colgroup>
+<col width="61%" />
+<col width="39%" />
+</colgroup>
+<tbody valign="top">
+<tr><td><tt class="docutils literal"><span class="pre">bin/tcslog-gen</span></tt></td>
+<td>writes test logs</td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">sbin/tcslog-gen-links</span></tt></td>
+<td>links it into
+<tt class="docutils literal">/usr/local/bin</tt></td>
+</tr>
+<tr><td><tt class="docutils literal"><span class="pre">share/doc/tcslog-gen/</span></tt></td>
+<td>licences and notices</td>
 </tr>
 <tr><td><tt class="docutils literal">share/examples/tcslog/</tt></td>
 <td>the examples</td>
@@ -1764,13 +1778,15 @@ installer, one of <tt class="docutils literal"><span class="pre">apt-get</span><
 <tt class="docutils literal">zypper</tt> and <tt class="docutils literal">rpm</tt>. If the kind the system takes was not built,
 because <tt class="docutils literal"><span class="pre">dpkg-deb</span></tt> or <tt class="docutils literal">rpmbuild</tt> is missing, it stops, saying which
 to install.</p>
-<p><tt class="docutils literal">make deb</tt> and <tt class="docutils literal">make rpm</tt> build a package of all of it in
+<p><tt class="docutils literal">make deb</tt> and <tt class="docutils literal">make rpm</tt> build the two packages in
 <tt class="docutils literal">build/packages</tt>, <tt class="docutils literal"><span class="pre">tcslog_&lt;version&gt;-1_&lt;arch&gt;.deb</span></tt> and
-<tt class="docutils literal"><span class="pre">tcslog-&lt;version&gt;-1.&lt;arch&gt;.rpm</span></tt>, and <tt class="docutils literal">make packages</tt> builds both.
-The <tt class="docutils literal">1</tt> is the package's release, for a package rebuilt from the same
-source; <tt class="docutils literal">DEB_REVISION</tt> sets it for both. The two are made from one
-copy of the files into <tt class="docutils literal">build/stage/tcslog</tt> (<tt class="docutils literal">make stage</tt>, with
-<tt class="docutils literal">make <span class="pre">install-files</span></tt>), so they hold the same files. Building them
+<tt class="docutils literal"><span class="pre">tcslog-&lt;version&gt;-1.&lt;arch&gt;.rpm</span></tt> and the same for <tt class="docutils literal"><span class="pre">tcslog-gen</span></tt>, and
+<tt class="docutils literal">make packages</tt> builds both kinds. The <tt class="docutils literal">1</tt> is the package's release,
+for a package rebuilt from the same source; <tt class="docutils literal">DEB_REVISION</tt> sets it for
+both. Each package's two kinds are made from one copy of its files into
+<tt class="docutils literal"><span class="pre">build/stage/&lt;package&gt;</span></tt> (<tt class="docutils literal">make stage</tt>, with <tt class="docutils literal">make
+<span class="pre">install-tcslog</span></tt> and <tt class="docutils literal">make <span class="pre">install-tcslog-gen</span></tt>), so they hold the same
+files. Building them
 needs, besides cargo and <tt class="docutils literal">cbindgen</tt>, Python's <tt class="docutils literal">pip</tt> and
 <tt class="docutils literal">setuptools</tt>, <tt class="docutils literal">rst2html</tt> from docutils, and <tt class="docutils literal"><span class="pre">dpkg-shlibdeps</span></tt> from
 dpkg-dev. <tt class="docutils literal">make rpm</tt> needs <tt class="docutils literal">rpmbuild</tt>,
@@ -1785,19 +1801,20 @@ since a program linking it needs the rest. The RPM is kept from
 stripping on its own, so that it and the .deb hold the same bytes.
 <tt class="docutils literal">make packages STRIP=0</tt> builds both unstripped, for a debugger: about
 25 MB installed rather than 16.</p>
-<p>A package also installs three files outside <tt class="docutils literal">/opt/tcs</tt>, each named
-after it so that no two TCS packages own one:</p>
+<p>The packages also install files outside <tt class="docutils literal">/opt/tcs</tt>, each named after
+its package so that no two TCS packages own one. <tt class="docutils literal">tcslog</tt> installs:</p>
 <ul class="simple">
 <li><tt class="docutils literal">/etc/ld.so.conf.d/tcslog.conf</tt>, so the loader finds the library;</li>
-<li><tt class="docutils literal">/etc/profile.d/tcslog.sh</tt>, which adds <tt class="docutils literal">/opt/tcs/bin</tt> to <tt class="docutils literal">PATH</tt>
-and <tt class="docutils literal">/opt/tcs/lib/pkgconfig</tt> to <tt class="docutils literal">PKG_CONFIG_PATH</tt>, unless they are
-there already; and</li>
+<li><tt class="docutils literal">/etc/profile.d/tcslog.sh</tt>, which adds <tt class="docutils literal">/opt/tcs/lib/pkgconfig</tt> to
+<tt class="docutils literal">PKG_CONFIG_PATH</tt>, unless it is there already; and</li>
 <li><tt class="docutils literal">tcslog.pth</tt> in the system Python's own directory, which puts
 <tt class="docutils literal"><span class="pre">/opt/tcs/lib/python3/site-packages</span></tt> on Python's path: in
-<tt class="docutils literal"><span class="pre">/usr/lib/python3/dist-packages</span></tt> for the .deb, and for the RPM in
-<tt class="docutils literal"><span class="pre">/usr/lib/python3.X/site-packages</span></tt> of the Python it was built with,
-which it therefore recommends.</li>
+<tt class="docutils literal"><span class="pre">/usr/lib/python3/dist-packages</span></tt> for the .deb; the RPM writes it into
+the installed python3's <tt class="docutils literal"><span class="pre">/usr/lib/python3.X/site-packages</span></tt> when it is
+installed, and again when python3 is upgraded.</li>
 </ul>
+<p><tt class="docutils literal"><span class="pre">tcslog-gen</span></tt> installs <tt class="docutils literal"><span class="pre">/etc/profile.d/tcslog-gen.sh</span></tt>, which adds
+<tt class="docutils literal">/opt/tcs/bin</tt> to <tt class="docutils literal">PATH</tt>.</p>
 <p>The .deb also carries what Debian expects of every package, outside
 <tt class="docutils literal">/opt/tcs</tt> as those files are: <tt class="docutils literal">/usr/share/doc/tcslog/copyright</tt>,
 in Debian's machine-readable format, and <tt class="docutils literal">changelog.Debian.gz</tt>, both
@@ -1809,21 +1826,21 @@ removed. The RPM says the same in its own <tt class="docutils literal">License</
 <tt class="docutils literal">#!</tt>, is installed executable.</p>
 <p><tt class="docutils literal">make <span class="pre">lint-packages</span></tt> checks the packages <tt class="docutils literal">make packages</tt> built with
 lintian and rpmlint, and the shell scripts they run or install with
-shellcheck: the hooks and <tt class="docutils literal"><span class="pre">tcslog-links</span></tt> as the stage has them, the
+shellcheck: the hooks and <tt class="docutils literal"><span class="pre">tcslog-gen-links</span></tt> as the stage has them, the
 .deb's maintainer scripts, the packaging scripts and
 <tt class="docutils literal"><span class="pre">bin/make-releases</span></tt>. It skips, in a line, any of the three that is
 not installed, and fails on any finding that is not overridden. What is
 overridden is intended, and says why: for lintian in
-<tt class="docutils literal"><span class="pre">packaging/deb/tcslog/lintian-overrides</span></tt>, which the .deb carries, and
+<tt class="docutils literal"><span class="pre">packaging/deb/&lt;package&gt;/lintian-overrides</span></tt>, which each .deb carries, and
 for rpmlint in <tt class="docutils literal">packaging/rpm/rpmlint.toml</tt>, which is not shipped.</p>
 <p>Login shells find <tt class="docutils literal">/opt/tcs/bin</tt> through
-<tt class="docutils literal">/etc/profile.d/tcslog.sh</tt>, but sudo, cron and other minimal
+<tt class="docutils literal"><span class="pre">/etc/profile.d/tcslog-gen.sh</span></tt>, but sudo, cron and other minimal
 environments do not read it, and so do not find the programs. To make
 them available everywhere, link them into <tt class="docutils literal">/usr/local/bin</tt>, which is
 on every one of those paths, sudo's <tt class="docutils literal">secure_path</tt> included:</p>
 <pre class="literal-block">
-sudo /opt/tcs/sbin/tcslog-links            # link them
-sudo /opt/tcs/sbin/tcslog-links --remove   # undo it
+sudo /opt/tcs/sbin/tcslog-gen-links            # link them
+sudo /opt/tcs/sbin/tcslog-gen-links --remove   # undo it
 </pre>
 <p><tt class="docutils literal"><span class="pre">--dir</span></tt> names another directory, such as <tt class="docutils literal">/opt/bin</tt>. It links only
 this package's own programs, written into it when it was installed, so

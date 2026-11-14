@@ -17,6 +17,8 @@ format where it was. Each entry below says whether the stored format moved.
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-14
+
 Stored format: unchanged.
 
 ### Changed
@@ -63,6 +65,16 @@ Stored format: unchanged.
   under `/etc` rather than listed. The packages are unchanged but for the
   .deb's `Installed-Size`, 4 KiB smaller for no longer counting the
   `DEBIAN` directory, which is not installed.
+
+### Changed
+
+- The packages are split, since a package with operational code holds
+  nothing else: `tcslog` holds the operational code -- the library, its
+  headers, pkg-config file and Python package -- and the documents, and
+  the new `tcslog-gen` holds `tcslog-gen`, a verification tool, with
+  `tcslog-gen-links`, which was `tcslog-links`, and the examples.
+  `/etc/profile.d/tcslog.sh` adds only `PKG_CONFIG_PATH`; `tcslog-gen.sh`
+  adds `/opt/tcs/bin` to `PATH`.
 
 ### Fixed
 
@@ -1072,7 +1084,8 @@ Stored format: 0.1.0, the first.
 - User documentation is `docs/tcslog.rst`.
 - Requires Rust 1.75 or later. Dual licensed under MIT OR Apache-2.0.
 
-[Unreleased]: https://github.com/vomlehn/tcslog/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/vomlehn/tcslog/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/vomlehn/tcslog/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.6.0
 [0.5.0]: https://github.com/vomlehn/tcslog/releases/tag/v0.5.0
 [0.4.3]: https://github.com/vomlehn/tcslog/releases/tag/v0.4.3

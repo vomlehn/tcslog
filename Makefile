@@ -58,6 +58,7 @@ INCDIR  := $(DESTDIR)$(PREFIX)/include
 LIBDIR  := $(DESTDIR)$(PREFIX)/lib
 PCDIR   := $(LIBDIR)/pkgconfig
 DOCDIR  := $(DESTDIR)$(PREFIX)/share/doc/tcslog
+GEN_DOCDIR := $(DESTDIR)$(PREFIX)/share/doc/tcslog-gen
 EXDIR   := $(DESTDIR)$(PREFIX)/share/examples/tcslog
 # What install puts there: the generated header and the C++ one written
 # over it by hand, both libraries, so a consumer can link either
@@ -66,10 +67,14 @@ EXDIR   := $(DESTDIR)$(PREFIX)/share/examples/tcslog
 # they are installed as libtcslogc, the name tcslogc/build.rs gives the
 # shared one's soname.
 CAPI_HEADERS := tcslogc/include/tcslogc.h tcslogc/include/tcslogc.hpp
-# The programs a person runs, in bin. They are also what tcslog-links
-# links into /usr/local/bin, written into it as it is installed, so that
-# it never touches another TCS package's programs in the same bin.
+# The programs a person runs, in bin: tcslog-gen, a verification tool,
+# which only the tcslog-gen package installs. They are also what
+# tcslog-gen-links links into /usr/local/bin, written into it as it is
+# installed, so that it never touches another TCS package's programs in
+# the same bin.
 PROGRAMS := tcslog-gen
+# The packages, each installed by its install-<package>: see install-files.
+PACKAGES := tcslog tcslog-gen
 DOCS     := README.md LICENSE-APACHE LICENSE-MIT CHANGELOG.md \
 	docs/manual.html docs/design.html
 EXAMPLES := tcslogc/examples/downlink.c tcslogc/examples/wrapper.cpp \
@@ -254,6 +259,7 @@ header:			## Regenerate the C header from tcslogc/src/lib.rs
 # Python looks.
 LDCONF  := $(DESTDIR)/etc/ld.so.conf.d/tcslog.conf
 PROFILE := $(DESTDIR)/etc/profile.d/tcslog.sh
+GEN_PROFILE := $(DESTDIR)/etc/profile.d/tcslog-gen.sh
 PTH     := $(DESTDIR)/usr/lib/python3/dist-packages/tcslog.pth
 
 # Stop, saying what to do, unless the tcs-helpers checkout is there and
@@ -280,9 +286,14 @@ install-tools:		## Install the tools building this needs
 
 # Copy everything into place under $(DESTDIR)$(PREFIX): what `make
 # install` once did, kept for development and for `make stage`, which
-# cuts the packages from it; `make install` installs the packages. What
-# is copied is built for release: tcslog-gen;
-# the headers in include; the shared library under its soname, with its
+# cuts the packages from it; `make install` installs the packages. Two
+# packages, because a package with operational code holds nothing else:
+# tcslog, the operational code, and tcslog-gen, the verification tool and
+# the examples. install-tcslog and install-tcslog-gen install one each,
+# and are the whole account of which file is in which.
+#
+# What is copied is built for release: into tcslog-gen, tcslog-gen and the
+# examples; into tcslog, the headers in include; the shared library under its soname, with its
 # development name linked to it, and the static one; a pkg-config file
 # naming the real prefix; the Python 3 package; and the documents and
 # examples. The Rust library is not installed, a Rust program taking it
@@ -308,23 +319,20 @@ install-tools:		## Install the tools building this needs
 # lists the crates compiled into the programs and the library, with the
 # licence notices each requires to go with every copy.
 .PHONY: install-files
-install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
+install-files: $(addprefix install-,$(PACKAGES)) ## Build, strip, copy under PREFIX
+
+# The operational code: the library, its headers, pkg-config file and
+# Python package, and the documents.
+.PHONY: install-tcslog
+install-tcslog: header docs tcs-helpers
 	@echo "Installing tcslog $(VERSION) to $(DESTDIR)$(PREFIX)..."
-	cargo build --release -p tcslogc -p tcslog-gen
-	install -D -m 755 -t $(BINDIR) $(addprefix target/release/,$(PROGRAMS))
-	install -d $(SBINDIR)
-	sed -e 's|@PACKAGE@|tcslog|g' -e 's|@PREFIX@|$(PREFIX)|g' \
-		-e 's|@PROGRAMS@|$(PROGRAMS)|g' \
-		$(TCS_HELPERS)/packaging/links.sh.in \
-		> $(SBINDIR)/tcslog-links
-	chmod 755 $(SBINDIR)/tcslog-links
+	cargo build --release -p tcslogc
 	install -D -m 644 -t $(INCDIR) $(CAPI_HEADERS)
 	install -D -m 644 target/release/libtcslogc.so $(LIBDIR)/$(SONAME)
 	ln -sf $(SONAME) $(LIBDIR)/libtcslogc.so
 	install -D -m 644 target/release/libtcslogc.a $(LIBDIR)/libtcslogc.a
 	if [ "$(STRIP)" = 1 ]; then \
-		strip --strip-unneeded $(addprefix $(BINDIR)/,$(PROGRAMS)) \
-			$(LIBDIR)/$(SONAME); \
+		strip --strip-unneeded $(LIBDIR)/$(SONAME); \
 		strip --strip-debug $(LIBDIR)/libtcslogc.a; \
 	fi
 	install -d $(PCDIR)
@@ -344,12 +352,7 @@ install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
 	sed -i '/^tcslog-[^/]*\.dist-info\/direct_url\.json,/d' $$dist/RECORD
 	install -D -m 644 -t $(DOCDIR) $(DOCS)
 	$(THIRD_PARTY_NOTICES) . $(DOCDIR)/THIRD-PARTY-NOTICES tcslog \
-		tcslogc tcslog-gen
-	for f in $(EXAMPLES); do \
-		mode=644; \
-		[ "$$(head -c 2 $$f)" != '#!' ] || mode=755; \
-		install -D -m $$mode -t $(EXDIR) $$f; \
-	done
+		tcslogc
 	if [ "$(HOOKS)" = 1 ]; then \
 		install -D -m 644 packaging/hooks/tcslog.conf $(LDCONF); \
 		install -D -m 644 packaging/hooks/tcslog.sh $(PROFILE); \
@@ -369,6 +372,34 @@ install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
 	@echo "     Python 3 with:"
 	@echo "       import tcslog"
 
+# The verification tool and the examples: tcslog-gen, which makes chains
+# of log files to test with, and the programs that show each interface.
+.PHONY: install-tcslog-gen
+install-tcslog-gen: tcs-helpers
+	@echo "Installing tcslog-gen $(VERSION) to $(DESTDIR)$(PREFIX)..."
+	cargo build --release -p tcslog-gen
+	install -D -m 755 -t $(BINDIR) $(addprefix target/release/,$(PROGRAMS))
+	if [ "$(STRIP)" = 1 ]; then \
+		strip --strip-unneeded $(addprefix $(BINDIR)/,$(PROGRAMS)); \
+	fi
+	install -d $(SBINDIR)
+	sed -e 's|@PACKAGE@|tcslog-gen|g' -e 's|@PREFIX@|$(PREFIX)|g' \
+		-e 's|@PROGRAMS@|$(PROGRAMS)|g' \
+		$(TCS_HELPERS)/packaging/links.sh.in \
+		> $(SBINDIR)/tcslog-gen-links
+	chmod 755 $(SBINDIR)/tcslog-gen-links
+	install -D -m 644 -t $(GEN_DOCDIR) LICENSE-APACHE LICENSE-MIT
+	$(THIRD_PARTY_NOTICES) . $(GEN_DOCDIR)/THIRD-PARTY-NOTICES \
+		tcslog-gen tcslog-gen
+	for f in $(EXAMPLES); do \
+		mode=644; \
+		[ "$$(head -c 2 $$f)" != '#!' ] || mode=755; \
+		install -D -m $$mode -t $(EXDIR) $$f; \
+	done
+	if [ "$(HOOKS)" = 1 ]; then \
+		install -D -m 644 packaging/hooks/tcslog-gen.sh $(GEN_PROFILE); \
+	fi
+
 # Removes what install-files put there, honouring the same variables,
 # HOOKS included. Nothing else in those directories is touched.
 #
@@ -378,17 +409,17 @@ install-files: header docs tcs-helpers ## Build, strip, copy under PREFIX
 # LINKDIR that does not exist, stops nothing.
 .PHONY: uninstall-files
 uninstall-files:	## Remove what install-files put under PREFIX
-	@echo "Removing tcslog from $(DESTDIR)$(PREFIX)..."
-	-$(SBINDIR)/tcslog-links --remove --dir $(LINKDIR)
-	$(RM) $(addprefix $(BINDIR)/,$(PROGRAMS)) $(SBINDIR)/tcslog-links
+	@echo "Removing tcslog and tcslog-gen from $(DESTDIR)$(PREFIX)..."
+	-$(SBINDIR)/tcslog-gen-links --remove --dir $(LINKDIR)
+	$(RM) $(addprefix $(BINDIR)/,$(PROGRAMS)) $(SBINDIR)/tcslog-gen-links
 	$(RM) $(INCDIR)/tcslogc.h $(INCDIR)/tcslogc.hpp
 	$(RM) $(LIBDIR)/$(SONAME) $(LIBDIR)/libtcslogc.so \
 		$(LIBDIR)/libtcslogc.a $(PCDIR)/tcslogc.pc
 	$(RMDIR) $(DESTDIR)$(PYDIR)/tcslog \
 		$(DESTDIR)$(PYDIR)/tcslog-$(VERSION).dist-info
-	$(RMDIR) $(DOCDIR) $(EXDIR)
+	$(RMDIR) $(DOCDIR) $(GEN_DOCDIR) $(EXDIR)
 	if [ "$(HOOKS)" = 1 ]; then \
-		$(RM) $(LDCONF) $(PROFILE) $(PTH); \
+		$(RM) $(LDCONF) $(PROFILE) $(GEN_PROFILE) $(PTH); \
 	fi
 	@echo "[OK] Uninstalled from $(DESTDIR)$(PREFIX)"
 
@@ -399,13 +430,14 @@ LINKDIR ?= /usr/local/bin
 # The packaging targets -- install, uninstall, stage, deb, rpm, packages,
 # lint-packages, links and unlinks -- are tcs-helpers' packaging.mk's,
 # shared by the TCS projects; see it for what each does. This repository
-# has the one package, built from packaging/deb/tcslog and
-# packaging/rpm/tcslog.spec, which is also given the library's ABI
+# has two packages, tcslog and tcslog-gen, each staged by its own
+# install-<package> and built from packaging/deb/<package> and
+# packaging/rpm/<package>.spec; tcslog's is also given the library's ABI
 # version. Without a tcs-helpers checkout new enough to have
 # install-packages.sh, which came with the install target in 0.4.0, there
 # is nothing to include that has every target here, and the targets stop
 # as the tcs-helpers target says.
-PACKAGES     := tcslog
+STAGE_TARGET  = install-$$package
 RPM_DEFINES   = --define "tcs_abi $(ABI)"
 LINT_SCRIPTS := bin/make-releases
 ifneq ($(wildcard $(TCS_HELPERS)/packaging/install-packages.sh),)

@@ -1,0 +1,8 @@
+# This is an add-on package, not one of the distribution's, so it lives
+# under /opt/tcs, as FHS 3.0 section 3.13 lays out /opt/<package>; every
+# TCS package shares the one tree.
+tcslog-gen: dir-or-file-in-opt
+
+# The package is not uploaded to Debian, so its first changelog entry has
+# no bug asking for it to close.
+tcslog-gen: initial-upload-closes-no-bugs
