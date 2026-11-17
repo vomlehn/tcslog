@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+type: software
+title: "tcslog: the TCS Onboard Log"
+abstract: >-
+  tcslog is a small, segmented telemetry log library for storage-bounded
+  systems such as spacecraft. A log is split into segment files that can
+  be sent to the ground one at a time; a record may continue across
+  segments; and the reader recovers when segments are lost or damaged,
+  saying what it lost. Writing and reading allocate nothing, and Rust,
+  C/C++ and Python write one format, each reading what the others wrote.
+authors:
+  - name: "TCSpecial Team"
+version: 0.6.0
+date-released: 2026-10-31
+license:
+  - MIT
+  - Apache-2.0
+repository-code: "https://github.com/vomlehn/tcslog"
+keywords:
+  - flight software
+  - telemetry
+  - logging
+  - error recovery
+  - spacecraft
+  - Rust
