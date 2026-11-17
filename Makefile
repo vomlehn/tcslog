@@ -455,6 +455,8 @@ deb: tcs-helpers
 rpm: tcs-helpers
 .PHONY: packages
 packages: tcs-helpers
+.PHONY: portable-packages
+portable-packages: tcs-helpers
 .PHONY: lint-packages
 lint-packages: tcs-helpers
 .PHONY: links
