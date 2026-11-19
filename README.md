@@ -56,15 +56,57 @@ Building
 From the repository root, first install the tools building, testing,
 checking and packaging need, with apt-get or dnf; `DRY_RUN=1` shows the
 commands and runs none, and `PACKAGING=0` leaves out the packaging tools.
-It is `bin/install-tools`, which a container can run as root too. tcslog
-needs nothing of TCSpecial's, and is used with it or on its own:
+It is `bin/install-tools`, which a container can run as root too, and it
+says what it cannot install: a Rust older than 1.75, a Python older than
+3.11 (the Python package itself runs on 3.8; building and checking need
+3.11, for tcs-helpers' `tomllib`), and the checkouts below. tcslog needs
+nothing of TCSpecial's, and is used with it or on its own.
+
+Then say the machine's timer resolution, which the writer is built with
+and nothing guesses (see `docs/manual.rst`, "The timer resolution"): copy
+the example, whose 1 ns is a fine place to start, or give
+`TIMER_RESOLUTION=<ns>` on each make or cargo line. A library built
+without one -- and so a package built without one -- builds, but refuses
+to open a log for writing, and `make test` fails.
 
 ```sh
 make install-tools
-make build
+cp .cargo/config.toml.example .cargo/config.toml
+git clone https://github.com/vomlehn/tcs-helpers.git ../tcs-helpers
+git clone https://github.com/vomlehn/tcslog-tools.git ../tcslog-tools
+make build        # the crates, the C library, tcslog-gen, and docs/'s HTML
+make test         # every test: Rust, the C/C++ and Python bindings, test/
+make check        # clippy, rustfmt, ruff, mypy, the README, the names
 ```
 
-This compiles the library and builds the user documentation under `docs/`.
+`make build` compiles the library, `tcslogc` (`libtcslogc.so` and `.a`),
+and `tcslog-gen`, and builds the user documentation under `docs/`. The
+two checkouts beside this one are what `make test` and `make check` use:
+tcs-helpers' make rules and name check, and tcslog-tools' readers, which
+the error-recovery suite under `test/` drives; installing and packaging
+use tcs-helpers too. The rest of the targets, each described below or by
+`make help`:
+
+```sh
+make header        # regenerate tcslogc.h with cbindgen
+make readme        # regenerate tcslog/README.md with cargo-rdme
+make docs          # the HTML under docs/ alone
+make capi-test     # the C/C++ binding's test
+make capi-memcheck # it again under the sanitizers
+make python-test   # the Python package's tests
+make fuzz          # the fuzz targets, on a nightly toolchain with cargo-fuzz
+make cross-check   # type-check for Windows, after
+                   # `rustup target add x86_64-pc-windows-gnu`
+make format        # format the Rust and Python
+make release       # test, then build optimised into target/release
+make hooks         # have git run tcs-helpers' pre-commit hook
+make clean         # remove what was built
+```
+
+`make portable-packages` builds the packages in a Podman container on
+Ubuntu 22.04, so that they install on systems as old as that, and `make
+publish-release` publishes them as a GitHub release with `gh`: both are
+tcs-helpers', whose README says what they need.
 
 Installing
 ----------
@@ -202,9 +244,10 @@ export LD_LIBRARY_PATH=/opt/tcs/lib
 export PYTHONPATH=/opt/tcs/lib/python3/site-packages
 ```
 
-The build bakes in the `TIMER_RESOLUTION` of the machine that runs it
-(see `docs/manual.rst`, "The timer resolution"); a library built without
-one refuses to open a log for writing.
+The build bakes in the `TIMER_RESOLUTION` it is given, from
+`.cargo/config.toml` or the environment, as *Building* says (see
+`docs/manual.rst`, "The timer resolution"); a library built without one
+refuses to open a log for writing.
 
 From C or C++, through pkg-config:
 
@@ -250,11 +293,12 @@ repository, because they only read a log and so need neither the `write`
 feature nor the build-time timer resolution it requires:
 
 ```sh
-cargo install tcslog-tools
+cargo install --locked tcslog-tools
 ```
 
-The error-recovery suite under `test/` drives both, so running `make test`
-needs that checkout. `bin/tcslog-tool` finds it, expecting
+The error-recovery suite under `test/` drives both, from a checkout rather
+than an install, so running `make test` needs that checkout, cloned as
+*Building* says. `bin/tcslog-tool` finds it, expecting
 `../tcslog-tools` beside this repository; set `TCSLOG_TOOLS` to look
 elsewhere.
 
@@ -390,9 +434,9 @@ it through the scenarios `smoke.c` drives the C/C++ binding through;
 
 The package is fully typed and ships `py.typed`, so a type checker reads
 its annotations. `make check` holds it to `ruff check`, `ruff format`,
-and `mypy --strict`, as it holds the crates to clippy and rustfmt. Neither
-tool ships with Python; on a system whose Python refuses `pip install`,
-put them in a virtual environment and point `make` at them:
+and `mypy --strict`, as it holds the crates to clippy and rustfmt.
+`make install-tools` installs both; where it cannot, or to use other
+versions, put them in a virtual environment and point `make` at them:
 
 ```sh
 python3 -m venv ~/.venvs/tcslog-lint

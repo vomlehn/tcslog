@@ -338,7 +338,9 @@ Prerequisites
 
 A Rust toolchain of version 1.75 or later. Tcslog depends on nothing
 outside the standard library except a small error-handling helper, so
-there is nothing else to install.
+using the crate needs nothing else installed. Building this repository --
+the C library, the documents, the tests and the packages -- needs more,
+which the README's "Building" lists and ``make install-tools`` installs.
 
 The real-time clock must be set
 -------------------------------
