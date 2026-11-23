@@ -1,0 +1,7 @@
+# Built with the newest stable Rust: the stable channel, which a build
+# that must use another names itself (cargo +nightly, or RUSTUP_TOOLCHAIN
+# in a job that holds the code to its rust-version). The channel is not a
+# release, so this does not bring stable up to date: make rust-current,
+# from tcs-helpers, fails where a newer stable is out.
+[toolchain]
+channel = "stable"

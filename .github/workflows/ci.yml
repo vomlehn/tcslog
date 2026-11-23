@@ -97,6 +97,10 @@ jobs:
   msrv:
     name: Rust 1.75, the declared rust-version
     runs-on: ubuntu-latest
+    # Named here, which outranks rust-toolchain.toml's stable: the action
+    # below only makes 1.75 the default, and the file outranks the default.
+    env:
+      RUSTUP_TOOLCHAIN: "1.75"
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.75

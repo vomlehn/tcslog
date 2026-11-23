@@ -50,7 +50,7 @@ STRIP   ?= 1
 # TCS_HELPERS names another, used where it is rather than installed.
 # Installing and packaging check it first: see the tcs-helpers target.
 TCS_HELPERS ?= $(abspath $(CURDIR)/../tcs-helpers)
-TCS_HELPERS_REQUIRED := 0.10.0
+TCS_HELPERS_REQUIRED := 0.12.0
 
 BINDIR  := $(DESTDIR)$(PREFIX)/bin
 SBINDIR := $(DESTDIR)$(PREFIX)/sbin
@@ -274,6 +274,13 @@ tcs-helpers:		## Check the tcs-helpers checkout
 	fi
 	@"$(TCS_HELPERS)/bin/tcs-helpers" --require $(TCS_HELPERS_REQUIRED)
 
+# Fail where the Rust this would be built with is not the newest stable:
+# see "The newest stable Rust" in tcs-helpers' README. rust-toolchain.toml
+# keeps the build on the stable channel; this notices a newer release.
+.PHONY: rust-current
+rust-current: tcs-helpers	## Fail unless Rust is the newest stable
+	"$(TCS_HELPERS)/bin/rust-current"
+
 # Install the tools building, testing, checking, documenting and packaging
 # this project need, with the system's own package manager, under sudo:
 # see bin/install-tools, which a container can run as root too. DRY_RUN=1
@@ -492,6 +499,7 @@ distclean: clean	## Remove build artifacts and all generated files
 # and `SegId` reads as well as a link to it in a README.
 .PHONY: check
 check:			## Run cargo check, clippy, fmt, ruff, mypy, and more
+	@$(MAKE) --no-print-directory rust-current
 	@echo "Running cargo check..."
 	cargo check --all-targets
 	# The read-only configuration, which nothing else here builds: the
