@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="" xml:lang="">
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>tcslog</title>
+  <style>
+    html {
+      color: #1a1a1a;
+      background-color: #fdfdfd;
+    }
+    body {
+      margin: 0 auto;
+      max-width: 36em;
+      padding-left: 50px;
+      padding-right: 50px;
+      padding-top: 50px;
+      padding-bottom: 50px;
+      hyphens: auto;
+      overflow-wrap: break-word;
+      text-rendering: optimizeLegibility;
+      font-kerning: normal;
+    }
+    @media (max-width: 600px) {
+      body {
+        font-size: 0.9em;
+        padding: 12px;
+      }
+      h1 {
+        font-size: 1.8em;
+      }
+    }
+    @media print {
+      html {
+        background-color: white;
+      }
+      body {
+        background-color: transparent;
+        color: black;
+        font-size: 12pt;
+      }
+      p, h2, h3 {
+        orphans: 3;
+        widows: 3;
+      }
+      h2, h3, h4 {
+        page-break-after: avoid;
+      }
+    }
+    p {
+      margin: 1em 0;
+    }
+    a {
+      color: #1a1a1a;
+    }
+    a:visited {
+      color: #1a1a1a;
+    }
+    img {
+      max-width: 100%;
+    }
+    svg {
+      height: auto;
+      max-width: 100%;
+    }
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.4em;
+    }
+    h5, h6 {
+      font-size: 1em;
+      font-style: italic;
+    }
+    h6 {
+      font-weight: normal;
+    }
+    ol, ul {
+      padding-left: 1.7em;
+      margin-top: 1em;
+    }
+    li > ol, li > ul {
+      margin-top: 0;
+    }
+    blockquote {
+      margin: 1em 0 1em 1.7em;
+      padding-left: 1em;
+      border-left: 2px solid #e6e6e6;
+      color: #606060;
+    }
+    code {
+      font-family: Menlo, Monaco, Consolas, 'Lucida Console', monospace;
+      font-size: 85%;
+      margin: 0;
+      hyphens: manual;
+    }
+    pre {
+      margin: 1em 0;
+      overflow: auto;
+    }
+    pre code {
+      padding: 0;
+      overflow: visible;
+      overflow-wrap: normal;
+    }
+    .sourceCode {
+     background-color: transparent;
+     overflow: visible;
+    }
+    hr {
+      border: none;
+      border-top: 1px solid #1a1a1a;
+      height: 1px;
+      margin: 1em 0;
+    }
+    table {
+      margin: 1em 0;
+      border-collapse: collapse;
+      width: 100%;
+      overflow-x: auto;
+      display: block;
+      font-variant-numeric: lining-nums tabular-nums;
+    }
+    table caption {
+      margin-bottom: 0.75em;
+    }
+    tbody {
+      margin-top: 0.5em;
+      border-top: 1px solid #1a1a1a;
+      border-bottom: 1px solid #1a1a1a;
+    }
+    th {
+      border-top: 1px solid #1a1a1a;
+      padding: 0.25em 0.5em 0.25em 0.5em;
+    }
+    td {
+      padding: 0.125em 0.5em 0.25em 0.5em;
+    }
+    header {
+      margin-bottom: 4em;
+      text-align: center;
+    }
+    #TOC li {
+      list-style: none;
+    }
+    #TOC ul {
+      padding-left: 1.3em;
+    }
+    #TOC > ul {
+      padding-left: 0;
+    }
+    #TOC a:not(:hover) {
+      text-decoration: none;
+    }
+    code{white-space: pre-wrap;}
+    span.smallcaps{font-variant: small-caps;}
+    div.columns{display: flex; gap: min(4vw, 1.5em);}
+    div.column{flex: auto; overflow-x: auto;}
+    div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+    /* The extra [class] is a hack that increases specificity enough to
+       override a similar rule in reveal.js */
+    ul.task-list[class]{list-style: none;}
+    ul.task-list li input[type="checkbox"] {
+      font-size: inherit;
+      width: 0.8em;
+      margin: 0 0.8em 0.2em -1.6em;
+      vertical-align: middle;
+    }
+    .display.math{display: block; text-align: center; margin: 0.5rem auto;}
+    /* CSS for syntax highlighting */
+    html { -webkit-text-size-adjust: 100%; }
+    pre > code.sourceCode { white-space: pre; position: relative; }
+    pre > code.sourceCode > span { display: inline-block; line-height: 1.25; }
+    pre > code.sourceCode > span:empty { height: 1.2em; }
+    .sourceCode { overflow: visible; }
+    code.sourceCode > span { color: inherit; text-decoration: inherit; }
+    div.sourceCode { margin: 1em 0; }
+    pre.sourceCode { margin: 0; }
+    @media screen {
+    div.sourceCode { overflow: auto; }
+    }
+    @media print {
+    pre > code.sourceCode { white-space: pre-wrap; }
+    pre > code.sourceCode > span { text-indent: -5em; padding-left: 5em; }
+    }
+    pre.numberSource code
+      { counter-reset: source-line 0; }
+    pre.numberSource code > span
+      { position: relative; left: -4em; counter-increment: source-line; }
+    pre.numberSource code > span > a:first-child::before
+      { content: counter(source-line);
+        position: relative; left: -1em; text-align: right; vertical-align: baseline;
+        border: none; display: inline-block;
+        -webkit-touch-callout: none; -webkit-user-select: none;
+        -khtml-user-select: none; -moz-user-select: none;
+        -ms-user-select: none; user-select: none;
+        padding: 0 4px; width: 4em;
+        color: #aaaaaa;
+      }
+    pre.numberSource { margin-left: 3em; border-left: 1px solid #aaaaaa;  padding-left: 4px; }
+    div.sourceCode
+      {   }
+    @media screen {
+    pre > code.sourceCode > span > a:first-child::before { text-decoration: underline; }
+    }
+    code span.al { color: #ff0000; font-weight: bold; } /* Alert */
+    code span.an { color: #60a0b0; font-weight: bold; font-style: italic; } /* Annotation */
+    code span.at { color: #7d9029; } /* Attribute */
+    code span.bn { color: #40a070; } /* BaseN */
+    code span.bu { color: #008000; } /* BuiltIn */
+    code span.cf { color: #007020; font-weight: bold; } /* ControlFlow */
+    code span.ch { color: #4070a0; } /* Char */
+    code span.cn { color: #880000; } /* Constant */
+    code span.co { color: #60a0b0; font-style: italic; } /* Comment */
+    code span.cv { color: #60a0b0; font-weight: bold; font-style: italic; } /* CommentVar */
+    code span.do { color: #ba2121; font-style: italic; } /* Documentation */
+    code span.dt { color: #902000; } /* DataType */
+    code span.dv { color: #40a070; } /* DecVal */
+    code span.er { color: #ff0000; font-weight: bold; } /* Error */
+    code span.ex { } /* Extension */
+    code span.fl { color: #40a070; } /* Float */
+    code span.fu { color: #06287e; } /* Function */
+    code span.im { color: #008000; font-weight: bold; } /* Import */
+    code span.in { color: #60a0b0; font-weight: bold; font-style: italic; } /* Information */
+    code span.kw { color: #007020; font-weight: bold; } /* Keyword */
+    code span.op { color: #666666; } /* Operator */
+    code span.ot { color: #007020; } /* Other */
+    code span.pp { color: #bc7a00; } /* Preprocessor */
+    code span.sc { color: #4070a0; } /* SpecialChar */
+    code span.ss { color: #bb6688; } /* SpecialString */
+    code span.st { color: #4070a0; } /* String */
+    code span.va { color: #19177c; } /* Variable */
+    code span.vs { color: #4070a0; } /* VerbatimString */
+    code span.wa { color: #60a0b0; font-weight: bold; font-style: italic; } /* Warning */
+  </style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">tcslog</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<h2 id="toc-title">Table of Contents</h2>
+<ul>
+<li><a href="#languages" id="toc-languages">Languages</a></li>
+<li><a href="#integration-with-cfs-and-f"
+id="toc-integration-with-cfs-and-f">Integration with cFS and F´</a></li>
+<li><a href="#memory" id="toc-memory">Memory</a></li>
+<li><a href="#building" id="toc-building">Building</a></li>
+<li><a href="#installing" id="toc-installing">Installing</a></li>
+<li><a href="#trying-it-out" id="toc-trying-it-out">Trying it
+out</a></li>
+<li><a href="#tools" id="toc-tools">Tools</a></li>
+<li><a href="#cc-interface" id="toc-cc-interface">C/C++
+interface</a></li>
+<li><a href="#python-3-interface" id="toc-python-3-interface">Python 3
+interface</a></li>
+<li><a href="#documentation"
+id="toc-documentation">Documentation</a></li>
+<li><a href="#making-changes" id="toc-making-changes">Making
+Changes</a></li>
+<li><a href="#license" id="toc-license">License</a></li>
+</ul>
+</nav>
+<p>Flight software: the TCS Onboard Log, a small segmented telemetry log
+library for storage-bounded systems with error recovery</p>
+<p>Summary</p>
+<p>Provides functions for reading and writing logs. Logs are segmented,
+allowing for:</p>
+<p>o Piece by piece uploads</p>
+<p>o Recovery from errors</p>
+<h1 id="languages">Languages</h1>
+<p>Tcslog supports <strong>Rust</strong>, <strong>C/C++</strong>, and
+<strong>Python 3</strong>, with the same operations under the same names
+in all three:</p>
+<p>o Rust: the <code>tcslog</code> crate.</p>
+<p>o C/C++: <code>tcslogc</code>, a C ABI whose header compiles, and is
+tested, as both C and C++. See <em>C/C++ interface</em> below.</p>
+<p>o Python 3: <code>tcslog-py</code>, a pure-Python package over
+<code>ctypes</code>. See <em>Python 3 interface</em> below.</p>
+<p>A log written from any of them reads in the other two.</p>
+<p>All three are operational code, which a mission depends on while it
+operates; <code>tcslog-gen</code>, the fuzz targets and the tests are
+verification tools, and <code>categories.toml</code> puts each directory
+in its category, as “Code categories” in <a
+href="https://github.com/vomlehn/tcs-helpers#code-categories">tcs-helpers’
+README</a> defines them.</p>
+<h1 id="integration-with-cfs-and-f">Integration with cFS and F´</h1>
+<p>Work is under way on using Tcslog with NASA’s core Flight System
+(cFS), as a cFS library whose filled segments go down through CFDP, and
+with JPL’s F´ (F Prime), as a component whose segments go down through
+FileDownlink. The plan, shared with tcspecial and tcs-xtce, is in
+tcspecial’s <a
+href="https://github.com/vomlehn/tcspecial/blob/main/docs/third-party.rst"><code>docs/third-party.rst</code></a>.</p>
+<blockquote>
+<p><strong>Note:</strong> integration with cFS and F´ is a work in
+progress. None of it is built yet, and the plan may change as it is.</p>
+</blockquote>
+<h1 id="memory">Memory</h1>
+<p>Writing a record and reading a record allocate nothing, in any of the
+three languages; records are read into a buffer the caller owns. The few
+places that do allocate – opening a log, clearing one, the Rust
+iterator, and, in Python, the objects Python makes for every value – are
+listed, with why each is unavoidable, in
+<code>docs/manual.rst</code>.</p>
+<h1 id="building">Building</h1>
+<p>From the repository root, first install the tools building, testing,
+checking and packaging need, with apt-get or dnf; <code>DRY_RUN=1</code>
+shows the commands and runs none, and <code>PACKAGING=0</code> leaves
+out the packaging tools. It is <code>bin/install-tools</code>, which a
+container can run as root too, and it says what it cannot install: a
+Rust older than 1.75, a Python older than 3.11 (the Python package
+itself runs on 3.8; building and checking need 3.11, for tcs-helpers’
+<code>tomllib</code>), and the checkouts below. tcslog needs nothing of
+TCSpecial’s, and is used with it or on its own.</p>
+<p>Then say the machine’s timer resolution, which the writer is built
+with and nothing guesses (see <code>docs/manual.rst</code>, “The timer
+resolution”): copy the example, whose 1 ns is a fine place to start, or
+give <code>TIMER_RESOLUTION=&lt;ns&gt;</code> on each make or cargo
+line. A library built without one – and so a package built without one –
+builds, but refuses to open a log for writing, and
+<code>make test</code> fails.</p>
+<div class="sourceCode" id="cb1"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb1-1"><a href="#cb1-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> install-tools</span>
+<span id="cb1-2"><a href="#cb1-2" aria-hidden="true" tabindex="-1"></a><span class="fu">cp</span> .cargo/config.toml.example .cargo/config.toml</span>
+<span id="cb1-3"><a href="#cb1-3" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/vomlehn/tcs-helpers.git ../tcs-helpers</span>
+<span id="cb1-4"><a href="#cb1-4" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/vomlehn/tcslog-tools.git ../tcslog-tools</span>
+<span id="cb1-5"><a href="#cb1-5" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> build        <span class="co"># the crates, the C library, tcslog-gen, and docs/&#39;s HTML</span></span>
+<span id="cb1-6"><a href="#cb1-6" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> test         <span class="co"># every test: Rust, the C/C++ and Python bindings, test/</span></span>
+<span id="cb1-7"><a href="#cb1-7" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> check        <span class="co"># clippy, rustfmt, ruff, mypy, the README, the names</span></span></code></pre></div>
+<p><code>make build</code> compiles the library, <code>tcslogc</code>
+(<code>libtcslogc.so</code> and <code>.a</code>), and
+<code>tcslog-gen</code>, and builds the user documentation under
+<code>docs/</code>. The two checkouts beside this one are what
+<code>make test</code> and <code>make check</code> use: tcs-helpers’
+make rules and name check, and tcslog-tools’ readers, which the
+error-recovery suite under <code>test/</code> drives; installing and
+packaging use tcs-helpers too. The rest of the targets, each described
+below or by <code>make help</code>:</p>
+<div class="sourceCode" id="cb2"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> header        <span class="co"># regenerate tcslogc.h with cbindgen</span></span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> readme        <span class="co"># regenerate tcslog/README.md with cargo-rdme</span></span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> docs          <span class="co"># the HTML under docs/ alone</span></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> capi-test     <span class="co"># the C/C++ binding&#39;s test</span></span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> capi-memcheck <span class="co"># it again under the sanitizers</span></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> python-test   <span class="co"># the Python package&#39;s tests</span></span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> fuzz          <span class="co"># the fuzz targets, on a nightly toolchain with cargo-fuzz</span></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> cross-check   <span class="co"># type-check for Windows, after</span></span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>                   <span class="co"># `rustup target add x86_64-pc-windows-gnu`</span></span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> format        <span class="co"># format the Rust and Python</span></span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> release       <span class="co"># test, then build optimised into target/release</span></span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> hooks         <span class="co"># have git run tcs-helpers&#39; pre-commit hook</span></span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> clean         <span class="co"># remove what was built</span></span></code></pre></div>
+<p><code>make portable-packages</code> builds the packages in a Podman
+container on Ubuntu 22.04, so that they install on systems as old as
+that, and <code>make publish-release</code> publishes them as a GitHub
+release with <code>gh</code>: both are tcs-helpers’, whose README says
+what they need.</p>
+<h1 id="installing">Installing</h1>
+<p>Everything installs under <code>/opt/tcs</code>, the tree the TCS
+packages share (FHS 3.0’s <code>/opt/&lt;package&gt;</code>), in two
+packages, since a package with operational code holds nothing else:</p>
+<ul>
+<li><code>tcslog</code>, the operational code: the C and C++ headers,
+<code>tcslogc.h</code> and <code>tcslogc.hpp</code>, in
+<code>include/</code>; <code>libtcslogc.so.1</code> (with
+<code>libtcslogc.so</code> linked to it) and <code>libtcslogc.a</code>
+in <code>lib/</code>; a pkg-config file in <code>lib/pkgconfig/</code>;
+the Python 3 package in <code>lib/python3/site-packages/</code>; and the
+documentation under <code>share/doc/</code>.</li>
+<li><code>tcslog-gen</code>, a verification tool, and the examples:
+<code>tcslog-gen</code>, which writes test logs, in <code>bin/</code>;
+<code>tcslog-gen-links</code>, which links it into
+<code>/usr/local/bin</code>, in <code>sbin/</code>; and the examples
+under <code>share/examples/tcslog/</code>.</li>
+</ul>
+<p>As a package, built from a checkout. Installing and packaging use <a
+href="https://github.com/vomlehn/tcs-helpers">tcs-helpers</a>, the
+packaging scripts and make rules the TCS projects share, from a checkout
+of it beside this one, so clone it there first; it is used where it is,
+never installed, and <code>TCS_HELPERS=&lt;path&gt;</code> names a
+checkout elsewhere. <code>make tcs-helpers</code> checks that it is
+there and new enough, which installing and packaging do first.</p>
+<div class="sourceCode" id="cb3"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="fu">git</span> clone https://github.com/vomlehn/tcs-helpers.git ../tcs-helpers</span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> install              <span class="co"># build the packages, install this system&#39;s</span></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> install DRY_RUN=1    <span class="co"># show what install would do; change nothing</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> uninstall            <span class="co"># remove the packages</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> uninstall DRY_RUN=1  <span class="co"># show what uninstall would do</span></span></code></pre></div>
+<p><code>make install</code> builds the packages, below, as you, and
+then installs the kind this system takes with its usual installer: the
+.deb with <code>apt-get</code> on Debian and Ubuntu, the RPM with
+<code>dnf</code> (or <code>yum</code>) on Fedora and Red Hat’s, or with
+<code>zypper</code> on SUSE’s, each of which installs what the package
+depends on too. Only that step runs as root, under <code>sudo</code>,
+which asks for your password then; <code>SUDO=&lt;command&gt;</code>
+names another, and none is used when make runs as root.
+<code>make uninstall</code> removes the packages with the same
+installer. <code>DRY_RUN=1</code> has the installer show what it would
+do – <code>apt-get -s</code>, <code>dnf --assumeno</code>,
+<code>zypper --dry-run</code> – without sudo, changing nothing.</p>
+<p>The system is known by the <code>ID</code> and <code>ID_LIKE</code>
+of <code>/etc/os-release</code>, not by which tools it has. On one it
+does not know, <code>make install</code> says so and stops; there, or to
+install the other kind, <code>PACKAGE_FORMAT=deb</code> or
+<code>PACKAGE_FORMAT=rpm</code> chooses the kind, and
+<code>INSTALLER=&lt;command&gt;</code> the installer
+(<code>apt-get</code>, <code>apt</code>, <code>dpkg</code>,
+<code>dnf</code>, <code>yum</code>, <code>zypper</code> or
+<code>rpm</code>). If the kind it needs was not built, because
+<code>dpkg-deb</code> or <code>rpmbuild</code> is missing, it says which
+to install.</p>
+<p>The packages themselves:</p>
+<div class="sourceCode" id="cb4"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb4-1"><a href="#cb4-1" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> deb                <span class="co"># build/packages/tcslog{,-gen}_&lt;version&gt;-1_&lt;arch&gt;.deb</span></span>
+<span id="cb4-2"><a href="#cb4-2" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> rpm                <span class="co"># build/packages/tcslog{,-gen}-&lt;version&gt;-1.&lt;arch&gt;.rpm</span></span>
+<span id="cb4-3"><a href="#cb4-3" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> packages           <span class="co"># both kinds</span></span>
+<span id="cb4-4"><a href="#cb4-4" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> packages STRIP=0   <span class="co"># both kinds, unstripped</span></span></code></pre></div>
+<p>Each package’s .deb and RPM are made from one install into
+<code>build/stage/&lt;package&gt;</code> (<code>make stage</code>), so
+they hold the same files. That install strips what it installs: the
+program and shared library with <code>strip --strip-unneeded</code>, the
+static library with <code>strip --strip-debug</code>, which keeps the
+symbols a program links against. <code>STRIP=0</code> keeps everything
+as cargo built it, for a debugger: about 25 MB installed rather than 16.
+The <code>-1</code> is the package’s release, <code>DEB_REVISION</code>
+for both, for a package rebuilt from the same source. Building them
+needs, besides cargo and cbindgen, <code>python3-pip</code>,
+<code>python3-setuptools</code>, <code>python3-docutils</code> (for
+<code>rst2html</code>) and <code>dpkg-dev</code>. <code>make rpm</code>
+needs <code>rpmbuild</code> (<code>sudo apt install rpm</code> on
+Debian) and says so, without failing, where it is missing, as
+<code>make deb</code> does without <code>dpkg-deb</code>. The packages
+also install files outside <code>/opt/tcs</code>, each named after its
+package: <code>tcslog</code> installs
+<code>/etc/ld.so.conf.d/tcslog.conf</code>, so the loader finds the
+library; <code>/etc/profile.d/tcslog.sh</code>, which adds
+<code>/opt/tcs/lib/pkgconfig</code> to <code>PKG_CONFIG_PATH</code>; and
+a <code>tcslog.pth</code> in the system Python’s own directory
+(<code>/usr/lib/python3/dist-packages</code> on Debian; on Fedora the
+RPM writes it into the installed python3’s
+<code>/usr/lib/python3.X/site-packages</code>, and moves it when python3
+is upgraded), so <code>import tcslog</code> works.
+<code>tcslog-gen</code> installs
+<code>/etc/profile.d/tcslog-gen.sh</code>, which adds
+<code>/opt/tcs/bin</code> to <code>PATH</code>.</p>
+<p>The .deb also carries what Debian expects of every package, outside
+<code>/opt/tcs</code> as the hooks are:
+<code>/usr/share/doc/tcslog/copyright</code>, in Debian’s
+machine-readable format, and <code>changelog.Debian.gz</code>, both made
+as the package is built from <code>LICENSE-MIT</code> and the version;
+lintian’s overrides in <code>/usr/share/lintian/overrides/tcslog</code>;
+and a trigger that has dpkg run <code>ldconfig</code> once the library
+is installed or removed. The RPM says the same in its own
+<code>License</code>, <code>%changelog</code>, <code>%post</code> and
+<code>%postun</code>. <code>make lint-packages</code> checks the
+packages that <code>make packages</code> built with lintian and rpmlint,
+and their shell scripts with shellcheck. It skips, in a line, any of the
+three that is not installed, and fails on any finding that is not
+overridden; each override says why it is intended, in
+<code>packaging/deb/&lt;package&gt;/lintian-overrides</code> and
+<code>packaging/rpm/rpmlint.toml</code>.</p>
+<p>Login shells find <code>/opt/tcs/bin</code> through
+<code>/etc/profile.d/tcslog-gen.sh</code>, but sudo, cron and other
+minimal environments do not read it, and do not find the programs. To
+make them available everywhere, link them into
+<code>/usr/local/bin</code>, which is on every one of those paths,
+sudo’s <code>secure_path</code> included:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> /opt/tcs/sbin/tcslog-gen-links            <span class="co"># link them</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> /opt/tcs/sbin/tcslog-gen-links <span class="at">--remove</span>   <span class="co"># undo it</span></span></code></pre></div>
+<p><code>--dir</code> names another directory, such as
+<code>/opt/bin</code>. It links only this package’s programs, leaves
+anything already in the way alone and says so, and is never run for you:
+removing the package removes its links, but installing it makes none.
+After <code>make install</code>, <code>sudo make links</code> and
+<code>sudo make unlinks</code> do the same, with <code>LINKDIR</code>
+naming the directory.</p>
+<p>Or copied straight from a checkout, without a package, for
+development, which is what <code>make install</code> once did:</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> make install-files             <span class="co"># under /opt/tcs, nothing in /etc</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="fu">sudo</span> make install-files HOOKS=1     <span class="co"># with the three files above</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> install-files PREFIX=<span class="va">$HOME</span>/tcs <span class="co"># somewhere of your own</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> install-files DESTDIR=/tmp/stage <span class="co"># into a staging directory</span></span></code></pre></div>
+<p><code>DESTDIR</code> stages the copy, and
+<code>make uninstall-files</code> removes it again, honouring the same
+variables; <code>make install</code> takes neither, and stops if given
+one. <code>make install-files</code> strips as the packages do, and
+<code>STRIP=0</code> keeps it from doing so. <code>HOOKS=1</code> needs
+the default <code>PREFIX</code>, since the files it installs name
+<code>/opt/tcs</code>. Without the hooks, point the tools at the tree
+yourself:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">PKG_CONFIG_PATH</span><span class="op">=</span>/opt/tcs/lib/pkgconfig</span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">LD_LIBRARY_PATH</span><span class="op">=</span>/opt/tcs/lib</span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a><span class="bu">export</span> <span class="va">PYTHONPATH</span><span class="op">=</span>/opt/tcs/lib/python3/site-packages</span></code></pre></div>
+<p>The build bakes in the <code>TIMER_RESOLUTION</code> it is given,
+from <code>.cargo/config.toml</code> or the environment, as
+<em>Building</em> says (see <code>docs/manual.rst</code>, “The timer
+resolution”); a library built without one refuses to open a log for
+writing.</p>
+<p>From C or C++, through pkg-config:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode c"><code class="sourceCode c"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;tcslogc.h&quot;</span><span class="pp">             </span><span class="co">/* or &quot;tcslogc.hpp&quot; from C++ */</span></span></code></pre></div>
+<div class="sourceCode" id="cb9"><pre class="sourceCode sh"><code class="sourceCode bash"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a><span class="fu">cc</span>  prog.c   <span class="va">$(</span><span class="ex">pkg-config</span> <span class="at">--cflags</span> <span class="at">--libs</span> tcslogc<span class="va">)</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a><span class="ex">c++</span> prog.cpp <span class="va">$(</span><span class="ex">pkg-config</span> <span class="at">--cflags</span> <span class="at">--libs</span> tcslogc<span class="va">)</span></span></code></pre></div>
+<p>From Python 3, the package finds the library installed beside it with
+nothing set. In a virtual environment, pip installs the package alone,
+which then finds the library as <em>Python 3 interface</em> below
+describes:</p>
+<div class="sourceCode" id="cb10"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a><span class="ex">pip</span> install ./tcslog-py</span></code></pre></div>
+<p>From Rust, the library is the <code>tcslog</code> crate, taken from
+crates.io or as a path dependency, and <code>tcslog-gen</code> installs
+with cargo:</p>
+<div class="sourceCode" id="cb11"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> install <span class="at">--path</span> tcslog-gen <span class="at">--root</span> /opt/tcs</span></code></pre></div>
+<h1 id="trying-it-out">Trying it out</h1>
+<div class="sourceCode" id="cb12"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="ex">./bin/run-sample</span> <span class="at">--verbose</span></span></code></pre></div>
+<p>Writes a sample log into a temporary directory, lists the segment
+files, and removes the directory again. The example’s source is
+<code>tcslog/examples/sample.rs</code>.</p>
+<h1 id="tools">Tools</h1>
+<p><code>tcslog-dump</code> and <code>tcslog-dumphdr</code> are the <a
+href="https://github.com/vomlehn/tcslog-tools">tcslog-tools</a> crate,
+in its own repository, because they only read a log and so need neither
+the <code>write</code> feature nor the build-time timer resolution it
+requires:</p>
+<div class="sourceCode" id="cb13"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> install <span class="at">--locked</span> tcslog-tools</span></code></pre></div>
+<p>The error-recovery suite under <code>test/</code> drives both, from a
+checkout rather than an install, so running <code>make test</code> needs
+that checkout, cloned as <em>Building</em> says.
+<code>bin/tcslog-tool</code> finds it, expecting
+<code>../tcslog-tools</code> beside this repository; set
+<code>TCSLOG_TOOLS</code> to look elsewhere.</p>
+<p><code>make test</code> answers whether a scenario still produces what
+it produced before, which is not the same as whether what it produces is
+right. <code>bin/verify-helper</code> is for the second question: name
+any of the scenarios under <code>test/</code> and it shows each one’s
+segment files as the reader will find them, then the records the reader
+made of them, pausing after each until ENTER.</p>
+<div class="sourceCode" id="cb14"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="ex">./bin/verify-helper</span> combined_12-10 corrupt_12-10</span></code></pre></div>
+<p><code>make fuzz</code> goes past the scenarios anyone thought of: two
+cargo-fuzz targets under <code>fuzz/</code> damage real logs and build
+logs from arbitrary bytes, and require that the reader never panics,
+always reaches the end, and – when the damage only removes bytes – never
+returns a record that was not written. It needs a nightly toolchain and
+<code>cargo install cargo-fuzz</code>; <code>FUZZ_TIME</code> sets the
+seconds per target, 60 by default, and CI runs it on every push.</p>
+<h1 id="cc-interface">C/C++ interface</h1>
+<p>The code producing telemetry on a flight system is often C or C++,
+and a library that code cannot call is one that does not get used where
+the data is, so <code>tcslogc</code> presents <code>LogWrite</code> and
+<code>LogRead</code> to a C or C++ caller. The header wraps its
+declarations in <code>extern "C"</code> for C++, so the same header and
+libraries serve both. C++ has <code>tcslogc.hpp</code> besides:
+<code>tcslog::LogWrite</code>, <code>tcslog::LogRead</code> and
+<code>tcslog::WriteCallbacks</code>, named as in Rust, closing their
+handles themselves, and needing no exceptions, RTTI, or heap.
+<code>make capi-test</code> runs its test,
+<code>tcslogc/examples/wrapper.cpp</code>. It is a separate crate
+because a C interface has to be built as a <code>cdylib</code> and a
+<code>staticlib</code>, which a crate cannot be conditionally, and
+because the <code>unsafe</code> an ABI needs is then confined to it: the
+library crate itself contains none.</p>
+<p><code>make install</code> installs the headers and both libraries, as
+<code>libtcslogc</code>; see <em>Installing</em> above. In this
+repository the libraries cargo builds keep the crate’s name,
+<code>libtcslogc</code>, which is what the tests and examples here
+link.</p>
+<p>The <code>1</code> in <code>libtcslogc.so.1</code> is the ABI’s
+version, not the package’s. It is the whole number in
+<code>tcslogc/abi-version</code>, from which
+<code>tcslogc/build.rs</code> sets the soname and the Makefile the
+installed names, and it is bumped only when the ABI changes
+incompatibly: when a function’s signature or behaviour changes
+incompatibly, or one is removed, or a struct or enum the header exposes
+changes its layout or values. A program built against one ABI version is
+then never started against another. Adding a function, or a status after
+the last, does not bump it.</p>
+<p><code>tcslogc/include/tcslogc.h</code> is generated from
+<code>tcslogc/src/lib.rs</code> by <code>cbindgen</code> and is not
+written by hand: <code>make header</code> regenerates it and
+<code>make check</code> fails if it is out of date, the same arrangement
+<code>tcslog/README.md</code> has with the library’s doc comment. That
+needs a tool <code>cargo</code> does not ship:</p>
+<div class="sourceCode" id="cb15"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> install cbindgen</span></code></pre></div>
+<p>Every function returns a <code>TcslogStatus</code> and writes what
+the caller wanted through an out-parameter, so no status can be confused
+with data. The status numbers are ABI, and <code>docs/design.rst</code>
+specifies them along with the rest of the interface.</p>
+<p>A writer is given its callbacks when it is opened, in a
+<code>TcslogCallbacks</code> that also carries the
+<code>void *ctx</code> handed back to each of them, so two logs in one
+process can have different callbacks and different contexts. On the Rust
+side that is the <code>WriteCallbacks</code> trait, which a caller
+implements on whatever its callbacks need to reach.</p>
+<div class="sourceCode" id="cb16"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="ex">./bin/run-capi-example</span>          <span class="co"># as C</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a><span class="ex">./bin/run-capi-example</span> <span class="at">--cxx</span>    <span class="co"># the same file as C++</span></span></code></pre></div>
+<p>Builds <code>tcslogc/examples/downlink.c</code> against the header,
+runs it against a temporary directory, and shows what is left. The
+example writes telemetry twice: once with a <code>send</code> callback
+that renames each filled segment file out of the log’s namespace, which
+is what a vehicle does with telemetry it has downlinked, and once with
+no callback at all, which is what a log looks like before a ground
+station comes into view. It then reads back what remains.</p>
+<p><code>make capi-test</code> is the other half of that: it compiles
+<code>tcslogc/examples/smoke.c</code> against the header, once as C and
+once as C++, links the staticlib, and drives ten scenarios through the
+ABI – a round trip, the fixed format, a refused format tag, a record too
+large for the buffer, a segment file deleted from the middle of the log,
+a <code>send</code> callback that refuses, a cleared log, the resolution
+callback, two writers with two contexts, and null arguments.
+<code>make test</code> runs it, because it is the only test that would
+catch a header describing the wrong argument order – the Rust unit tests
+in <code>tcslogc</code> call the same functions as Rust.</p>
+<p><code>make capi-memcheck</code> runs the same program, as C and as
+C++, under the address and undefined-behaviour sanitizers, which is what
+checks the handles for leaks and double frees: they are boxed in Rust
+and released from C, and nothing else here would notice a close that
+leaked one. It is not part of <code>make test</code>, needing a compiler
+that has the sanitizers.</p>
+<h1 id="python-3-interface">Python 3 interface</h1>
+<p><code>tcslog-py</code> is the <code>tcslog</code> Python 3 package:
+<code>LogWrite</code>, <code>LogRead</code>, <code>WriteCallbacks</code>
+and the rest, named as in Rust, with each <code>LogError</code> variant
+an exception class. It is pure Python over <code>ctypes</code>, calling
+the C ABI’s shared library, so it needs no compiler and nothing outside
+the standard library:</p>
+<p><code>make install</code> installs it along with the C/C++ binding,
+into <code>$(PREFIX)/lib/python3/site-packages</code>, a path with no
+Python minor version in it, using <code>pip --target</code> on a copy of
+<code>tcslog-py</code>; <code>PYDIR</code> overrides where it goes.
+Python searches there once told to, by <code>PYTHONPATH</code> or by the
+<code>.pth</code> file a package installs. In a virtual environment,
+<code>pip install ./tcslog-py</code> works too.</p>
+<p>The package finds the library through <code>TCSLOG_LIB</code>, if
+set, then beside the package, then as <code>libtcslogc.so.1</code> in
+the <code>lib/</code> of the tree it was installed into, then on the
+loader’s path (<code>LD_LIBRARY_PATH</code>), then in this repository’s
+<code>target/</code> directory.</p>
+<div class="sourceCode" id="cb17"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="ex">./bin/run-python-example</span></span></code></pre></div>
+<p>Runs <code>tcslog-py/examples/downlink.py</code>, the Python
+counterpart of <code>downlink.c</code>. <code>make python-test</code>
+runs the package’s tests, which drive it through the scenarios
+<code>smoke.c</code> drives the C/C++ binding through;
+<code>make test</code> includes them.</p>
+<p>The package is fully typed and ships <code>py.typed</code>, so a type
+checker reads its annotations. <code>make check</code> holds it to
+<code>ruff check</code>, <code>ruff format</code>, and
+<code>mypy --strict</code>, as it holds the crates to clippy and
+rustfmt. <code>make install-tools</code> installs both; where it cannot,
+or to use other versions, put them in a virtual environment and point
+<code>make</code> at them:</p>
+<div class="sourceCode" id="cb18"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="ex">python3</span> <span class="at">-m</span> venv ~/.venvs/tcslog-lint</span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="ex">~/.venvs/tcslog-lint/bin/pip</span> install ruff mypy</span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a><span class="fu">make</span> check RUFF=~/.venvs/tcslog-lint/bin/ruff MYPY=~/.venvs/tcslog-lint/bin/mypy</span></code></pre></div>
+<h1 id="documentation">Documentation</h1>
+<p><code>tcslog/README.md</code> is not written by hand. It is generated
+from the library’s own documentation in <code>tcslog/src/lib.rs</code>,
+so the two cannot drift: <code>make readme</code> regenerates it and
+<code>make check</code> fails if it is out of date. Edit the doc
+comment, not the README. The whole of it is generated, so what the
+README says is also what docs.rs shows. That needs a tool
+<code>cargo</code> does not ship:</p>
+<div class="sourceCode" id="cb19"><pre
+class="sourceCode sh"><code class="sourceCode bash"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="ex">cargo</span> install cargo-rdme</span></code></pre></div>
+<p>There are also two documents under <code>docs/</code>, and they are
+easy to confuse.</p>
+<p><code>docs/manual.rst</code> is the user guide: what the library
+does, how to call it, and how it behaves. <code>make -C docs</code>
+renders it to <code>docs/manual.html</code>.</p>
+<p><code>docs/design.rst</code> is the specification. The sources were
+originally generated from it as a Claude Code prompt, which is where its
+old name, <code>docs/tcslog-prompt.rst</code>, came from, but it no
+longer generates anything; it is read rather than run. Both documents
+are now maintained by hand, and a change in behaviour belongs in
+both.</p>
+<p><code>docs/tcslog-prompt.rst</code> is a deprecated stub that records
+the rename and nothing else.</p>
+<h1 id="making-changes">Making Changes</h1>
+<p>Changes were originally made from a single “master” Claude prompt.
+They are now made directly, whether by hand or by using Claude.</p>
+<h1 id="license">License</h1>
+<p>Licensed under either of</p>
+<p>o Apache License, Version 2.0 (<a
+href="LICENSE-APACHE">LICENSE-APACHE</a> or <a
+href="http://www.apache.org/licenses/LICENSE-2.0"
+class="uri">http://www.apache.org/licenses/LICENSE-2.0</a>)</p>
+<p>o MIT license (<a href="LICENSE-MIT">LICENSE-MIT</a> or <a
+href="http://opensource.org/licenses/MIT"
+class="uri">http://opensource.org/licenses/MIT</a>)</p>
+<p>at your option.</p>
+<p>Unless you explicitly state otherwise, any contribution intentionally
+submitted for inclusion in the work by you, as defined in the Apache-2.0
+license, shall be dual licensed as above, without any additional terms
+or conditions.</p>
+</body>
+</html>

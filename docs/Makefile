@@ -1,7 +1,12 @@
 O = ../OUT
 
 .PHONY: all
-all:	manual.html design.html tcslog-prompt.html
+all:	index.html manual.html design.html tcslog-prompt.html
+
+# The page the site gives at docs/: what each document here is, made from
+# README.rst, which GitHub shows when the directory is browsed.
+index.html: README.rst
+	rst2html README.rst index.html
 
 manual.html: manual.rst
 	rst2html manual.rst manual.html
@@ -14,7 +19,7 @@ tcslog-prompt.html: tcslog-prompt.rst
 
 .PHONY: clean
 clean:
-	rm -f manual.html design.html tcslog-prompt.html
+	rm -f index.html manual.html design.html tcslog-prompt.html
 
 .PHONY: distclean
 distclean:
